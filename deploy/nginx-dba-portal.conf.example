@@ -1,0 +1,37 @@
+# Example nginx reverse proxy for Oracle DBA AI Portal on RHEL 9.
+# Place in /etc/nginx/conf.d/dba-portal.conf and adjust server_name + TLS paths.
+
+upstream dba_portal {
+    server 127.0.0.1:3000;
+    keepalive 32;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name dba.yourdomain.com;
+
+    ssl_certificate     /etc/pki/tls/certs/dba-portal.crt;
+    ssl_certificate_key /etc/pki/tls/private/dba-portal.key;
+
+    # SSE streams (notifications, alerts, datapump) need long-lived connections
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_buffering off;
+
+    location / {
+        proxy_pass http://dba_portal;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+server {
+    listen 80;
+    server_name dba.yourdomain.com;
+    return 301 https://$host$request_uri;
+}

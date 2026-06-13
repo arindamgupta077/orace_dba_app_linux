@@ -1,0 +1,135 @@
+@import "@xterm/xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --background: 222 39% 7%;
+  --foreground: 210 40% 96%;
+  --card: 220 35% 10%;
+  --card-foreground: 210 40% 96%;
+  --popover: 220 35% 9%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 2 100% 59%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 215 30% 17%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 215 28% 14%;
+  --muted-foreground: 215 18% 68%;
+  --accent: 189 86% 54%;
+  --accent-foreground: 222 39% 7%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 24% 22%;
+  --input: 215 24% 22%;
+  --ring: 2 100% 59%;
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  background: #090d14;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at top left, rgba(255, 49, 46, 0.13), transparent 38%),
+    linear-gradient(135deg, #080b11 0%, #121722 48%, #071015 100%);
+  background-size: 40px 40px, 40px 40px, auto, auto;
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+body::selection {
+  background: rgba(255, 49, 46, 0.45);
+  color: #ffffff;
+}
+
+.enterprise-grid {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.glass-panel {
+  background: linear-gradient(180deg, rgba(18, 23, 34, 0.92), rgba(12, 16, 24, 0.82));
+  border: 1px solid rgba(142, 163, 184, 0.18);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(16px);
+}
+
+.scan-line {
+  position: relative;
+  overflow: hidden;
+}
+
+.scan-line::after {
+  background: linear-gradient(90deg, transparent, rgba(35, 211, 238, 0.2), transparent);
+  content: "";
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+  width: 100%;
+  animation: scan 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.tablespace-approval-card {
+  overflow: hidden;
+  position: relative;
+}
+
+.tablespace-approval-card::after {
+  animation: tablespace-card-scan 2.8s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(35, 211, 238, 0.22), transparent);
+  content: "";
+  height: 100%;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-100%);
+  width: 100%;
+}
+
+.tablespace-wait-bar {
+  animation: tablespace-wait-bar 1.8s ease-in-out infinite;
+  transform: translateX(-100%);
+}
+
+@keyframes tablespace-card-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes tablespace-wait-bar {
+  0% {
+    transform: translateX(-110%);
+  }
+  55%,
+  100% {
+    transform: translateX(210%);
+  }
+}
+
+.xterm {
+  padding: 12px;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}

@@ -1,0 +1,27 @@
+[Unit]
+Description=Oracle DBA AI Operations Portal (Next.js)
+After=network.target oracle.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dbaapp
+Group=dbaapp
+WorkingDirectory=/opt/oracle-dba-portal/oracle_dba_app-main
+EnvironmentFile=/opt/oracle-dba-portal/oracle_dba_app-main/.env.local
+Environment=NODE_ENV=production
+Environment=HOSTNAME=0.0.0.0
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=oracle-dba-portal
+
+# Hardening (adjust if your Node/npm path differs)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

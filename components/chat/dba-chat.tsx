@@ -1,0 +1,828 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  ChevronRight,
+  Copy,
+  Database,
+  Maximize2,
+  MessageSquare,
+  Minimize2,
+  Send,
+  Sparkles,
+  Terminal,
+  UserRound,
+  X,
+  XCircle
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { useAppStore } from "@/store/use-app-store";
+import { findDatabaseTarget } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import type { ChatMessage } from "@/types/dba";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SUGGESTED_PROMPTS = [
+  "Show all tablespaces and their usage",
+  "List active sessions right now",
+  "Find blocking locks in the database",
+  "Show top 10 long running queries",
+  "What is the RMAN backup status for the last 7 days?",
+  "Show invalid objects in APPS schema",
+  "Check CPU and memory usage",
+  "List all wait events"
+];
+
+const POLL_INTERVAL_MS = 1500;
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function TypingIndicator() {
+  return (
+    <div className="flex items-center gap-1.5 px-1 py-0.5">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:0ms]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:150ms]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:300ms]" />
+    </div>
+  );
+}
+
+function MessageTimestamp({ date }: { date: Date }) {
+  return (
+    <span className="text-[10px] text-slate-500">
+      {date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Markdown Renderer (Fix #3)
+// ---------------------------------------------------------------------------
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="markdown-body prose prose-invert max-w-none text-sm leading-relaxed">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Code blocks with syntax highlighting
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const codeStr = String(children).replace(/\n$/, "");
+            if (match) {
+              return (
+                <SyntaxHighlighter
+                  style={oneDark as Record<string, React.CSSProperties>}
+                  language={match[1]}
+                  PreTag="div"
+                  className="!rounded-lg !text-xs !my-2 !border !border-slate-700/60"
+                >
+                  {codeStr}
+                </SyntaxHighlighter>
+              );
+            }
+            // Inline code — detect SQL keywords
+            const isSql = /^(SELECT|INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT|REVOKE|BEGIN|COMMIT|ROLLBACK)\b/i.test(codeStr);
+            return (
+              <code
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[11px] font-mono",
+                  isSql
+                    ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/20"
+                    : "bg-slate-700/60 text-amber-300 border border-slate-600/40"
+                )}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          },
+          // Tables with full styling
+          table({ children }) {
+            return (
+              <div className="my-3 overflow-x-auto rounded-lg border border-slate-700/60">
+                <table className="min-w-full divide-y divide-slate-700/50 text-xs">
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          thead({ children }) {
+            return <thead className="bg-slate-800/70">{children}</thead>;
+          },
+          tbody({ children }) {
+            return (
+              <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
+                {children}
+              </tbody>
+            );
+          },
+          tr({ children }) {
+            return (
+              <tr className="transition-colors hover:bg-slate-700/20">
+                {children}
+              </tr>
+            );
+          },
+          th({ children }) {
+            return (
+              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-cyan-400/80">
+                {children}
+              </th>
+            );
+          },
+          td({ children }) {
+            return (
+              <td className="px-3 py-2 text-slate-300 font-mono text-[11px]">
+                {children}
+              </td>
+            );
+          },
+          // Headings
+          h1({ children }) {
+            return <h1 className="mb-2 mt-4 text-base font-bold text-cyan-300 border-b border-slate-700/60 pb-1">{children}</h1>;
+          },
+          h2({ children }) {
+            return <h2 className="mb-1.5 mt-3 text-sm font-semibold text-cyan-400">{children}</h2>;
+          },
+          h3({ children }) {
+            return <h3 className="mb-1 mt-2 text-xs font-semibold text-slate-300">{children}</h3>;
+          },
+          // Paragraphs - handle status badges inline
+          p({ children }) {
+            return <p className="mb-2 last:mb-0 whitespace-pre-wrap break-words text-slate-200">{children}</p>;
+          },
+          // Lists
+          ul({ children }) {
+            return <ul className="mb-2 ml-4 list-disc space-y-0.5 text-slate-300">{children}</ul>;
+          },
+          ol({ children }) {
+            return <ol className="mb-2 ml-4 list-decimal space-y-0.5 text-slate-300">{children}</ol>;
+          },
+          li({ children }) {
+            return <li className="text-slate-300 text-xs leading-relaxed">{children}</li>;
+          },
+          // Blockquotes (used for status sections)
+          blockquote({ children }) {
+            return (
+              <blockquote className="my-2 border-l-2 border-cyan-500/50 bg-cyan-500/5 pl-3 py-1 text-slate-300 text-xs italic">
+                {children}
+              </blockquote>
+            );
+          },
+          // Bold & strong text
+          strong({ children }) {
+            const text = String(children);
+            // Color-code status keywords
+            if (/🔴|error|critical|failed/i.test(text)) {
+              return <strong className="font-semibold text-red-400">{children}</strong>;
+            }
+            if (/🟠|warning/i.test(text)) {
+              return <strong className="font-semibold text-amber-400">{children}</strong>;
+            }
+            if (/🟢|success|healthy|ok\b/i.test(text)) {
+              return <strong className="font-semibold text-emerald-400">{children}</strong>;
+            }
+            if (/🔵|info/i.test(text)) {
+              return <strong className="font-semibold text-blue-400">{children}</strong>;
+            }
+            return <strong className="font-semibold text-slate-100">{children}</strong>;
+          },
+          // Horizontal rules as section dividers
+          hr() {
+            return <hr className="my-3 border-slate-700/60" />;
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+interface SqlApprovalPanelProps {
+  sessionId: string;
+  initialSql: string;
+  onDecision: (decision: "approved" | "rejected", sql: string) => void;
+  isSubmitting: boolean;
+}
+
+function SqlApprovalPanel({ sessionId, initialSql, onDecision, isSubmitting }: SqlApprovalPanelProps) {
+  const [sql, setSql] = useState(initialSql);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(sql).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/5 shadow-[0_0_24px_rgba(245,158,11,0.08)]">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5">
+        <AlertTriangle className="h-4 w-4 text-amber-400" />
+        <span className="text-sm font-semibold text-amber-300">Unsafe Query — Requires Approval</span>
+        <span className="ml-auto text-[10px] text-amber-500/70">Session: {sessionId.slice(-8)}</span>
+      </div>
+
+      {/* SQL editor */}
+      <div className="p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs text-slate-400">Generated SQL <span className="text-amber-400/70">(editable)</span></span>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+          >
+            <Copy className="h-3 w-3" />
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <Textarea
+          value={sql}
+          onChange={(e) => setSql(e.target.value)}
+          rows={5}
+          className="font-mono text-xs text-cyan-100 bg-black/40 border-amber-500/20 focus-visible:ring-amber-500/40 resize-y"
+          spellCheck={false}
+        />
+        <p className="mt-1.5 text-[10px] text-slate-500">
+          ✏ You can edit the SQL above before approving. The modified query will be executed.
+        </p>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-3 border-t border-amber-500/20 bg-black/20 px-4 py-3">
+        <Button
+          size="sm"
+          disabled={isSubmitting || !sql.trim()}
+          onClick={() => onDecision("approved", sql)}
+          className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {isSubmitting ? "Executing…" : "Approve & Execute"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isSubmitting}
+          onClick={() => onDecision("rejected", sql)}
+          className="gap-1.5 border-red-500/40 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+        >
+          <XCircle className="h-3.5 w-3.5" />
+          Reject
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface MessageBubbleProps {
+  message: ChatMessage;
+  onDecision: (sessionId: string, decision: "approved" | "rejected", sql: string) => void;
+  submittingSessionId: string | null;
+}
+
+function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubbleProps) {
+  const isUser = message.role === "user";
+  const isStreaming = message.status === "streaming" || message.status === "sending";
+  const isWaitingApproval = message.status === "waiting_approval";
+
+  return (
+    <div
+      className={cn(
+        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
+        isUser ? "justify-end" : "justify-start"
+      )}
+    >
+      {/* Avatar — assistant side */}
+      {!isUser && (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 border border-cyan-500/25 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
+          <Bot className="h-4 w-4 text-cyan-400" />
+        </div>
+      )}
+
+      {/* Bubble */}
+      <div className={cn("flex max-w-[80%] flex-col gap-1.5", isUser && "items-end")}>
+        <div
+          className={cn(
+            "rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-md",
+            isUser
+              ? "rounded-tr-sm bg-primary/20 border border-primary/30 text-slate-100"
+              : "rounded-tl-sm bg-slate-800/60 border border-slate-700/60 text-slate-100 backdrop-blur-sm"
+          )}
+        >
+          {isStreaming ? (
+            <TypingIndicator />
+          ) : isUser ? (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : (
+            <MarkdownContent content={message.content} />
+          )}
+
+          {/* SQL Approval panel */}
+          {isWaitingApproval && message.sqlApproval && (
+            <SqlApprovalPanel
+              sessionId={message.sqlApproval.sessionId}
+              initialSql={message.sqlApproval.sqlQuery}
+              isSubmitting={submittingSessionId === message.sqlApproval.sessionId}
+              onDecision={(decision, sql) =>
+                onDecision(message.sqlApproval!.sessionId, decision, sql)
+              }
+            />
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 px-1">
+          <MessageTimestamp date={message.timestamp} />
+          {isWaitingApproval && (
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+              Awaiting approval
+            </span>
+          )}
+          {message.status === "error" && (
+            <span className="text-[10px] text-red-400">Failed to get response</span>
+          )}
+        </div>
+      </div>
+
+      {/* Avatar — user side */}
+      {isUser && (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 border border-primary/25">
+          <UserRound className="h-4 w-4 text-primary" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Welcome message builder
+// ---------------------------------------------------------------------------
+function buildWelcomeMessage(selectedDb: string, dbTarget: ReturnType<typeof findDatabaseTarget>): ChatMessage {
+  return {
+    id: "welcome",
+    role: "assistant",
+    content: `Connected to **${selectedDb}** (${dbTarget?.env_label ?? "PROD"} · ${dbTarget?.db_type ?? "Standalone"} · ${dbTarget?.os ?? "Windows"})\n\nAsk me anything about your database in plain English — I'll query it and explain the results.`,
+    timestamp: new Date(),
+    status: "done"
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function ChatWithDb() {
+  const selectedDb = useAppStore((s) => s.selectedDb);
+  const dbTarget = findDatabaseTarget(selectedDb);
+
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    buildWelcomeMessage(selectedDb, dbTarget)
+  ]);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  // session being polled for approval
+  const [pollingSessionId, setPollingSessionId] = useState<string | null>(null);
+  // session that has a submitted approval in-flight
+  const [submittingSessionId, setSubmittingSessionId] = useState<string | null>(null);
+
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevSelectedDb = useRef(selectedDb);
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 60);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Fix #1 — Reset chat session immediately when DB changes
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (prevSelectedDb.current !== selectedDb) {
+      prevSelectedDb.current = selectedDb;
+      // Stop any in-flight polling
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setPollingSessionId(null);
+      setSubmittingSessionId(null);
+      setIsLoading(false);
+      setInput("");
+      const newDbTarget = findDatabaseTarget(selectedDb);
+      setMessages([buildWelcomeMessage(selectedDb, newDbTarget)]);
+    }
+  }, [selectedDb]);
+
+  // ---------------------------------------------------------------------------
+  // Polling for approval
+  // ---------------------------------------------------------------------------
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (sessionId: string, assistantMsgId: string) => {
+      stopPolling();
+      setPollingSessionId(sessionId);
+
+      pollingRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/chat/approval/${sessionId}`);
+          if (!res.ok) return;
+          const data = (await res.json()) as {
+            status: "none" | "pending";
+            sql_query?: string;
+          };
+
+          if (data.status === "pending" && data.sql_query) {
+            stopPolling();
+            setPollingSessionId(null);
+
+            // Update the streaming assistant message to show approval panel
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsgId
+                  ? {
+                      ...m,
+                      status: "waiting_approval",
+                      content: "A query was generated that requires your approval before execution:",
+                      sqlApproval: {
+                        sessionId,
+                        sqlQuery: data.sql_query!,
+                        resumeUrl: "",
+                        status: "pending"
+                      }
+                    }
+                  : m
+              )
+            );
+            scrollToBottom();
+          }
+        } catch {
+          // network error — keep polling
+        }
+      }, POLL_INTERVAL_MS);
+    },
+    [stopPolling, scrollToBottom]
+  );
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  // ---------------------------------------------------------------------------
+  // Send query
+  // ---------------------------------------------------------------------------
+  const sendQuery = useCallback(
+    async (queryText: string) => {
+      const query = queryText.trim();
+      if (!query || isLoading) return;
+
+      setInput("");
+      setIsLoading(true);
+
+      const sessionId = `chat-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+      const userMsg: ChatMessage = {
+        id: `U-${Date.now()}`,
+        role: "user",
+        content: query,
+        timestamp: new Date(),
+        status: "done"
+      };
+
+      const assistantId = `A-${Date.now()}`;
+      const assistantMsg: ChatMessage = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date(),
+        status: "streaming"
+      };
+
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      scrollToBottom();
+
+      // Start polling for unsafe-query approval callbacks
+      startPolling(sessionId, assistantId);
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, db: selectedDb, session_id: sessionId })
+        });
+
+        stopPolling();
+        setPollingSessionId(null);
+
+        if (!response.ok) {
+          const err = (await response.json()) as { message?: string };
+          throw new Error(err.message || `HTTP ${response.status}`);
+        }
+
+        const data = (await response.json()) as { reply?: string };
+        const reply = data.reply || "No response received from the AI.";
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: reply, status: "done" } : m
+          )
+        );
+      } catch (error) {
+        stopPolling();
+        setPollingSessionId(null);
+
+        const msg = error instanceof Error ? error.message : "Request failed.";
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: `⚠ Error: ${msg}`, status: "error" }
+              : m
+          )
+        );
+      } finally {
+        setIsLoading(false);
+        scrollToBottom();
+        inputRef.current?.focus();
+      }
+    },
+    [isLoading, selectedDb, startPolling, stopPolling, scrollToBottom]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Fix #2 — Handle approval decision: don't replace old messages, add new ones
+  // ---------------------------------------------------------------------------
+  const handleDecision = useCallback(
+    async (sessionId: string, decision: "approved" | "rejected", sql: string) => {
+      setSubmittingSessionId(sessionId);
+
+      // Step 1: Update the approval card to resolved state (remove the approval panel)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.sqlApproval?.sessionId === sessionId
+            ? {
+                ...m,
+                status: "done",
+                content:
+                  decision === "approved"
+                    ? "✅ Query approved and submitted for execution."
+                    : "❌ Query rejected.",
+                sqlApproval: { ...m.sqlApproval!, status: decision }
+              }
+            : m
+        )
+      );
+
+      if (decision === "approved") {
+        // Step 2: Add "Workflow was started" status message immediately
+        const workflowMsg: ChatMessage = {
+          id: `WF-${Date.now()}`,
+          role: "assistant",
+          content: "🔄 **Workflow was started** — waiting for execution result…",
+          timestamp: new Date(),
+          status: "done"
+        };
+        setMessages((prev) => [...prev, workflowMsg]);
+        scrollToBottom();
+      }
+
+      try {
+        const response = await fetch(`/api/chat/approval/${sessionId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision, sql_query: sql })
+        });
+
+        const data = (await response.json()) as {
+          status?: string;
+          decision?: string;
+          reply?: string | null;
+          message?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(data.message || `HTTP ${response.status}`);
+        }
+
+        // Fix #2: If n8n returned a result, add it as a BRAND NEW message (not replacing anything)
+        if (data.reply) {
+          const resultMsg: ChatMessage = {
+            id: `R-${Date.now()}`,
+            role: "assistant",
+            content: data.reply,
+            timestamp: new Date(),
+            status: "done"
+          };
+          setMessages((prev) => [...prev, resultMsg]);
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Failed to submit decision.";
+        const errMsg: ChatMessage = {
+          id: `E-${Date.now()}`,
+          role: "assistant",
+          content: `⚠ ${msg}`,
+          timestamp: new Date(),
+          status: "error"
+        };
+        setMessages((prev) => [...prev, errMsg]);
+      } finally {
+        setSubmittingSessionId(null);
+        scrollToBottom();
+      }
+    },
+    [scrollToBottom]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Submit handler
+  // ---------------------------------------------------------------------------
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
+    sendQuery(input);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+  return (
+    <>
+      {/* Fix #4: Fullscreen backdrop overlay */}
+      {isFullscreen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+          onClick={() => setIsFullscreen(false)}
+        />
+      )}
+
+      <div
+        className={cn(
+          "flex flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/60 shadow-2xl shadow-black/40 backdrop-blur-xl transition-all duration-300",
+          isFullscreen
+            ? "fixed inset-4 z-50 h-auto"
+            : "h-[calc(100vh-9rem)]"
+        )}
+      >
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between border-b border-slate-700/50 bg-slate-900/80 px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/10 border border-cyan-500/25 shadow-[0_0_16px_rgba(6,182,212,0.2)]">
+              <Terminal className="h-4.5 w-4.5 text-cyan-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100">Chat with DB</h2>
+              <p className="text-[11px] text-slate-500">Ask in plain English · AI converts to SQL</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {pollingSessionId && (
+              <span className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-400">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                Waiting for unsafe query review…
+              </span>
+            )}
+            <div className="flex items-center gap-1.5 rounded-full border border-slate-700/60 bg-slate-800/60 px-3 py-1.5 text-[11px] text-slate-400">
+              <Database className="h-3 w-3 text-cyan-400" />
+              <span className="font-medium text-slate-200">{selectedDb}</span>
+              <span className="text-slate-600">·</span>
+              <span>{dbTarget?.env_label ?? "PROD"}</span>
+            </div>
+            {/* Fix #4: Fullscreen toggle button */}
+            <button
+              onClick={() => setIsFullscreen((f) => !f)}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/60 text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-300"
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Suggested prompts strip ── */}
+        <div className="flex gap-2 overflow-x-auto border-b border-slate-800/60 bg-slate-900/40 px-4 py-2.5 scrollbar-none">
+          {SUGGESTED_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              onClick={() => sendQuery(prompt)}
+              disabled={isLoading}
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-700/50 bg-slate-800/50 px-3 py-1 text-[11px] text-slate-400 transition-all hover:border-cyan-500/40 hover:bg-cyan-500/5 hover:text-cyan-300 disabled:opacity-40"
+            >
+              <Sparkles className="h-3 w-3" />
+              {prompt}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Messages ── */}
+        <ScrollArea className="flex-1 px-4 py-4">
+          <div className="space-y-5">
+            {messages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                onDecision={handleDecision}
+                submittingSessionId={submittingSessionId}
+              />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </ScrollArea>
+
+        {/* ── Input area ── */}
+        <div className="border-t border-slate-700/50 bg-slate-900/80 p-4">
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-end gap-3 rounded-xl border border-slate-700/60 bg-slate-800/50 px-4 py-3 focus-within:border-cyan-500/40 focus-within:shadow-[0_0_0_1px_rgba(6,182,212,0.15)] transition-all">
+              <MessageSquare className="mb-0.5 h-4 w-4 shrink-0 text-slate-500" />
+              <Textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask anything about your Oracle DB… (Shift+Enter for new line)"
+                rows={1}
+                disabled={isLoading}
+                className="min-h-0 flex-1 resize-none border-none bg-transparent p-0 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isLoading || !input.trim()}
+                className="h-8 shrink-0 gap-1.5 bg-cyan-600 px-3 text-white hover:bg-cyan-500 disabled:opacity-40"
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:300ms]" />
+                  </span>
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    Send
+                  </>
+                )}
+              </Button>
+            </div>
+            {/* Fix #5: Center-aligned footer text */}
+            <div className="mt-1.5 flex items-center justify-center gap-4 px-1">
+              <p className="text-[10px] text-slate-600 text-center">
+                <ChevronRight className="inline h-3 w-3" /> Results are AI-generated · Always review before acting
+              </p>
+              {messages.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMessages([buildWelcomeMessage(selectedDb, dbTarget)])
+                  }
+                  className="flex items-center gap-1 text-[10px] text-slate-600 transition hover:text-slate-400"
+                >
+                  <X className="h-3 w-3" />
+                  Clear chat
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* Inline styles for markdown prose inside dark chat bubbles */}
+      <style jsx global>{`
+        .markdown-body p:last-child { margin-bottom: 0; }
+        .markdown-body pre { margin: 0; }
+        .markdown-body > *:first-child { margin-top: 0; }
+        .markdown-body > *:last-child { margin-bottom: 0; }
+      `}</style>
+    </>
+  );
+}

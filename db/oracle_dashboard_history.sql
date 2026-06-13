@@ -1,0 +1,364 @@
+-- =============================================================================
+-- ORACLE DBA PORTAL — Dashboard History Table
+-- =============================================================================
+-- Stores the result of every "refresh_dashboard" n8n workflow execution.
+-- Each row holds the full 12-metric JSON snapshot captured by n8n.
+-- The frontend queries this table on load to instantly display the last known
+-- state without hitting the database live.
+-- =============================================================================
+
+-- Run as the application schema owner (e.g. DBA_APP or system equivalent)
+
+CREATE TABLE dashboard_history (
+    id                  NUMBER          GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    db_name             VARCHAR2(50)    NOT NULL,
+    environment         VARCHAR2(20),
+    os                  VARCHAR2(20),
+    refreshed_by        VARCHAR2(100),
+    refresh_timestamp   TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,
+    metrics_payload     CLOB
+        CONSTRAINT valid_json_dashboard CHECK (metrics_payload IS JSON)
+);
+
+COMMENT ON TABLE  dashboard_history                IS 'Stores full 12-metric dashboard snapshots captured by the n8n refresh_dashboard workflow.';
+COMMENT ON COLUMN dashboard_history.db_name        IS 'Oracle database name (e.g. ORCL, papps).';
+COMMENT ON COLUMN dashboard_history.environment    IS 'DB environment label (PROD, TEST, DR).';
+COMMENT ON COLUMN dashboard_history.os             IS 'Operating system of the DB host (Windows, Linux).';
+COMMENT ON COLUMN dashboard_history.refreshed_by   IS 'Username who triggered the refresh.';
+COMMENT ON COLUMN dashboard_history.refresh_timestamp IS 'Timestamp when n8n wrote the snapshot.';
+COMMENT ON COLUMN dashboard_history.metrics_payload IS 'Full JSON payload with all 12 metrics (must be valid JSON).';
+
+-- Index for fast retrieval by the frontend — latest row per DB
+CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timestamp DESC);
+
+-- Optional: keep only the latest 30 rows per DB to control table growth.
+-- Implement this via a scheduled DBMS_SCHEDULER job or an AFTER INSERT trigger.
+-- Example trigger (uncomment to use):
+--
+-- CREATE OR REPLACE TRIGGER trg_dashboard_history_prune
+-- AFTER INSERT ON dashboard_history
+-- FOR EACH ROW
+-- BEGIN
+--     DELETE FROM dashboard_history
+--     WHERE db_name = :NEW.db_name
+--       AND id NOT IN (
+--           SELECT id FROM (
+--               SELECT id FROM dashboard_history
+--               WHERE db_name = :NEW.db_name
+--               ORDER BY refresh_timestamp DESC
+--           ) WHERE ROWNUM <= 30
+--       );
+-- END;
+-- /
+
+-- =============================================================================
+-- GRANT (if n8n connects as a different Oracle user than the app schema owner)
+-- =============================================================================
+-- GRANT INSERT ON dashboard_history TO n8n_oracle_user;
+-- GRANT SELECT ON dashboard_history TO dba_app_user;
+
+
+-- =============================================================================
+-- n8n WORKFLOW GUIDE — refresh_dashboard
+-- =============================================================================
+--
+-- WEBHOOK TRIGGER PAYLOAD (from App → n8n):
+-- {
+--   "action":       "refresh_dashboard",
+--   "db":           "ORCL",
+--   "params":       {},
+--   "requested_by": "ARINDAM",
+--   "user_id":      1,
+--   "environment":  "PROD",
+--   "os":           "Windows",
+--   "db_type":      "Standalone"
+-- }
+--
+-- RECOMMENDED WORKFLOW STRUCTURE (7 nodes):
+-- ┌──────────────────────────────────────────────────────────────────────────┐
+-- │ 1. Webhook Node                                                           │
+-- │    - Method: POST | Path: /refresh-dashboard | Response: Last Node        │
+-- │                                                                           │
+-- │ 2. Existing Router Node (route to correct OS + DB based on payload)       │
+-- │                                                                           │
+-- │ 3. 12 Parallel Execute Nodes (Continue On Fail: ON for all)              │
+-- │    Branch 1  — DB Status & Uptime (SQL via sqlplus)                      │
+-- │    Branch 2  — OS CPU (PowerShell / bash)                                │
+-- │    Branch 3  — OS Memory (PowerShell / bash)                             │
+-- │    Branch 4  — SGA & PGA (sqlplus: show parameter)                       │
+-- │    Branch 5  — Tablespace Utilization (SQL)                              │
+-- │    Branch 6  — RMAN Backup Status (SQL)                                  │
+-- │    Branch 7  — Active Sessions Count (SQL)                               │
+-- │    Branch 8  — Inactive Sessions Count (SQL)                             │
+-- │    Branch 9  — Blocking Sessions (SQL)                                   │
+-- │    Branch 10 — Failed Jobs Count (SQL)                                   │
+-- │    Branch 11 — Invalid Objects Count (SQL)                               │
+-- │    Branch 12 — FRA Utilization (SQL)                                     │
+-- │    Branch 13 — ORA Errors from Alert Log (SQL)                           │
+-- │                                                                           │
+-- │ 4. Merge Node (Mode: Wait for All Inputs to Arrive)                      │
+-- │                                                                           │
+-- │ 5. Code Node — Payload Builder (JavaScript — see below)                  │
+-- │                                                                           │
+-- │ 6. Oracle DB Node — INSERT INTO dashboard_history                        │
+-- │                                                                           │
+-- │ 7. Respond to Webhook Node                                               │
+-- │    Response Body: ={{ $json }}                                           │
+-- └──────────────────────────────────────────────────────────────────────────┘
+--
+-- =============================================================================
+-- NODE 5: Code Node — Payload Builder (n8n JavaScript)
+-- =============================================================================
+-- Paste this into the Code Node that follows the Merge Node.
+-- Assumes the 12 branches are connected to the Merge node in order 1–12.
+-- "Continue On Fail" ensures all branches produce output even on error.
+-- =============================================================================
+--
+-- // n8n Code Node: Dashboard Payload Builder
+-- // Input: Merged items from all 12 parallel branches
+-- const items = $input.all();
+--
+-- function safeGet(item, ...keys) {
+--   let v = item?.json;
+--   for (const k of keys) { v = v?.[k]; }
+--   return v ?? null;
+-- }
+--
+-- function rows(item) {
+--   const j = item?.json;
+--   return j?.rows ?? j?.data ?? (Array.isArray(j) ? j : []);
+-- }
+--
+-- // Branch outputs (index matches branch order in Merge Node)
+-- const b1  = items[0]?.json  ?? {};   // DB Status + Uptime
+-- const b2  = items[1]?.json  ?? {};   // CPU
+-- const b3  = items[2]?.json  ?? {};   // Memory
+-- const b4  = items[3]?.json  ?? {};   // SGA & PGA
+-- const b5  = items[4]?.json  ?? {};   // Tablespaces
+-- const b6  = items[5]?.json  ?? {};   // RMAN backups
+-- const b7  = items[6]?.json  ?? {};   // Active sessions count
+-- const b8  = items[7]?.json  ?? {};   // Inactive sessions count
+-- const b9  = items[8]?.json  ?? {};   // Blocking sessions
+-- const b10 = items[9]?.json  ?? {};   // Failed jobs count
+-- const b11 = items[10]?.json ?? {};   // Invalid objects count
+-- const b12 = items[11]?.json ?? {};   // FRA
+-- const b13 = items[12]?.json ?? {};   // ORA errors
+--
+-- const payload = {
+--   db_health: {
+--     db_name:          b1.db_name          ?? b1.NAME   ?? "UNKNOWN",
+--     open_mode:        b1.open_mode        ?? b1.OPEN_MODE ?? "UNKNOWN",
+--     listener_status:  b1.listener_status  ?? "UNKNOWN",
+--     connection_test:  b1.connection_test  ?? "UNKNOWN",
+--     instance_name:    b1.instance_name    ?? b1.INSTANCE_NAME ?? "UNKNOWN",
+--     host_name:        b1.host_name        ?? b1.HOST_NAME ?? "UNKNOWN",
+--     startup_time:     b1.startup_time     ?? b1.STARTUP_TIME ?? null,
+--     uptime_hours:     parseFloat(b1.uptime_hours ?? b1.UPTIME_HOURS ?? 0)
+--   },
+--   os_resources: {
+--     cpu_usage_pct:    parseFloat(b2.cpu_pct ?? b2.cpu_usage_pct ?? 0),
+--     // Use ONLY the named GB fields — never fall back to b3.stdout here.
+--     // If the memory branch returns only a raw % via stdout, the fields below
+--     // will be 0 and memory_used_pct / stdout carry the value instead.
+--     total_memory_gb:  parseFloat(b3["TotalMemory(GB)"] ?? b3.total_memory_gb ?? 0),
+--     free_memory_gb:   parseFloat(b3["FreeMemory(GB)"]  ?? b3.free_memory_gb  ?? 0),
+--     // If the memory branch returns only a raw % (e.g. stdout: "90.17"), pass it through
+--     // so the dashboard can display a circular gauge even when GB values are unavailable.
+--     memory_used_pct:  parseFloat(b3.memory_used_pct ?? 0) || null,
+--     stdout:           (b3.stdout ?? b3.output ?? null)
+--   },
+--   sga_pga: {
+--     sga_target:           b4.sga_target           ?? b4.SGA_TARGET           ?? "N/A",
+--     sga_max_size:         b4.sga_max_size         ?? b4.SGA_MAX_SIZE         ?? "N/A",
+--     pga_aggregate_target: b4.pga_aggregate_target ?? b4.PGA_AGGREGATE_TARGET ?? "N/A",
+--     pga_aggregate_limit:  b4.pga_aggregate_limit  ?? b4.PGA_AGGREGATE_LIMIT  ?? "N/A"
+--   },
+--   tablespaces:      rows(items[4]),
+--   rman_backups:     rows(items[5]),
+--   active_sessions:  parseInt(b7.active_sessions  ?? b7.ACTIVE_SESSIONS  ?? 0),
+--   inactive_sessions:parseInt(b8.inactive_sessions ?? b8.INACTIVE_SESSIONS ?? 0),
+--   blocking_sessions:rows(items[8]),
+--   failed_jobs:      parseInt(b10.failed_jobs_count ?? b10.FAILED_JOBS_COUNT ?? 0),
+--   invalid_objects:  parseInt(b11.invalid_object_count ?? b11.INVALID_OBJECT_COUNT ?? 0),
+--   fra:             (rows(items[11])[0] ?? b12),
+--   ora_errors:       rows(items[12]),
+--   captured_at:      new Date().toISOString()
+-- };
+--
+-- const metricsJson = JSON.stringify(payload);
+--
+-- // Determine overall db_status for the app
+-- const blocking = payload.blocking_sessions?.length ?? 0;
+-- const fraUsed  = payload.fra?.pct_used ?? 0;
+-- const tsMax    = Math.max(0, ...(payload.tablespaces ?? []).map(t => t.pct_used ?? 0));
+-- const dbStatus = blocking > 0 || fraUsed > 85 || tsMax > 90
+--                  ? "critical"
+--                  : (fraUsed > 70 || tsMax > 80 ? "warning" : "healthy");
+--
+-- return [{
+--   json: {
+--     status:              "success",
+--     db_status:           dbStatus,
+--     ai_summary:          `Dashboard refreshed: ${payload.db_health.db_name} is ${dbStatus}. ` +
+--                          `${payload.active_sessions} active sessions, ` +
+--                          `${payload.blocking_sessions?.length ?? 0} blockers, ` +
+--                          `FRA ${fraUsed}% used.`,
+--     raw_data:            payload,
+--     metrics_payload_json: metricsJson,
+--     // Fields for the INSERT node (Oracle DB Node):
+--     _db_name:             payload.db_health.db_name,
+--     _environment:         "PROD",
+--     _os:                  "Windows",
+--     _refreshed_by:        "ARINDAM",
+--     _metrics_json:        metricsJson
+--   }
+-- }];
+--
+-- =============================================================================
+-- NODE 6: Oracle DB Node — INSERT into dashboard_history
+-- =============================================================================
+-- Operation : Execute Query
+-- Query:
+--   INSERT INTO dashboard_history (db_name, environment, os, refreshed_by, metrics_payload)
+--   VALUES (:db_name, :environment, :os, :refreshed_by, :metrics_payload)
+--
+-- Parameters (map from the Code Node output):
+--   db_name          → {{ $json._db_name }}
+--   environment      → {{ $json._environment }}
+--   os               → {{ $json._os }}
+--   refreshed_by     → {{ $json._refreshed_by }}
+--   metrics_payload  → {{ $json._metrics_json }}
+--
+-- =============================================================================
+-- SQL QUERIES FOR EACH OF THE 12 BRANCHES
+-- =============================================================================
+--
+-- BRANCH 1: DB Status, Uptime, Listener (run via sqlplus SSH)
+--
+--   -- DB status query
+--   SELECT name, open_mode FROM v$database;
+--
+--   -- DB Uptime query
+--   SELECT
+--       instance_name,
+--       host_name,
+--       TO_CHAR(startup_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS startup_time,
+--       ROUND((SYSDATE - startup_time) * 24, 2) AS uptime_hours
+--   FROM v$instance;
+--
+--   -- Listener status (OS command via SSH Execute node)
+--   -- Windows:  lsnrctl status
+--   -- Linux:    lsnrctl status listener_name
+--   -- Parse output: "STATUS of the LISTENER" → look for "Status READY" or "Status BLOCKED"
+--
+--   -- Remote connection test (SSH Execute node — bash or PowerShell)
+--   -- sqlplus abcd/test@TNS_ENTRY
+--   -- Exit code check: ORA-01017 = SUCCESS (remote connection reached DB),
+--   --                  anything else = FAILED
+--
+-- BRANCH 2: OS CPU
+--   -- Windows (PowerShell SSH Execute Node):
+--   --   Get-Counter '\Processor(_Total)\% Processor Time' |
+--   --   Select-Object -ExpandProperty CounterSamples |
+--   --   Select-Object CookedValue
+--   --
+--   -- Linux (SSH Execute Node):
+--   --   top -bn1 | grep "Cpu(s)" | awk '{print $2+$4}'
+--
+-- BRANCH 3: OS Memory
+--   -- Windows (PowerShell SSH Execute Node):
+--   --   Get-CimInstance Win32_OperatingSystem |
+--   --   Select-Object @{Name="TotalMemory(GB)";Expression={[math]::Round($_.TotalVisibleMemorySize/1MB,2)}},
+--   --                 @{Name="FreeMemory(GB)";Expression={[math]::Round($_.FreePhysicalMemory/1MB,2)}}
+--   --
+--   -- Linux (SSH Execute Node):
+--   --   free -h | awk '/^Mem:/{print $2, $3, $4}'
+--
+-- BRANCH 4: SGA & PGA (sqlplus SSH)
+--   -- show parameter sga
+--   -- show parameter pga
+--   -- Parse the output to extract sga_target, sga_max_size, pga_aggregate_target, pga_aggregate_limit
+--
+-- BRANCH 5: Tablespace Utilization (Oracle DB Node or sqlplus)
+--   SELECT
+--       df.tablespace_name,
+--       ROUND(df.total_mb, 2) AS total_mb,
+--       ROUND(df.total_mb - NVL(fs.free_mb, 0), 2) AS used_mb,
+--       ROUND(NVL(fs.free_mb, 0), 2) AS free_mb,
+--       ROUND(((df.total_mb - NVL(fs.free_mb, 0)) / df.total_mb) * 100, 2) AS pct_used
+--   FROM
+--       (SELECT tablespace_name, SUM(bytes)/1024/1024 total_mb
+--        FROM dba_data_files GROUP BY tablespace_name) df
+--   LEFT JOIN
+--       (SELECT tablespace_name, SUM(bytes)/1024/1024 free_mb
+--        FROM dba_free_space GROUP BY tablespace_name) fs
+--   ON df.tablespace_name = fs.tablespace_name
+--   ORDER BY pct_used DESC;
+--
+-- BRANCH 6: RMAN Backup Status (Oracle DB Node)
+--   SELECT *
+--   FROM (
+--       SELECT
+--           TO_CHAR(start_time,'DD-MON-YYYY HH24:MI:SS') AS start_time,
+--           TO_CHAR(end_time,'DD-MON-YYYY HH24:MI:SS') AS end_time,
+--           input_type,
+--           status,
+--           ROUND(elapsed_seconds/60,2) AS duration_min
+--       FROM v$rman_backup_job_details
+--       ORDER BY start_time DESC
+--   ) WHERE ROWNUM <= 5;
+--
+-- BRANCH 7: Active Sessions Count (Oracle DB Node)
+--   SELECT COUNT(*) AS active_sessions
+--   FROM v$session
+--   WHERE status = 'ACTIVE' AND type = 'USER' AND username IS NOT NULL;
+--
+-- BRANCH 8: Inactive Sessions Count (Oracle DB Node)
+--   SELECT COUNT(*) AS inactive_sessions
+--   FROM v$session WHERE status = 'INACTIVE';
+--
+-- BRANCH 9: Blocking Sessions (Oracle DB Node)
+--   SELECT
+--       w.sid               AS waiter_sid,
+--       w.serial#           AS waiter_serial,
+--       w.username          AS waiter_user,
+--       w.sql_id            AS waiter_sql_id,
+--       b.sid               AS blocker_sid,
+--       b.serial#           AS blocker_serial,
+--       b.username          AS blocker_user,
+--       b.sql_id            AS blocker_sql_id,
+--       ROUND(w.seconds_in_wait/60,1) AS waiting_min,
+--       w.event
+--   FROM v$session w
+--   JOIN v$session b ON w.blocking_session = b.sid
+--   WHERE w.blocking_session IS NOT NULL
+--   ORDER BY w.seconds_in_wait DESC;
+--
+-- BRANCH 10: Failed Jobs Count (Oracle DB Node)
+--   SELECT COUNT(*) AS failed_jobs_count
+--   FROM dba_scheduler_job_run_details
+--   WHERE status = 'FAILED';
+--
+-- BRANCH 11: Invalid Objects Count (Oracle DB Node)
+--   SELECT COUNT(*) AS invalid_object_count
+--   FROM dba_objects WHERE status = 'INVALID';
+--
+-- BRANCH 12: FRA Utilization (Oracle DB Node)
+--   SELECT
+--       name,
+--       ROUND(space_limit/1024/1024/1024,2)      AS fra_size_gb,
+--       ROUND(space_used/1024/1024/1024,2)       AS used_gb,
+--       ROUND(space_reclaimable/1024/1024/1024,2) AS reclaimable_gb,
+--       ROUND((space_used/space_limit)*100,2)    AS pct_used
+--   FROM v$recovery_file_dest;
+--
+-- BRANCH 13: Critical ORA Errors (Oracle DB Node)
+--   SELECT *
+--   FROM (
+--       SELECT
+--           TO_CHAR(originating_timestamp, 'YYYY-MM-DD"T"HH24:MI:SS') AS originating_timestamp,
+--           message_text
+--       FROM v$diag_alert_ext
+--       WHERE REGEXP_LIKE(message_text, 'ORA-[0-9]+')
+--       ORDER BY originating_timestamp DESC
+--   ) WHERE ROWNUM <= 5;
