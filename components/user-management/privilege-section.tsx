@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
   BadgePlus,
@@ -160,6 +160,9 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
 
 /* ── Lazy Dropdown ─────────────────────────────────── */
 
+/** Max items to render inside a Radix Select to avoid DOM bloat */
+const MAX_SELECT_ITEMS = 500;
+
 function LazySelect({
   value,
   onChange,
@@ -173,6 +176,20 @@ function LazySelect({
   state: DropdownState;
   onOpen: () => void;
 }) {
+  // Deduplicate + cap rendered items as safety net
+  const uniqueItems = useMemo(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of state.items) {
+      if (!seen.has(item)) {
+        seen.add(item);
+        result.push(item);
+      }
+      if (result.length >= MAX_SELECT_ITEMS) break;
+    }
+    return result;
+  }, [state.items]);
+
   return (
     <Select
       value={value}
@@ -184,14 +201,170 @@ function LazySelect({
         {state.loading && <Loader2 className="h-3 w-3 animate-spin ml-2 shrink-0" />}
       </SelectTrigger>
       <SelectContent>
-        {state.items.length === 0 && !state.loading && (
+        {uniqueItems.length === 0 && !state.loading && (
           <SelectItem value="__none" disabled>No data — open again to retry</SelectItem>
         )}
-        {state.items.map((item) => (
+        {uniqueItems.map((item) => (
           <SelectItem key={item} value={item}>{item}</SelectItem>
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/* ── Searchable Object Select (handles huge lists) ──── */
+
+/** Max items shown in the filtered dropdown to prevent DOM bloat */
+const MAX_VISIBLE_ITEMS = 200;
+
+function SearchableObjectSelect({
+  value,
+  onChange,
+  placeholder,
+  state,
+  onOpen
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  state: DropdownState;
+  onOpen: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Deduplicate items
+  const uniqueItems = useMemo(() => [...new Set(state.items)], [state.items]);
+
+  // Filter + cap rendered items
+  const filtered = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    const source = q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)) : uniqueItems;
+    return source.slice(0, MAX_VISIBLE_ITEMS);
+  }, [uniqueItems, search]);
+
+  const totalMatches = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    return q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)).length : uniqueItems.length;
+  }, [uniqueItems, search]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Reset search when items change (owner changed)
+  useEffect(() => {
+    setSearch("");
+  }, [state.items]);
+
+  const handleSelect = (item: string) => {
+    onChange(item);
+    setSearch("");
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div
+        className="flex h-10 w-full items-center rounded-md border border-input bg-background/50 px-3 py-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring"
+        onClick={() => {
+          setIsOpen(true);
+          onOpen();
+          inputRef.current?.focus();
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={isOpen ? search : (value || "")}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            onOpen();
+            if (value && !search) setSearch("");
+          }}
+          placeholder={state.loading ? "Loading…" : (value || placeholder)}
+          className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-0"
+          autoComplete="off"
+        />
+        {state.loading && <Loader2 className="h-3 w-3 animate-spin ml-2 shrink-0" />}
+        {value && !isOpen && (
+          <button
+            type="button"
+            className="ml-1 text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange("");
+              setSearch("");
+            }}
+          >
+            <XCircle className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+          <div className="max-h-60 overflow-y-auto p-1">
+            {state.loading && uniqueItems.length === 0 && (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading objects…
+              </div>
+            )}
+            {!state.loading && uniqueItems.length === 0 && (
+              <div className="py-3 text-center text-sm text-muted-foreground">
+                No objects found — select an owner first
+              </div>
+            )}
+            {filtered.length === 0 && uniqueItems.length > 0 && !state.loading && (
+              <div className="py-3 text-center text-sm text-muted-foreground">
+                No objects match &ldquo;{search}&rdquo;
+              </div>
+            )}
+            {filtered.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => handleSelect(item)}
+                className={`relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-secondary hover:text-secondary-foreground ${
+                  value === item ? "bg-secondary/60 text-secondary-foreground" : ""
+                }`}
+              >
+                {value === item && (
+                  <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400" />
+                  </span>
+                )}
+                {item}
+              </button>
+            ))}
+            {totalMatches > MAX_VISIBLE_ITEMS && (
+              <div className="border-t border-border/40 px-3 py-2 text-xs text-muted-foreground text-center">
+                Showing {MAX_VISIBLE_ITEMS} of {totalMatches} matches — type to narrow results
+              </div>
+            )}
+          </div>
+          {uniqueItems.length > 0 && (
+            <div className="border-t border-border/40 px-3 py-1.5 text-xs text-muted-foreground">
+              {totalMatches} object{totalMatches !== 1 ? "s" : ""}{search ? " matching" : " total"}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -456,10 +629,10 @@ export function PrivilegeManagementSection() {
             </div>
             <div className="space-y-1.5">
               <Label>Object Name</Label>
-              <LazySelect
+              <SearchableObjectSelect
                 value={form.object_name ?? ""}
                 onChange={(v) => setField("object_name", v)}
-                placeholder={form.owner_name ? "Select object…" : "Select owner first…"}
+                placeholder={form.owner_name ? "Search object…" : "Select owner first…"}
                 state={objects}
                 onOpen={() => { if (form.owner_name) loadObjects(form.owner_name); }}
               />

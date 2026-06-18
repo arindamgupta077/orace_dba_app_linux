@@ -8,37 +8,42 @@ import type { DbaAction, DbaResponse } from "@/types/dba";
 
 /** Extract a flat string list from an n8n response (schemas, tablespace names, etc.) */
 function extractStringList(res: DbaResponse, columnHint?: string): string[] {
+  let list: string[] = [];
+
   const schemas = res.raw_data?.schemas;
-  if (Array.isArray(schemas) && schemas.length > 0) return schemas as string[];
-
-  const rows = res.raw_data?.rows;
-  if (Array.isArray(rows) && rows.length > 0) {
-    return rows
-      .map((row) => {
-        if (columnHint && columnHint in row) return String(row[columnHint]);
-        const values = Object.values(row as Record<string, unknown>);
-        return values.length > 0 ? String(values[0] ?? "") : "";
-      })
-      .filter(Boolean);
-  }
-
-  const raw = res.raw_output;
-  if (raw && raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.map((item) => {
-          if (typeof item === "string") return item;
-          const vals = Object.values(item as Record<string, unknown>);
-          return String(vals[0] ?? "");
-        }).filter(Boolean);
+  if (Array.isArray(schemas) && schemas.length > 0) {
+    list = schemas as string[];
+  } else {
+    const rows = res.raw_data?.rows;
+    if (Array.isArray(rows) && rows.length > 0) {
+      list = rows
+        .map((row) => {
+          if (columnHint && columnHint in row) return String(row[columnHint]);
+          const values = Object.values(row as Record<string, unknown>);
+          return values.length > 0 ? String(values[0] ?? "") : "";
+        })
+        .filter(Boolean);
+    } else {
+      const raw = res.raw_output;
+      if (raw && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            list = parsed.map((item) => {
+              if (typeof item === "string") return item;
+              const vals = Object.values(item as Record<string, unknown>);
+              return String(vals[0] ?? "");
+            }).filter(Boolean);
+          }
+        } catch {
+          // Not JSON — not useful for dropdown
+        }
       }
-    } catch {
-      // Not JSON — not useful for dropdown
     }
   }
 
-  return [];
+  // Deduplicate: Oracle may return same object_name for different object types
+  return [...new Set(list)];
 }
 
 export function useUserMgmt() {

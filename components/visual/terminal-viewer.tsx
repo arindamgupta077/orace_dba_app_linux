@@ -6,7 +6,7 @@ import { Terminal } from "@xterm/xterm";
 import { Button } from "@/components/ui/button";
 import { downloadText } from "@/lib/utils";
 
-export function TerminalViewer({ output, title = "Raw Output" }: { output?: string; title?: string }) {
+export function TerminalViewer({ output, title = "Raw Output", className }: { output?: string; title?: string; className?: string }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -19,7 +19,7 @@ export function TerminalViewer({ output, title = "Raw Output" }: { output?: stri
       cursorBlink: false,
       fontFamily: "Consolas, Menlo, monospace",
       fontSize: 12,
-      scrollback: 5000,
+      scrollback: 50000,
       theme: {
         background: "#05070b",
         foreground: "#d8eef8",
@@ -55,7 +55,7 @@ export function TerminalViewer({ output, title = "Raw Output" }: { output?: stri
           </Button>
         </div>
       </div>
-      <div ref={ref} className={fullscreen ? "h-[calc(100vh-8rem)]" : "h-72"} />
+      <div ref={ref} className={fullscreen ? "h-[calc(100vh-8rem)]" : (className || "h-[32rem]")} />
     </div>
   );
 }

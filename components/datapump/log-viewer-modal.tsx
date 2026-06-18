@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect } from "react";
 import { FileText, Loader2, RefreshCw, XCircle } from "lucide-react";
@@ -39,7 +39,7 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden flex flex-col">
+      <DialogContent className="max-h-[92vh] max-w-7xl overflow-hidden flex flex-col">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2">

@@ -625,7 +625,9 @@ export function ChatWithDb() {
         }
 
         // Fix #2: If n8n returned a result, add it as a BRAND NEW message (not replacing anything)
-        if (data.reply) {
+        // Only show the execution result when the query was approved — rejected
+        // decisions should NOT display workflow output.
+        if (decision === "approved" && data.reply) {
           const resultMsg: ChatMessage = {
             id: `R-${Date.now()}`,
             role: "assistant",
