@@ -788,6 +788,24 @@ function Section1() {
     };
   }, [load]);
 
+  // ── Real-time: re-fetch immediately when an alert_log SSE notification arrives
+  const notifications = useAppStore((s) => s.notifications);
+  const alertLogNotifCount = notifications.filter((n) => n.type === "alert_log").length;
+  const prevAlertLogCountRef = useRef(alertLogNotifCount);
+
+  useEffect(() => {
+    // Skip the initial render — only react to *new* notifications
+    if (prevAlertLogCountRef.current === alertLogNotifCount) return;
+    prevAlertLogCountRef.current = alertLogNotifCount;
+
+    // Immediately reload the alert list
+    load();
+
+    // Reset the 60 s polling timer so it doesn't fire redundantly
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(load, 60_000);
+  }, [alertLogNotifCount, load]);
+
   const handleAck = async (id: number) => {
     setActingId(id);
     try {
@@ -835,7 +853,7 @@ function Section1() {
           <span className="text-muted-foreground">Total (this filter)</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Auto-refresh 60s</span>
+          <span className="text-xs text-muted-foreground">Live · Auto-refresh 60s</span>
           <Button size="sm" variant="outline" onClick={load} disabled={loading} className="h-7 px-2">
             <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
           </Button>
