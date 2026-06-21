@@ -87,6 +87,12 @@ export async function fetchAuditLogs(limit = 200) {
   return requestJson<{ items: AuditLogItem[] }>(`/api/audit?${query}`);
 }
 
+export async function fetchPerformanceAuditLogs(db: string) {
+  const query = new URLSearchParams({ db }).toString();
+  return requestJson<{ items: Record<string, AuditLogItem> }>(`/api/performance/audit?${query}`);
+}
+
+
 export async function fetchAlertNotifications(
   params: { db?: string; type?: string; status?: AlertNotificationStatus; limit?: number; page?: number; offset?: number } = {}
 ) {

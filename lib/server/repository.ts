@@ -417,11 +417,13 @@ export async function listAuditLogs(limit = 200): Promise<AuditLogItem[]> {
     const result = await connection.execute<DbRow>(
       `SELECT
          audit_id,
+         user_id,
          actor,
          action,
          db_name,
          status,
          detail,
+         metadata_json,
          created_at
        FROM app_audit_logs
        ORDER BY created_at DESC
@@ -430,15 +432,69 @@ export async function listAuditLogs(limit = 200): Promise<AuditLogItem[]> {
 
     return (result.rows || []).map((row) => ({
       id: `AUD-${row.AUDIT_ID}`,
+      user_id: row.USER_ID ? Number(row.USER_ID) : undefined,
       actor: String(row.ACTOR),
       action: String(row.ACTION) as AuditLogItem["action"],
       db: row.DB_NAME ? String(row.DB_NAME) : undefined,
       status: String(row.STATUS),
       detail: row.DETAIL ? String(row.DETAIL) : "",
+      metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON),
       timestamp: toIstIsoString(row.CREATED_AT)
     }));
   });
 }
+
+/**
+ * Fetch the single most-recent audit log row for each performance action,
+ * filtered by the given db_name.  Returns a map keyed by action name.
+ */
+export async function listPerformanceAuditLogs(
+  db: string,
+  actions: string[]
+): Promise<Record<string, AuditLogItem>> {
+  if (!actions.length) return {};
+
+  // Build a bind parameter set for the IN clause
+  const binds: BindParameters = { dbName: db };
+  const inPlaceholders = actions.map((_, i) => `:a${i}`).join(", ");
+  actions.forEach((action, i) => {
+    (binds as Record<string, unknown>)[`a${i}`] = action;
+  });
+
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT audit_id, user_id, actor, action, db_name, status, detail, metadata_json, created_at
+       FROM (
+         SELECT
+           audit_id, user_id, actor, action, db_name, status, detail, metadata_json, created_at,
+           ROW_NUMBER() OVER (PARTITION BY action ORDER BY created_at DESC) AS rn
+         FROM app_audit_logs
+         WHERE db_name = :dbName
+           AND action IN (${inPlaceholders})
+       )
+       WHERE rn = 1`,
+      binds
+    );
+
+    const map: Record<string, AuditLogItem> = {};
+    for (const row of result.rows || []) {
+      const action = String(row.ACTION);
+      map[action] = {
+        id: `AUD-${row.AUDIT_ID}`,
+        user_id: row.USER_ID ? Number(row.USER_ID) : undefined,
+        actor: String(row.ACTOR),
+        action: action as AuditLogItem["action"],
+        db: row.DB_NAME ? String(row.DB_NAME) : undefined,
+        status: String(row.STATUS),
+        detail: row.DETAIL ? String(row.DETAIL) : "",
+        metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON),
+        timestamp: toIstIsoString(row.CREATED_AT)
+      };
+    }
+    return map;
+  });
+}
+
 
 export async function insertRequestHistory(input: {
   id: string;

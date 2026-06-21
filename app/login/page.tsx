@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, DatabaseZap, LockKeyhole, Server, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
@@ -36,23 +36,40 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ username: "", password: "" });
+  // Tracks whether the user has already submitted a successful login so that
+  // the auto-session-check effect cannot race against the post-login redirect
+  // and call clearAuthAndRedirect() (which would log them back out immediately).
+  const loginSucceededRef = useRef(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     fetchCurrentSession()
       .then((session) => {
+        if (controller.signal.aborted || loginSucceededRef.current) return;
         setUser(session.user);
         router.replace("/dashboard");
       })
       .catch(() => {
+        if (controller.signal.aborted || loginSucceededRef.current) return;
         setUser(undefined);
       });
-  }, [router, setUser]);
+
+    return () => {
+      controller.abort();
+    };
+  // Run once on mount only to check for an existing valid session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
     try {
       const response = await loginWithPassword(form.username, form.password, remember);
+      // Mark login as succeeded BEFORE navigating so that if the useEffect
+      // above fires again on any re-render/remount it won't clear the session.
+      loginSucceededRef.current = true;
       setUser(response.user);
       toast.success("Login successful");
       router.push("/dashboard");

@@ -85,11 +85,17 @@ export async function requireAuthenticatedSession(): Promise<AuthenticatedSessio
 
 export function setSessionCookie(response: NextResponse, token: string, expiresAtIso: string) {
   const { sessionCookieName } = getServerEnv();
+  // COOKIE_SECURE must be explicitly set to "true" when serving over HTTPS.
+  // Do NOT use NODE_ENV === "production" here — the app can run in production
+  // mode over plain HTTP (e.g. behind a reverse proxy that terminates TLS),
+  // and setting Secure=true on an HTTP origin causes browsers (especially on
+  // Linux) to silently drop the cookie, breaking authentication entirely.
+  const secureCookie = process.env.COOKIE_SECURE === "true";
   response.cookies.set({
     name: sessionCookieName,
     value: token,
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     sameSite: "lax",
     path: "/",
     expires: new Date(expiresAtIso)
@@ -98,11 +104,12 @@ export function setSessionCookie(response: NextResponse, token: string, expiresA
 
 export function clearSessionCookie(response: NextResponse) {
   const { sessionCookieName } = getServerEnv();
+  const secureCookie = process.env.COOKIE_SECURE === "true";
   response.cookies.set({
     name: sessionCookieName,
     value: "",
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     sameSite: "lax",
     path: "/",
     expires: new Date(0)

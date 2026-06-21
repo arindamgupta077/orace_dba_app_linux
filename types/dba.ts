@@ -389,6 +389,8 @@ export interface AuditLogItem {
   status: string;
   timestamp: string;
   detail: string;
+  user_id?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DatabaseTarget {

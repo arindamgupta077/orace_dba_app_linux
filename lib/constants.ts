@@ -7,13 +7,13 @@ export const APP_TIMEZONE = "Asia/Kolkata"; // IST (UTC+5:30)
 
 export const DATABASES: DatabaseTarget[] = [
   {
-    name: "GODBQA",
-    environment: "dev",
+    name: "ORCL",
+    environment: "production",
     region: "Local Oracle",
     role: "primary",
     status: "healthy",
-    env_label: "TEST",
-    os: "Linux",
+    env_label: "PROD",
+    os: "Windows",
     db_type: "Standalone"
   },
   {

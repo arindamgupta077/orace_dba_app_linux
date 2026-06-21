@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
 import { ChevronDown, ChevronUp, Download, Loader2, Play, RefreshCcw, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,8 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import type { DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse, RequestHistoryItem } from "@/types/dba";
+import { fetchPerformanceAuditLogs } from "@/services/api";
+import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
   label: string;
@@ -39,13 +40,6 @@ interface RunAllSource {
   createdAt?: string | null;
   requestedBy?: string | null;
   db?: string;
-}
-
-interface LatestPerformanceRun {
-  result: string;
-  lastRunAt?: string | null;
-  requestedBy?: string | null;
-  status: DbaResponse["status"] | "error" | "submitted";
 }
 
 const PERFORMANCE_ACTIONS: PerformanceActionConfig[] = [
@@ -289,44 +283,6 @@ function getTimeValue(value?: string | null) {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function getLatestPerformanceRun(
-  config: PerformanceActionConfig,
-  requestHistory: RequestHistoryItem[],
-  selectedDb: string,
-  runAllSource: RunAllSource | null
-): LatestPerformanceRun | null {
-  const latestItem = requestHistory.find((item) => item.db === selectedDb && item.action === config.action);
-  const runAllValue = runAllSource ? getRawResultValue(runAllSource.response, config) : undefined;
-  const runAllIsNewest = runAllSource && (!latestItem || getTimeValue(runAllSource.createdAt) >= getTimeValue(latestItem.created_at));
-
-  if (runAllSource && runAllValue !== undefined && runAllIsNewest) {
-    return {
-      result: summarizeResult(runAllSource.response, config),
-      lastRunAt: runAllSource.createdAt,
-      requestedBy: runAllSource.requestedBy,
-      status: runAllSource.response.status
-    };
-  }
-
-  if (!latestItem) return null;
-
-  if (latestItem.response) {
-    return {
-      result: summarizeResult(latestItem.response, config),
-      lastRunAt: latestItem.created_at,
-      requestedBy: latestItem.requested_by,
-      status: latestItem.response.status
-    };
-  }
-
-  return {
-    result: latestItem.error ? "Failed" : "Submitted",
-    lastRunAt: latestItem.created_at,
-    requestedBy: latestItem.requested_by,
-    status: latestItem.error ? "error" : "submitted"
-  };
-}
-
 function getSchemas(response: DbaResponse | null) {
   if (!response) return [];
   const rawSchemas = response.raw_data.schemas;
@@ -420,7 +376,6 @@ function renderInlineMarkdown(text: string) {
 export function PerformanceTuningWorkspace() {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const user = useAppStore((state) => state.user);
-  const requestHistory = useAppStore((state) => state.requestHistory);
   const canExecute = useAppStore((state) => state.canExecute);
   const runAll = useDbaAction();
   const mainRun = useDbaAction();
@@ -434,6 +389,24 @@ export function PerformanceTuningWorkspace() {
   const [secondaryTitle, setSecondaryTitle] = useState("");
   const [runAllCompletedAt, setRunAllCompletedAt] = useState<string | null>(null);
   const [runAllImmediate, setRunAllImmediate] = useState<RunAllSource | null>(null);
+
+  // ── Audit-log based card metadata ──────────────────────────────
+  // Keyed by action name; fetched from APP_AUDIT_LOGS via the performance audit API.
+  const [auditByAction, setAuditByAction] = useState<Record<string, AuditLogItem>>({});
+
+  const loadAuditMeta = useCallback(async () => {
+    if (!selectedDb) return;
+    try {
+      const data = await fetchPerformanceAuditLogs(selectedDb);
+      if (data?.items) setAuditByAction(data.items);
+    } catch {
+      // Non-critical — cards simply show "Never" when audit data is unavailable.
+    }
+  }, [selectedDb]);
+
+  useEffect(() => {
+    void loadAuditMeta();
+  }, [loadAuditMeta]);
 
   const actions = useMemo(
     () =>
@@ -453,8 +426,6 @@ export function PerformanceTuningWorkspace() {
   const schemas = getSchemas(schemaRun.response);
 
   const latestRunAll = useMemo<RunAllSource | null>(() => {
-    const historyItem = requestHistory.find((item) => item.action === "check_performance" && item.db === selectedDb && item.response);
-
     if (runAllImmediate?.db === selectedDb) {
       return runAllImmediate;
     }
@@ -462,33 +433,14 @@ export function PerformanceTuningWorkspace() {
     if (runAll.response) {
       return {
         response: runAll.response,
-        createdAt: runAllCompletedAt || historyItem?.created_at,
+        createdAt: runAllCompletedAt,
         requestedBy: user?.username || "arindam",
         db: selectedDb
       };
     }
 
-    if (historyItem?.response) {
-      return {
-        response: historyItem.response,
-        createdAt: historyItem.created_at,
-        requestedBy: historyItem.requested_by,
-        db: historyItem.db
-      };
-    }
-
     return null;
-  }, [requestHistory, runAll.response, runAllCompletedAt, runAllImmediate, selectedDb, user?.username]);
-
-  const latestByAction = useMemo(
-    () =>
-      actions.reduce<Partial<Record<DbaAction, LatestPerformanceRun>>>((acc, { config }) => {
-        const latest = getLatestPerformanceRun(config, requestHistory, selectedDb, latestRunAll);
-        if (latest) acc[config.action] = latest;
-        return acc;
-      }, {}),
-    [actions, latestRunAll, requestHistory, selectedDb]
-  );
+  }, [runAll.response, runAllCompletedAt, runAllImmediate, selectedDb, user?.username]);
 
   const payloadPreview = useMemo(() => {
     if (!activeDefinition) return "";
@@ -567,6 +519,8 @@ export function PerformanceTuningWorkspace() {
     if (!activeDefinition) return;
     try {
       await mainRun.runAction(activeDefinition.action, params, selectedDb);
+      // Refresh audit card metadata after a successful run so the card updates immediately.
+      void loadAuditMeta();
     } catch {
       // The hook owns the user-facing error state and toast.
     }
@@ -585,6 +539,7 @@ export function PerformanceTuningWorkspace() {
         requestedBy: user?.username || "arindam",
         db: selectedDb
       });
+      void loadAuditMeta();
     } catch {
       // The hook owns the user-facing error state and toast.
     }
@@ -643,7 +598,7 @@ export function PerformanceTuningWorkspace() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {actions.map(({ definition }) => {
           const Icon = (Icons[definition.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
-          const latest = latestByAction[definition.action] || null;
+          const auditLog = auditByAction[definition.action] || null;
           return (
             <Card key={definition.action} className="h-full">
               <CardContent className="flex h-full flex-col p-4">
@@ -659,7 +614,7 @@ export function PerformanceTuningWorkspace() {
                   <p className="font-medium">{definition.title}</p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">{definition.description}</p>
                 </div>
-                <PerformanceRunMeta latest={latest} />
+                <PerformanceRunMeta auditLog={auditLog} />
                 <Button className="mt-4 w-full" variant="outline" onClick={() => openAction(definition)}>
                   <Play className="h-4 w-4" />
                   Execute
@@ -807,21 +762,27 @@ export function PerformanceTuningWorkspace() {
   );
 }
 
-function PerformanceRunMeta({ latest }: { latest: LatestPerformanceRun | null }) {
+function PerformanceRunMeta({ auditLog }: { auditLog: AuditLogItem | null }) {
   return (
     <div className="mt-4 space-y-2 rounded-md border border-border/60 bg-black/20 p-3 text-xs">
       <div className="flex items-start justify-between gap-3">
-        <span className="text-muted-foreground">Latest result</span>
-        <span className="text-right text-slate-100">{latest?.result || "Not run"}</span>
+        <span className="shrink-0 text-muted-foreground">Last run</span>
+        <span className="text-right text-slate-100">
+          {auditLog ? formatRunTime(auditLog.timestamp) : "Never"}
+        </span>
       </div>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-muted-foreground">Last run</span>
-        <span className="text-right text-slate-100">{formatRunTime(latest?.lastRunAt)}</span>
+        <span className="shrink-0 text-muted-foreground">Username</span>
+        <span className="max-w-32 truncate text-right font-mono text-cyan-100">
+          {auditLog?.actor || "-"}
+        </span>
       </div>
-      <div className="flex items-start justify-between gap-3">
-        <span className="text-muted-foreground">Username</span>
-        <span className="max-w-32 truncate text-right font-mono text-cyan-100">{latest?.requestedBy || "-"}</span>
-      </div>
+      {auditLog?.detail ? (
+        <div className="space-y-0.5">
+          <span className="text-muted-foreground">Detail</span>
+          <p className="mt-0.5 line-clamp-2 break-words text-slate-300">{auditLog.detail}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
