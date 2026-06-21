@@ -1371,3 +1371,64 @@ export async function getLatestDashboardHistory(dbName: string): Promise<Dashboa
     };
   });
 }
+
+// ============================================================
+// Performance Run All History — performance_run_all_hist
+// ============================================================
+
+export interface PerformanceRunAllRow {
+  run_id: number;
+  db_name: string;
+  environment: string | null;
+  os: string | null;
+  refreshed_by: string;
+  /** Parsed JSON payload containing each query's result array */
+  metrics_payload: Record<string, unknown> | null;
+  /** LLM-generated narrative returned from n8n */
+  ai_summary: string | null;
+  created_at: string;
+}
+
+/**
+ * Returns the single most-recent row from performance_run_all_hist
+ * for the given db_name, or null if no run has been recorded yet.
+ */
+export async function getLatestPerformanceRunAll(
+  db: string
+): Promise<PerformanceRunAllRow | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         run_id,
+         db_name,
+         environment,
+         os,
+         refreshed_by,
+         metrics_payload,
+         ai_summary,
+         created_at
+       FROM performance_run_all_hist
+       WHERE db_name = :dbName
+       ORDER BY created_at DESC
+       FETCH FIRST 1 ROWS ONLY`,
+      { dbName: db }
+    );
+
+    const row = result.rows?.[0];
+    if (!row) return null;
+
+    return {
+      run_id: Number(row.RUN_ID ?? row.run_id),
+      db_name: String(row.DB_NAME ?? row.db_name ?? db),
+      environment: row.ENVIRONMENT != null ? String(row.ENVIRONMENT) : null,
+      os: row.OS != null ? String(row.OS) : null,
+      refreshed_by: String(row.REFRESHED_BY ?? row.refreshed_by ?? ""),
+      metrics_payload: parseJson<Record<string, unknown>>(
+        row.METRICS_PAYLOAD ?? row.metrics_payload
+      ) ?? null,
+      ai_summary:
+        row.AI_SUMMARY != null ? String(row.AI_SUMMARY) : null,
+      created_at: toIstIsoString(row.CREATED_AT ?? row.created_at)
+    };
+  });
+}

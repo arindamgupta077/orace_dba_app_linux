@@ -305,3 +305,33 @@ export async function analyzeAlertLog(
     })
   });
 }
+
+// ============================================================
+// Performance Run All History — reads from performance_run_all_hist
+// ============================================================
+
+export interface PerformanceRunAllHistoryResponse {
+  has_data: boolean;
+  run_id?: number;
+  db_name?: string;
+  environment?: string | null;
+  os?: string | null;
+  refreshed_by?: string;
+  /** Parsed JSON containing every query's result array */
+  metrics_payload?: Record<string, unknown> | null;
+  ai_summary?: string | null;
+  created_at?: string;
+}
+
+/**
+ * Fetch the most-recent check_performance run stored in
+ * performance_run_all_hist for the given database.
+ */
+export async function fetchPerformanceRunAllHistory(
+  db: string
+): Promise<PerformanceRunAllHistoryResponse> {
+  const qs = `?db=${encodeURIComponent(db)}`;
+  return requestJson<PerformanceRunAllHistoryResponse>(
+    `/api/performance/history${qs}`
+  );
+}

@@ -18,7 +18,7 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchPerformanceAuditLogs } from "@/services/api";
+import { fetchPerformanceAuditLogs, fetchPerformanceRunAllHistory, type PerformanceRunAllHistoryResponse } from "@/services/api";
 import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
@@ -35,11 +35,43 @@ interface PerformanceActionConfig {
   csvName: string;
 }
 
+/**
+ * Represents the latest RUN ALL result loaded from performance_run_all_hist.
+ * All fields are taken directly from the DB row returned by /api/performance/history.
+ */
 interface RunAllSource {
+  /** Raw response-shaped object reconstructed from metrics_payload + ai_summary */
   response: DbaResponse;
   createdAt?: string | null;
   requestedBy?: string | null;
   db?: string;
+}
+
+/**
+ * Convert a performance_run_all_hist DB row into the RunAllSource shape the
+ * existing RunAllResult / RunAllTables components understand.
+ */
+function historyRowToRunAllSource(
+  row: PerformanceRunAllHistoryResponse,
+  requestId: string
+): RunAllSource {
+  const raw = (row.metrics_payload ?? {}) as Record<string, unknown>;
+  return {
+    response: {
+      request_id: requestId,
+      action: "check_performance",
+      db_status: "healthy",
+      status: "success",
+      ai_summary: row.ai_summary ?? "",
+      raw_output: "",
+      raw_data: raw,
+      findings: [],
+      recommendations: []
+    },
+    createdAt: row.created_at ?? null,
+    requestedBy: row.refreshed_by ?? null,
+    db: row.db_name
+  };
 }
 
 const PERFORMANCE_ACTIONS: PerformanceActionConfig[] = [
@@ -387,8 +419,11 @@ export function PerformanceTuningWorkspace() {
   const [killInactiveConfirmed, setKillInactiveConfirmed] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState("");
   const [secondaryTitle, setSecondaryTitle] = useState("");
-  const [runAllCompletedAt, setRunAllCompletedAt] = useState<string | null>(null);
-  const [runAllImmediate, setRunAllImmediate] = useState<RunAllSource | null>(null);
+
+  // ── Latest RUN ALL result from performance_run_all_hist ──────────
+  // Loaded from the DB on mount and after each successful RUN ALL.
+  const [latestRunAll, setLatestRunAll] = useState<RunAllSource | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // ── Audit-log based card metadata ──────────────────────────────
   // Keyed by action name; fetched from APP_AUDIT_LOGS via the performance audit API.
@@ -404,9 +439,34 @@ export function PerformanceTuningWorkspace() {
     }
   }, [selectedDb]);
 
+  /**
+   * Fetch the latest check_performance run from performance_run_all_hist
+   * and convert it into the RunAllSource shape used by the result panel.
+   */
+  const loadHistoryFromDb = useCallback(async () => {
+    if (!selectedDb) return;
+    setHistoryLoading(true);
+    try {
+      const row = await fetchPerformanceRunAllHistory(selectedDb);
+      if (row.has_data) {
+        setLatestRunAll(
+          historyRowToRunAllSource(row, `HIST-${row.run_id ?? 0}`)
+        );
+      } else {
+        setLatestRunAll(null);
+      }
+    } catch {
+      // Non-critical — panel stays empty if fetch fails.
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [selectedDb]);
+
+  // Load persisted RUN ALL history whenever the selected database changes.
   useEffect(() => {
     void loadAuditMeta();
-  }, [loadAuditMeta]);
+    void loadHistoryFromDb();
+  }, [loadAuditMeta, loadHistoryFromDb]);
 
   const actions = useMemo(
     () =>
@@ -424,23 +484,6 @@ export function PerformanceTuningWorkspace() {
 
   const rows = getRows(mainRun.response, activeConfig);
   const schemas = getSchemas(schemaRun.response);
-
-  const latestRunAll = useMemo<RunAllSource | null>(() => {
-    if (runAllImmediate?.db === selectedDb) {
-      return runAllImmediate;
-    }
-
-    if (runAll.response) {
-      return {
-        response: runAll.response,
-        createdAt: runAllCompletedAt,
-        requestedBy: user?.username || "arindam",
-        db: selectedDb
-      };
-    }
-
-    return null;
-  }, [runAll.response, runAllCompletedAt, runAllImmediate, selectedDb, user?.username]);
 
   const payloadPreview = useMemo(() => {
     if (!activeDefinition) return "";
@@ -527,18 +570,14 @@ export function PerformanceTuningWorkspace() {
   };
 
   const executeRunAll = async () => {
-    setRunAllCompletedAt(null);
-    setRunAllImmediate(null);
+    setLatestRunAll(null);
     try {
-      const result = await runAll.runAction("check_performance", {}, selectedDb);
-      const completedAt = new Date().toISOString();
-      setRunAllCompletedAt(completedAt);
-      setRunAllImmediate({
-        response: result,
-        createdAt: completedAt,
-        requestedBy: user?.username || "arindam",
-        db: selectedDb
-      });
+      // Trigger the n8n check_performance workflow via webhook.
+      // n8n will run all 8 queries, call the LLM node, and INSERT a row
+      // into performance_run_all_hist before responding.
+      await runAll.runAction("check_performance", {}, selectedDb);
+      // Re-fetch the persisted row so the panel displays data from the DB.
+      await loadHistoryFromDb();
       void loadAuditMeta();
     } catch {
       // The hook owns the user-facing error state and toast.
@@ -587,7 +626,12 @@ export function PerformanceTuningWorkspace() {
       {runAll.status === "loading" ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-100">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Running all performance checks through n8n.
+          Running all performance checks through n8n — results will be saved to database.
+        </div>
+      ) : historyLoading ? (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-border/40 bg-background/20 p-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading last RUN ALL result from database…
         </div>
       ) : null}
 
