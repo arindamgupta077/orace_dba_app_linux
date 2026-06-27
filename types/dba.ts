@@ -160,7 +160,7 @@ export interface DbaActionDefinition {
   params: DbaParameterField[];
 }
 
-export type DbEnvironment = "PROD" | "TEST" | "DR";
+export type DbEnvironment = "PROD" | "DEV" | "UAT" | "DR";
 export type DbOs = "Linux" | "Windows";
 export type DbType = "Standalone" | "RAC" | "Dataguard" | "Active Dataguard";
 
@@ -384,7 +384,7 @@ export interface RequestHistoryItem {
 export interface AuditLogItem {
   id: string;
   actor: string;
-  action: DbaAction | "login" | "logout" | "retry";
+  action: DbaAction | "login" | "logout" | "retry" | string;
   db?: string;
   status: string;
   timestamp: string;
@@ -395,13 +395,49 @@ export interface AuditLogItem {
 
 export interface DatabaseTarget {
   name: string;
-  environment: "production" | "stage" | "dev" | "dr";
+  environment: string;
   region: string;
   role: "primary" | "standby" | "reporting";
-  status: DbaStatus;
+  status: string;
   env_label: DbEnvironment;
   os: DbOs;
   db_type: DbType;
+  server_name?: string;
+  server_ip?: string;
+  zone?: string;
+}
+
+export interface DatabaseOwnerSummary {
+  userId: number;
+  username: string;
+  email: string;
+}
+
+export interface DatabaseInventoryItem extends DatabaseTarget {
+  id: number;
+  database_name: string;
+  location: string;
+  owner_id: number;
+  owner?: DatabaseOwnerSummary;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface DatabaseInventoryInput {
+  database_name: string;
+  environment: string;
+  location: string;
+  operating_system: string;
+  database_role: string;
+  database_type: string;
+  status: string;
+  environment_label: string;
+  owner_id: number;
+  server_name?: string;
+  server_ip?: string;
+  zone?: string;
 }
 
 export interface UserSession {
@@ -409,7 +445,7 @@ export interface UserSession {
   userId?: number;
   jwt?: string;
   authMode: "jwt";
-  role: "admin" | "dba_admin" | "operator" | "auditor";
+  role: "app_admin" | "dba_admin" | "client" | "auditor";
 }
 
 export type AppUserRole = UserSession["role"];

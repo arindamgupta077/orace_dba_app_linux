@@ -21,7 +21,7 @@ CREATE TABLE APP_DASHBOARD_SCHEDULES (
 );
 
 COMMENT ON TABLE  APP_DASHBOARD_SCHEDULES IS 'Server-side dashboard auto-refresh schedules (one per DB)';
-COMMENT ON COLUMN APP_DASHBOARD_SCHEDULES.db_name      IS 'Oracle DB identifier matching lib/constants DATABASES[].name';
+COMMENT ON COLUMN APP_DASHBOARD_SCHEDULES.db_name      IS 'Oracle DB identifier matching database_inventory.database_name';
 COMMENT ON COLUMN APP_DASHBOARD_SCHEDULES.interval_min IS 'How often (in minutes) the scheduler fires refresh_dashboard to n8n';
 COMMENT ON COLUMN APP_DASHBOARD_SCHEDULES.is_active    IS '1 = active, 0 = paused';
 COMMENT ON COLUMN APP_DASHBOARD_SCHEDULES.last_run_at  IS 'Timestamp of most recent scheduler-triggered refresh';

@@ -5,6 +5,8 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  DatabaseInventoryInput,
+  DatabaseInventoryItem,
   DashboardMetrics,
   DbaAction,
   DbaAlertLogRow,
@@ -150,6 +152,42 @@ export async function toggleAppUserStatus(userId: number) {
   return requestJson<{ user: AppUser }>(`/api/admin/users/${userId}`, {
     method: "PUT"
   });
+}
+
+export async function fetchDatabases() {
+  return requestJson<{ databases: DatabaseInventoryItem[] }>("/api/databases");
+}
+
+export async function createDatabase(input: DatabaseInventoryInput) {
+  return requestJson<{ database: DatabaseInventoryItem }>("/api/databases", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateDatabase(id: number, input: DatabaseInventoryInput) {
+  return requestJson<{ database: DatabaseInventoryItem }>(`/api/databases/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function removeDatabase(id: number) {
+  return requestJson<{ ok: boolean }>(`/api/databases/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function changeDatabaseOwner(id: number, ownerId: number) {
+  return requestJson<{ database: DatabaseInventoryItem }>(`/api/databases/${id}/owner`, {
+    method: "PUT",
+    body: JSON.stringify({ owner_id: ownerId })
+  });
+}
+
+export async function fetchUsersByRole(role: AppUserRole) {
+  const query = new URLSearchParams({ role }).toString();
+  return requestJson<{ users: AppUser[] }>(`/api/users?${query}`);
 }
 
 export async function fetchAuditLogs(limit = 200) {

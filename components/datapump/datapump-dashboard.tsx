@@ -18,7 +18,6 @@ import { ExpdpModal } from "@/components/datapump/expdp-modal";
 import { ImpdpModal } from "@/components/datapump/impdp-modal";
 import { LogViewerModal } from "@/components/datapump/log-viewer-modal";
 import { ActiveJobsBanner } from "@/components/datapump/active-jobs-banner";
-import { findDatabaseTarget } from "@/lib/constants";
 import { useAppStore } from "@/store/use-app-store";
 
 /* ------------------------------------------------------------------ */
@@ -142,7 +141,8 @@ function ActionCard({ section, title, subtitle, description, features, actions }
 
 export function DataPumpDashboard() {
   const selectedDb = useAppStore((s) => s.selectedDb);
-  const dbTarget = findDatabaseTarget(selectedDb);
+  const databases = useAppStore((s) => s.databases);
+  const dbTarget = databases.find((db) => db.name === selectedDb);
 
   // Show IMPDP only for non-PROD environments
   const isProd = dbTarget?.env_label === "PROD";

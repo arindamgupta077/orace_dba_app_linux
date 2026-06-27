@@ -26,12 +26,13 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 import { DatabaseSelector } from "@/components/visual/database-selector";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { fetchCurrentSession, isMockMode, logoutSession } from "@/services/api";
+import { fetchCurrentSession, fetchDatabases, isMockMode, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin-panel", label: "Admin Panel", icon: ShieldCheck, adminOnly: true },
+  { href: "/db-inventory", label: "DB Inventory", icon: DatabaseZap, adminOnly: true },
   { href: "/general-admin", label: "General Admin", icon: Settings2 },
   { href: "/tablespaces", label: "Tablespace", icon: Database },
   { href: "/user-management", label: "User Management", icon: UserCog },
@@ -47,7 +48,7 @@ const navItems = [
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const user = useAppStore((state) => state.user);
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || user?.role === "admin");
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || user?.role === "app_admin");
 
   return (
     <div className="flex h-full flex-col">
@@ -112,6 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isOnline = useOnlineStatus();
   const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
+  const setDatabases = useAppStore((state) => state.setDatabases);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
 
@@ -121,6 +123,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then((session) => {
         if (!active) return;
         setUser(session.user);
+        fetchDatabases()
+          .then((response) => {
+            if (active) setDatabases(response.databases);
+          })
+          .catch(() => {
+            if (active) setDatabases([]);
+          });
         setAuthChecking(false);
       })
       .catch(() => {
@@ -130,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
     };
-  }, [setUser]);
+  }, [setDatabases, setUser]);
 
   const logout = async () => {
     try {
@@ -162,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} title="Open navigation">
                 <Menu className="h-5 w-5" />
               </Button>
-              {user?.role === "admin" && (
+              {user?.role === "app_admin" && (
                 <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
                   <Link href="/admin-panel">
                     <ShieldCheck className="h-4 w-4" />

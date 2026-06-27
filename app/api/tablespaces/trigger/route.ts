@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { findDatabaseTarget } from "@/lib/constants";
 import { getServerEnv } from "@/lib/server/env";
+import { getDatabaseTargetByName } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { DbaRequestPayload } from "@/types/dba";
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       throw new Error("NEXT_PUBLIC_DBA_WEBHOOK_URL is required when mock mode is disabled.");
     }
 
-    const dbTarget = findDatabaseTarget(db);
+    const dbTarget = await getDatabaseTargetByName(db);
     const payload: DbaRequestPayload = {
       action: "tablespace_check",
       db,

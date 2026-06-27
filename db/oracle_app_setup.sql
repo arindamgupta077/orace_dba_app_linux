@@ -88,7 +88,7 @@ CREATE TABLE app_users (
   password_salt VARCHAR2(128) NOT NULL,
   password_hash VARCHAR2(64) NOT NULL,
   api_token_hash VARCHAR2(64),
-  role VARCHAR2(20) DEFAULT 'operator' NOT NULL,
+  role VARCHAR2(20) DEFAULT 'client' NOT NULL,
   is_active CHAR(1) DEFAULT 'Y' NOT NULL,
   must_change_password CHAR(1) DEFAULT 'N' NOT NULL,
   failed_login_count NUMBER DEFAULT 0 NOT NULL,
@@ -98,7 +98,7 @@ CREATE TABLE app_users (
   updated_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP NOT NULL,
   CONSTRAINT app_users_pk PRIMARY KEY (user_id),
   CONSTRAINT app_users_username_uk UNIQUE (username),
-  CONSTRAINT app_users_role_ck CHECK (role IN ('admin', 'dba_admin', 'operator', 'auditor')),
+  CONSTRAINT app_users_role_ck CHECK (role IN ('app_admin', 'dba_admin', 'client', 'auditor')),
   CONSTRAINT app_users_is_active_ck CHECK (is_active IN ('Y', 'N')),
   CONSTRAINT app_users_must_change_pw_ck CHECK (must_change_password IN ('Y', 'N'))
 );

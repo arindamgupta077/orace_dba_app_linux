@@ -41,7 +41,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScheduleModal } from "@/components/dashboard/schedule-modal";
 import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
-import { findDatabaseTarget } from "@/lib/constants";
 import { downloadText, formatAppDateTime, toCsv } from "@/lib/utils";
 import { fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -432,6 +431,7 @@ function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: bo
 
 export function DashboardOverview() {
   const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
   const { runAction } = useDbaAction();
 
   const [metrics, setMetrics]               = useState<DashboardMetrics | null>(null);
@@ -443,7 +443,7 @@ export function DashboardOverview() {
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
 
-  const dbTarget  = findDatabaseTarget(selectedDb);
+  const dbTarget  = databases.find((db) => db.name === selectedDb);
   const prevDb    = useRef(selectedDb);
 
   // Load cached snapshot from Oracle on mount / DB change.

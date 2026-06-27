@@ -1,36 +1,7 @@
-import type { DatabaseTarget } from "@/types/dba";
-
 export const APP_NAME = "Oracle DBA AI Control Center";
 
 export const APP_LOCALE = "en-IN";
 export const APP_TIMEZONE = "Asia/Kolkata"; // IST (UTC+5:30)
-
-export const DATABASES: DatabaseTarget[] = [
-  {
-    name: "ORCL",
-    environment: "production",
-    region: "Local Oracle",
-    role: "primary",
-    status: "healthy",
-    env_label: "PROD",
-    os: "Windows",
-    db_type: "Standalone"
-  },
-  {
-    name: "pdev",
-    environment: "dev",
-    region: "Local Oracle",
-    role: "primary",
-    status: "healthy",
-    env_label: "TEST",
-    os: "Linux",
-    db_type: "Standalone"
-  }
-];
-
-export function findDatabaseTarget(name: string): DatabaseTarget | undefined {
-  return DATABASES.find((d) => d.name === name);
-}
 
 export const REQUESTED_BY_DEFAULT = "arindam";
 

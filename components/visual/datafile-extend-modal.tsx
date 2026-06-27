@@ -37,7 +37,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/visual/status-badge";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
   decideAlertSqlApproval,
@@ -330,8 +329,10 @@ export function DatafileExtendModal({
   onWorkflowComplete
 }: DatafileExtendModalProps) {
   const selectedDb = useAppStore((state) => state.selectedDb);
+  const databases = useAppStore((state) => state.databases);
   const user = useAppStore((state) => state.user);
   const username = user?.username || "arindam";
+  const dbTarget = databases.find((db) => db.name === selectedDb);
   const triggerTablespaceRefresh = useAppStore((state) => state.triggerTablespaceRefresh);
 
   const [step, setStep] = useState<WorkflowStep>("idle");
@@ -689,9 +690,9 @@ export function DatafileExtendModal({
                     db: selectedDb,
                     requested_by: username,
                     user_id: user?.userId,
-                    environment: findDatabaseTarget(selectedDb)?.env_label,
-                    os: findDatabaseTarget(selectedDb)?.os,
-                    db_type: findDatabaseTarget(selectedDb)?.db_type
+                    environment: dbTarget?.env_label,
+                    os: dbTarget?.os,
+                    db_type: dbTarget?.db_type
                   },
                   null,
                   2

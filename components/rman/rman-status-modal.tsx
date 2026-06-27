@@ -18,7 +18,6 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { useDbaAction } from "@/hooks/use-dba-action";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { BackupRow } from "@/types/dba";
@@ -147,6 +146,7 @@ interface RmanStatusModalProps {
 
 export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
   const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
   const user = useAppStore((s) => s.user);
   const { runAction, status, response, error, setResponse } = useDbaAction();
 
@@ -156,7 +156,7 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
   const [rawJson,  setRawJson]  = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
 
-  const dbTarget = useMemo(() => findDatabaseTarget(selectedDb), [selectedDb]);
+  const dbTarget = useMemo(() => databases.find((db) => db.name === selectedDb), [databases, selectedDb]);
 
   const fullPayload = useMemo(
     () => ({

@@ -26,9 +26,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/store/use-app-store";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { ChatMessage } from "@/types/dba";
+import type { ChatMessage, DatabaseTarget } from "@/types/dba";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -372,7 +371,7 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
 // ---------------------------------------------------------------------------
 // Welcome message builder
 // ---------------------------------------------------------------------------
-function buildWelcomeMessage(selectedDb: string, dbTarget: ReturnType<typeof findDatabaseTarget>): ChatMessage {
+function buildWelcomeMessage(selectedDb: string, dbTarget?: DatabaseTarget): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
@@ -388,7 +387,8 @@ function buildWelcomeMessage(selectedDb: string, dbTarget: ReturnType<typeof fin
 
 export function ChatWithDb() {
   const selectedDb = useAppStore((s) => s.selectedDb);
-  const dbTarget = findDatabaseTarget(selectedDb);
+  const databases = useAppStore((s) => s.databases);
+  const dbTarget = databases.find((db) => db.name === selectedDb);
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -426,10 +426,10 @@ export function ChatWithDb() {
       setSubmittingSessionId(null);
       setIsLoading(false);
       setInput("");
-      const newDbTarget = findDatabaseTarget(selectedDb);
+      const newDbTarget = databases.find((db) => db.name === selectedDb);
       setMessages([buildWelcomeMessage(selectedDb, newDbTarget)]);
     }
-  }, [selectedDb]);
+  }, [databases, selectedDb]);
 
   // ---------------------------------------------------------------------------
   // Polling for approval

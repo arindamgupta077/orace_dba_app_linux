@@ -6,16 +6,16 @@ import { ActionCard } from "@/components/action/action-card";
 import { ActionRunnerModal } from "@/components/action/action-runner-modal";
 import { PageHeader } from "@/components/layout/page-header";
 import { FilesystemDriveAlertsPanel } from "@/components/visual/filesystem-drive-alerts-panel";
-import { findDatabaseTarget } from "@/lib/constants";
 import { getActionDefinition } from "@/lib/action-catalog";
 import { useAppStore } from "@/store/use-app-store";
 import type { DbaActionDefinition } from "@/types/dba";
 
 export default function FilesystemDrivePage() {
   const selectedDb = useAppStore((state) => state.selectedDb);
+  const databases = useAppStore((state) => state.databases);
   const [activeDefinition, setActiveDefinition] = useState<DbaActionDefinition | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const selectedTarget = findDatabaseTarget(selectedDb);
+  const selectedTarget = databases.find((db) => db.name === selectedDb);
   const isWindows = selectedTarget?.os === "Windows";
   const sectionName = isWindows ? "Drive utilization" : "Filesystem utilization";
   const targetLabel = isWindows ? "drive" : "filesystem";

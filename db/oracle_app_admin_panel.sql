@@ -16,8 +16,18 @@ EXCEPTION
 END;
 /
 
+ALTER TABLE app_users MODIFY (role DEFAULT 'client');
+
+UPDATE app_users
+SET role = CASE role
+  WHEN 'admin' THEN 'app_admin'
+  WHEN 'operator' THEN 'client'
+  ELSE role
+END
+WHERE role IN ('admin', 'operator');
+
 ALTER TABLE app_users ADD CONSTRAINT app_users_role_ck
-  CHECK (role IN ('admin', 'dba_admin', 'operator', 'auditor'));
+  CHECK (role IN ('app_admin', 'dba_admin', 'client', 'auditor'));
 
 DECLARE
   v_column_count NUMBER;
@@ -70,7 +80,7 @@ WHEN MATCHED THEN
     dst.password_salt = src.salt_value,
     dst.password_hash = LOWER(RAWTOHEX(STANDARD_HASH(src.salt_value || ':' || src.initial_password, 'SHA256'))),
     dst.api_token_hash = NULL,
-    dst.role = 'admin',
+    dst.role = 'app_admin',
     dst.is_active = 'Y',
     dst.must_change_password = 'Y',
     dst.failed_login_count = 0,
@@ -93,7 +103,7 @@ WHEN NOT MATCHED THEN
     src.salt_value,
     LOWER(RAWTOHEX(STANDARD_HASH(src.salt_value || ':' || src.initial_password, 'SHA256'))),
     NULL,
-    'admin',
+    'app_admin',
     'Y',
     'Y',
     0

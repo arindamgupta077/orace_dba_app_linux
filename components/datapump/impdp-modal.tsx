@@ -45,7 +45,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { SchemaPicker } from "@/components/datapump/schema-picker";
 import { executeDBAAction } from "@/services/api";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { DbaResponse, ImpdpParams, ImpdpTemplate } from "@/types/dba";
@@ -205,12 +204,13 @@ function RemapSchemaInput({ value, onChange }: { value: string, onChange: (v: st
 
 export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
   const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
   const user = useAppStore((s) => s.user);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const impdpTemplates = useAppStore((s) => s.impdpTemplates);
   const addImpdpTemplate = useAppStore((s) => s.addImpdpTemplate);
   const deleteImpdpTemplate = useAppStore((s) => s.deleteImpdpTemplate);
-  const dbTarget = findDatabaseTarget(selectedDb);
+  const dbTarget = databases.find((db) => db.name === selectedDb);
 
   // Wizard state
   const [wizardStep, setWizardStep] = useState<WizardStep>("dumpfile");

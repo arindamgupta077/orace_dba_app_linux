@@ -24,9 +24,9 @@ import { useAppStore } from "@/store/use-app-store";
 import type { AppUser, AppUserRole } from "@/types/dba";
 
 const ROLE_OPTIONS: Array<{ value: AppUserRole; label: string }> = [
-  { value: "admin", label: "Admin" },
+  { value: "app_admin", label: "App Admin" },
   { value: "dba_admin", label: "DBA Admin" },
-  { value: "operator", label: "Operator" },
+  { value: "client", label: "Client" },
   { value: "auditor", label: "Auditor" }
 ];
 
@@ -41,9 +41,9 @@ const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
 
 const ROLE_FILTER_OPTIONS: Array<{ value: RoleFilter; label: string }> = [
   { value: "all", label: "All Roles" },
-  { value: "admin", label: "Admin" },
+  { value: "app_admin", label: "App Admin" },
   { value: "dba_admin", label: "DBA Admin" },
-  { value: "operator", label: "Operator" },
+  { value: "client", label: "Client" },
   { value: "auditor", label: "Auditor" }
 ];
 
@@ -58,7 +58,7 @@ interface UserFormState {
 const emptyForm: UserFormState = {
   username: "",
   email: "",
-  role: "operator",
+  role: "client",
   isActive: true,
   initialPassword: ""
 };
@@ -139,7 +139,7 @@ export function AdminPanel() {
   }, [query, users, statusFilter, roleFilter]);
 
   const activeCount = users.filter((user) => user.isActive).length;
-  const adminCount = users.filter((user) => user.role === "admin" && user.isActive).length;
+  const adminCount = users.filter((user) => user.role === "app_admin" && user.isActive).length;
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -370,7 +370,7 @@ export function AdminPanel() {
         </Card>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-muted-foreground">Active admins</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Active app admins</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-semibold">{adminCount}</div>
@@ -448,7 +448,7 @@ export function AdminPanel() {
                         <div className="mt-1 text-xs text-muted-foreground">{user.email}</div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={user.role === "admin" ? "default" : "secondary"}>
+                        <Badge variant={user.role === "app_admin" ? "default" : "secondary"}>
                           {roleLabel(user.role)}
                         </Badge>
                       </TableCell>
@@ -485,7 +485,7 @@ export function AdminPanel() {
                             size="sm"
                             onClick={() => openDelete(user)}
                             disabled={saving || isSelf}
-                            title={isSelf ? "You cannot delete your own admin account" : "Permanently delete user"}
+                            title={isSelf ? "You cannot delete your own app admin account" : "Permanently delete user"}
                           >
                             <Trash2 className="h-4 w-4" />
                             Delete

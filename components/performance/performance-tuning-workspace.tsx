@@ -13,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatusBadge } from "@/components/visual/status-badge";
-import { findDatabaseTarget } from "@/lib/constants";
 import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
@@ -407,6 +406,7 @@ function renderInlineMarkdown(text: string) {
 
 export function PerformanceTuningWorkspace() {
   const selectedDb = useAppStore((state) => state.selectedDb);
+  const databases = useAppStore((state) => state.databases);
   const user = useAppStore((state) => state.user);
   const canExecute = useAppStore((state) => state.canExecute);
   const runAll = useDbaAction();
@@ -487,7 +487,7 @@ export function PerformanceTuningWorkspace() {
 
   const payloadPreview = useMemo(() => {
     if (!activeDefinition) return "";
-    const dbTarget = findDatabaseTarget(selectedDb);
+    const dbTarget = databases.find((db) => db.name === selectedDb);
     return JSON.stringify(
       {
         action: activeDefinition.action,
@@ -502,7 +502,7 @@ export function PerformanceTuningWorkspace() {
       null,
       2
     );
-  }, [activeDefinition, params, selectedDb, user?.userId, user?.username]);
+  }, [activeDefinition, databases, params, selectedDb, user?.userId, user?.username]);
 
   const openAction = (definition: DbaActionDefinition) => {
     mainRun.reset();

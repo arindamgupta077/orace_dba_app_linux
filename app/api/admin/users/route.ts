@@ -19,8 +19,8 @@ async function requireAdmin() {
   if (!session) {
     return { session: null, response: NextResponse.json({ message: "Unauthorized." }, { status: 401 }) };
   }
-  if (session.user.role !== "admin") {
-    return { session: null, response: NextResponse.json({ message: "Admin role required." }, { status: 403 }) };
+  if (session.user.role !== "app_admin") {
+    return { session: null, response: NextResponse.json({ message: "App admin role required." }, { status: 403 }) };
   }
   return { session, response: null };
 }
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     const user = await createAppUser({
       username: String(body.username || ""),
       email: String(body.email || ""),
-      role: String(body.role || "operator") as AppUserRole,
+      role: String(body.role || "client") as AppUserRole,
       initialPassword: String(body.initialPassword || ""),
       isActive: body.isActive !== false
     });

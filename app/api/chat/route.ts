@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { findDatabaseTarget } from "@/lib/constants";
+import { getDatabaseTargetByName } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { ChatBotPayload } from "@/types/dba";
 
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const dbTarget = findDatabaseTarget(db);
+  const dbTarget = await getDatabaseTargetByName(db);
 
   const payload: ChatBotPayload = {
     action: "chat_bot",

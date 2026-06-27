@@ -2,7 +2,6 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { DATABASES } from "@/lib/constants";
 import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, ExpdpTemplate, ImpdpTemplate, RmanJob } from "@/types/dba";
 
 interface AppState {
@@ -20,6 +19,7 @@ interface AppState {
   rmanJobs: RmanJob[];
   setUser: (user?: UserSession) => void;
   setSelectedDb: (db: string) => void;
+  setDatabases: (databases: DatabaseTarget[]) => void;
   setAutoRefreshSeconds: (seconds: number) => void;
   addRequestHistory: (item: RequestHistoryItem) => void;
   updateRequestHistory: (id: string, patch: Partial<RequestHistoryItem>) => void;
@@ -45,8 +45,8 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       user: undefined,
-      selectedDb: process.env.NEXT_PUBLIC_DEFAULT_DB || DATABASES[0]?.name || "ORCL",
-      databases: DATABASES,
+      selectedDb: process.env.NEXT_PUBLIC_DEFAULT_DB || "",
+      databases: [],
       requestHistory: [],
       auditLogs: [],
       autoRefreshSeconds: 60,
@@ -59,9 +59,22 @@ export const useAppStore = create<AppState>()(
       triggerTablespaceRefresh: () =>
         set((state) => ({
           tablespaceRefreshTrigger: state.tablespaceRefreshTrigger + 1
-        })),
+      })),
       setUser: (user) => set({ user }),
       setSelectedDb: (selectedDb) => set({ selectedDb }),
+      setDatabases: (databases) =>
+        set((state) => {
+          const configuredDefault = process.env.NEXT_PUBLIC_DEFAULT_DB || "";
+          const nextDefault =
+            databases.find((db) => db.name === configuredDefault)?.name ||
+            databases[0]?.name ||
+            "";
+          const selectedDb = databases.some((db) => db.name === state.selectedDb)
+            ? state.selectedDb
+            : nextDefault;
+
+          return { databases, selectedDb };
+        }),
       setAutoRefreshSeconds: (autoRefreshSeconds) => set({ autoRefreshSeconds }),
       addRequestHistory: (item) =>
         set((state) => ({
@@ -77,7 +90,7 @@ export const useAppStore = create<AppState>()(
         })),
       clearHistory: () => set({ requestHistory: [], auditLogs: [] }),
       canExecute: (action) => {
-        const role = get().user?.role || "operator";
+        const role = get().user?.role || "client";
         if (role === "dba_admin") return true;
         if (role === "auditor") return !["kill_session", "datafile_extend", "stats_refresh", "take_rman_backup", "recompile_invalid"].includes(action);
         return action !== "datafile_extend";

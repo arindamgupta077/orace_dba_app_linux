@@ -45,7 +45,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { SchemaPicker } from "@/components/datapump/schema-picker";
 import { executeDBAAction } from "@/services/api";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { DbaResponse, ExpdpParams, ExpdpTemplate } from "@/types/dba";
@@ -148,12 +147,13 @@ function ParamRow({
 
 export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
   const user = useAppStore((s) => s.user);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const expdpTemplates = useAppStore((s) => s.expdpTemplates);
   const addExpdpTemplate = useAppStore((s) => s.addExpdpTemplate);
   const deleteExpdpTemplate = useAppStore((s) => s.deleteExpdpTemplate);
-  const dbTarget = findDatabaseTarget(selectedDb);
+  const dbTarget = databases.find((db) => db.name === selectedDb);
 
   // Form state
   const [params, setParams] = useState<ExpdpParams>({ ...DEFAULT_PARAMS });

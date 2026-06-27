@@ -18,7 +18,6 @@ import { StatusBadge } from "@/components/visual/status-badge";
 import { TablespaceChartContent } from "@/components/visual/tablespace-chart";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { useDbaAction } from "@/hooks/use-dba-action";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { fetchTablespaceRuns } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -174,6 +173,7 @@ function TablespaceResultTable({ rows }: { rows: TablespaceRow[] }) {
 
 export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, initialParams }: ActionRunnerModalProps) {
   const selectedDb = useAppStore((state) => state.selectedDb);
+  const databases = useAppStore((state) => state.databases);
   const user = useAppStore((state) => state.user);
   const canExecute = useAppStore((state) => state.canExecute);
   const triggerTablespaceRefresh = useAppStore((state) => state.triggerTablespaceRefresh);
@@ -196,7 +196,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
 
   const payloadPreview = useMemo(() => {
     if (!definition) return "";
-    const dbTarget = findDatabaseTarget(selectedDb);
+    const dbTarget = databases.find((db) => db.name === selectedDb);
     return JSON.stringify(
       {
         action: definition.action,
@@ -211,7 +211,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
       null,
       2
     );
-  }, [definition, params, selectedDb, user?.username, user?.userId]);
+  }, [databases, definition, params, selectedDb, user?.username, user?.userId]);
 
   if (!definition) return null;
 

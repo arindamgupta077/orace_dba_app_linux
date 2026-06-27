@@ -13,6 +13,10 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  DatabaseInventoryInput,
+  DatabaseInventoryItem,
+  DatabaseTarget,
+  DbEnvironment,
   DbaAction,
   DbaAlertLogRow,
   DbaAlertLogSeverity,
@@ -145,15 +149,17 @@ function toIstIsoString(value: unknown) {
 }
 
 function mapUserRole(role: unknown): UserRole {
-  const normalized = String(role || "operator").toLowerCase();
-  if (normalized === "admin" || normalized === "dba_admin" || normalized === "operator" || normalized === "auditor") {
+  const normalized = String(role || "client").toLowerCase();
+  if (normalized === "admin") return "app_admin";
+  if (normalized === "operator") return "client";
+  if (normalized === "app_admin" || normalized === "dba_admin" || normalized === "client" || normalized === "auditor") {
     return normalized;
   }
-  return "operator";
+  return "client";
 }
 
 function isAppUserRole(value: string): value is AppUserRole {
-  return value === "admin" || value === "dba_admin" || value === "operator" || value === "auditor";
+  return value === "app_admin" || value === "dba_admin" || value === "client" || value === "auditor";
 }
 
 function mapAppUserRow(row: DbRow): AppUser {
@@ -172,6 +178,153 @@ function mapAppUserRow(row: DbRow): AppUser {
   };
 }
 
+function normalizeDatabaseEnvironment(value: unknown): string {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "production" || normalized === "prod") return "production";
+  if (normalized === "non-production" || normalized === "non_production" || normalized === "non-prod" || normalized === "non_prod") {
+    return "non-production";
+  }
+  if (normalized === "dr" || normalized === "disaster_recovery") return "dr";
+  return "non-production";
+}
+
+function normalizeDatabaseRole(value: unknown): DatabaseTarget["role"] {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "primary" || normalized === "standby" || normalized === "reporting") return normalized;
+  return "primary";
+}
+
+function normalizeDatabaseRoleForStorage(value: unknown): "Primary" | "Standby" | "Reporting" {
+  const normalized = normalizeDatabaseRole(value);
+  if (normalized === "standby") return "Standby";
+  if (normalized === "reporting") return "Reporting";
+  return "Primary";
+}
+
+function normalizeDatabaseStatus(value: unknown): string {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "active" || normalized === "inactive" || normalized === "decomissioned") {
+    return normalized;
+  }
+  return "active";
+}
+
+function normalizeDatabaseOs(value: unknown): DatabaseTarget["os"] {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "windows" ? "Windows" : "Linux";
+}
+
+function normalizeDatabaseType(value: unknown): DatabaseTarget["db_type"] {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "_");
+  if (normalized === "rac") return "RAC";
+  if (normalized === "dataguard" || normalized === "data_guard") return "Dataguard";
+  if (normalized === "active_dataguard" || normalized === "active_data_guard") return "Active Dataguard";
+  return "Standalone";
+}
+
+function normalizeEnvironmentLabel(value: unknown, environment: string): DbEnvironment {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "PROD" || normalized === "DEV" || normalized === "UAT" || normalized === "DR") return normalized;
+  const env = normalizeDatabaseEnvironment(environment);
+  if (env === "production") return "PROD";
+  if (env === "dr") return "DR";
+  return "DEV";
+}
+
+function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
+  const databaseName = String(row.DATABASE_NAME || "");
+  const environment = String(row.ENVIRONMENT || "");
+  const location = String(row.LOCATION || "");
+  const ownerId = Number(row.OWNER_ID || 0);
+
+  return {
+    id: Number(row.ID),
+    database_name: databaseName,
+    name: databaseName,
+    environment: normalizeDatabaseEnvironment(environment),
+    region: location,
+    location,
+    role: normalizeDatabaseRole(row.DATABASE_ROLE),
+    status: normalizeDatabaseStatus(row.STATUS),
+    env_label: normalizeEnvironmentLabel(row.ENVIRONMENT_LABEL, environment),
+    os: normalizeDatabaseOs(row.OPERATING_SYSTEM),
+    db_type: normalizeDatabaseType(row.DATABASE_TYPE),
+    server_name: row.SERVER_NAME ? String(row.SERVER_NAME) : undefined,
+    server_ip: row.SERVER_IP ? String(row.SERVER_IP) : undefined,
+    zone: row.ZONE ? String(row.ZONE) : undefined,
+    owner_id: ownerId,
+    owner: ownerId
+      ? {
+          userId: ownerId,
+          username: String(row.OWNER_USERNAME || ""),
+          email: String(row.OWNER_EMAIL || "")
+        }
+      : undefined,
+    created_at: toIsoString(row.CREATED_AT),
+    updated_at: toIsoString(row.UPDATED_AT),
+    created_by: row.CREATED_BY ? String(row.CREATED_BY) : undefined,
+    updated_by: row.UPDATED_BY ? String(row.UPDATED_BY) : undefined
+  };
+}
+
+function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
+  const databaseName = input.database_name.trim();
+  const environment = input.environment.trim();
+  const location = input.location.trim();
+  const operatingSystem = normalizeDatabaseOs(input.operating_system);
+  const databaseRole = normalizeDatabaseRoleForStorage(input.database_role);
+  const databaseType = normalizeDatabaseType(input.database_type);
+  const status = normalizeDatabaseStatus(input.status);
+  const environmentLabel = normalizeEnvironmentLabel(input.environment_label, environment);
+  const ownerId = Number(input.owner_id);
+  const serverName = input.server_name?.trim() || "";
+  const serverIp = input.server_ip?.trim() || "";
+  const zone = input.zone?.trim() || "SZ1";
+
+  if (!databaseName || databaseName.length > 128) {
+    throw new Error("Database name is required and must be 128 characters or fewer.");
+  }
+  if (!environment || environment.length > 40) {
+    throw new Error("Environment is required and must be 40 characters or fewer.");
+  }
+  if (!operatingSystem) {
+    throw new Error("Operating system is required.");
+  }
+  if (!Number.isInteger(ownerId) || ownerId <= 0) {
+    throw new Error("Owner is required.");
+  }
+  if (location.length > 160) {
+    throw new Error("Location must be 160 characters or fewer.");
+  }
+  if (serverName.length > 128) {
+    throw new Error("Server name must be 128 characters or fewer.");
+  }
+  if (serverIp.length > 45) {
+    throw new Error("Server IP must be 45 characters or fewer.");
+  }
+  if (zone !== "SZ1" && zone !== "SZ2" && zone !== "LAN") {
+    throw new Error("Zone must be SZ1, SZ2, or LAN.");
+  }
+
+  return {
+    databaseName,
+    environment,
+    location,
+    operatingSystem,
+    databaseRole,
+    databaseType,
+    status,
+    environmentLabel,
+    ownerId,
+    serverName,
+    serverIp,
+    zone
+  };
+}
+
 function mapAuthMode(): AuthMode {
   return "jwt";
 }
@@ -184,6 +337,10 @@ function parseJson<T>(raw: unknown): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+function isOracleMissingTableError(error: unknown) {
+  return error instanceof Error && error.message.includes("ORA-00942");
 }
 
 function nullableNumber(value?: number) {
@@ -419,7 +576,7 @@ async function countActiveAdmins(connection: Connection) {
   const result = await connection.execute<DbRow>(
     `SELECT COUNT(*) AS active_admin_count
      FROM app_users
-     WHERE role = 'admin'
+     WHERE role = 'app_admin'
        AND is_active = 'Y'`
   );
   return Number(result.rows?.[0]?.ACTIVE_ADMIN_COUNT || 0);
@@ -445,6 +602,422 @@ export async function listAppUsers(): Promise<AppUser[]> {
     );
 
     return (result.rows || []).map(mapAppUserRow);
+  });
+}
+
+async function assertActiveClientOwner(connection: Connection, ownerId: number) {
+  const owner = await connection.execute<DbRow>(
+    `SELECT user_id
+     FROM app_users
+     WHERE user_id = :ownerId
+       AND role = 'client'
+       AND is_active = 'Y'`,
+    { ownerId }
+  );
+
+  if (!owner.rows?.length) {
+    throw new Error("Owner must be an active client user.");
+  }
+}
+
+async function fetchDatabaseInventoryById(connection: Connection, id: number): Promise<DatabaseInventoryItem | null> {
+  const result = await connection.execute<DbRow>(
+    `SELECT
+       d.id,
+       d.database_name,
+       d.environment,
+       d.server_name,
+       d.server_ip,
+       d.zone,
+       d.location,
+       d.operating_system,
+       d.database_role,
+       d.database_type,
+       d.status,
+       d.environment_label,
+       d.owner_id,
+       u.username AS owner_username,
+       u.email AS owner_email,
+       d.created_at,
+       d.updated_at,
+       d.created_by,
+       d.updated_by
+     FROM database_inventory d
+     LEFT JOIN app_users u ON u.user_id = d.owner_id
+     WHERE d.id = :id`,
+    { id }
+  );
+
+  const row = result.rows?.[0];
+  return row ? mapDatabaseInventoryRow(row) : null;
+}
+
+export async function listDatabaseInventory(input: { role?: UserRole; userId?: number } = {}): Promise<DatabaseInventoryItem[]> {
+  return executeOne(async (connection) => {
+    const binds: BindParameters = {};
+    const ownerFilter = input.role === "client" && input.userId ? "WHERE d.owner_id = :ownerId" : "";
+    if (ownerFilter) binds.ownerId = input.userId;
+
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         d.id,
+         d.database_name,
+         d.environment,
+         d.server_name,
+         d.server_ip,
+         d.zone,
+         d.location,
+         d.operating_system,
+         d.database_role,
+         d.database_type,
+         d.status,
+         d.environment_label,
+         d.owner_id,
+         u.username AS owner_username,
+         u.email AS owner_email,
+         d.created_at,
+         d.updated_at,
+         d.created_by,
+         d.updated_by
+       FROM database_inventory d
+       LEFT JOIN app_users u ON u.user_id = d.owner_id
+       ${ownerFilter}
+       ORDER BY UPPER(d.database_name)`,
+      binds
+    );
+
+    return (result.rows || []).map(mapDatabaseInventoryRow);
+  });
+}
+
+export async function getDatabaseInventory(id: number, input: { role?: UserRole; userId?: number } = {}): Promise<DatabaseInventoryItem | null> {
+  return executeOne(async (connection) => {
+    const item = await fetchDatabaseInventoryById(connection, id);
+    if (!item) return null;
+    if (input.role === "client" && input.userId && item.owner_id !== input.userId) return null;
+    return item;
+  });
+}
+
+export async function getDatabaseTargetByName(name: string): Promise<DatabaseTarget | undefined> {
+  const normalizedName = name.trim();
+  if (!normalizedName) return undefined;
+
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         d.id,
+         d.database_name,
+         d.environment,
+         d.server_name,
+         d.server_ip,
+         d.zone,
+         d.location,
+         d.operating_system,
+         d.database_role,
+         d.database_type,
+         d.status,
+         d.environment_label,
+         d.owner_id,
+         u.username AS owner_username,
+         u.email AS owner_email,
+         d.created_at,
+         d.updated_at,
+         d.created_by,
+         d.updated_by
+       FROM database_inventory d
+       LEFT JOIN app_users u ON u.user_id = d.owner_id
+       WHERE UPPER(d.database_name) = UPPER(:name)
+       FETCH FIRST 1 ROW ONLY`,
+      { name: normalizedName }
+    );
+
+    const row = result.rows?.[0];
+    return row ? mapDatabaseInventoryRow(row) : undefined;
+  });
+}
+
+export async function createDatabaseInventory(input: DatabaseInventoryInput, actor: string): Promise<DatabaseInventoryItem> {
+  const normalized = normalizeDatabaseInventoryInput(input);
+
+  return executeOne(async (connection) => {
+    try {
+      await assertActiveClientOwner(connection, normalized.ownerId);
+
+      const duplicate = await connection.execute<DbRow>(
+        `SELECT id
+         FROM database_inventory
+         WHERE UPPER(database_name) = UPPER(:databaseName)
+         FETCH FIRST 1 ROW ONLY`,
+        { databaseName: normalized.databaseName }
+      );
+      if (duplicate.rows?.length) {
+        throw new Error("A database with that name already exists.");
+      }
+
+      const idResult = await connection.execute<DbRow>(
+        `SELECT database_inventory_seq.NEXTVAL AS next_id FROM dual`
+      );
+      const id = Number(idResult.rows?.[0]?.NEXT_ID);
+
+      await connection.execute(
+        `INSERT INTO database_inventory (
+           id,
+           database_name,
+           environment,
+           server_name,
+           server_ip,
+           zone,
+           location,
+           operating_system,
+           database_role,
+           database_type,
+           status,
+           environment_label,
+           owner_id,
+           created_by,
+           updated_by
+         ) VALUES (
+           :id,
+           :databaseName,
+           :environment,
+           :serverName,
+           :serverIp,
+           :zone,
+           :location,
+           :operatingSystem,
+           :databaseRole,
+           :databaseType,
+           :status,
+           :environmentLabel,
+           :ownerId,
+           :actor,
+           :actor
+         )`,
+        {
+          id,
+          databaseName: normalized.databaseName,
+          environment: normalized.environment,
+          serverName: normalized.serverName || null,
+          serverIp: normalized.serverIp || null,
+          zone: normalized.zone,
+          location: normalized.location,
+          operatingSystem: normalized.operatingSystem,
+          databaseRole: normalized.databaseRole,
+          databaseType: normalized.databaseType,
+          status: normalized.status,
+          environmentLabel: normalized.environmentLabel,
+          ownerId: normalized.ownerId,
+          actor
+        }
+      );
+
+      await connection.execute(
+        `INSERT INTO db_owner_mapping (
+           id,
+           owner_id,
+           database_id,
+           assigned_by,
+           is_active
+         ) VALUES (
+           db_owner_mapping_seq.NEXTVAL,
+           :ownerId,
+           :databaseId,
+           :actor,
+           'Y'
+         )`,
+        { ownerId: normalized.ownerId, databaseId: id, actor }
+      );
+
+      await connection.commit();
+      const created = await fetchDatabaseInventoryById(connection, id);
+      if (!created) throw new Error("Created database was not found.");
+      return created;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function updateDatabaseInventory(id: number, input: DatabaseInventoryInput, actor: string): Promise<DatabaseInventoryItem> {
+  const normalized = normalizeDatabaseInventoryInput(input);
+
+  return executeOne(async (connection) => {
+    try {
+      const existing = await fetchDatabaseInventoryById(connection, id);
+      if (!existing) {
+        throw new Error("Database not found.");
+      }
+
+      await assertActiveClientOwner(connection, normalized.ownerId);
+
+      const duplicate = await connection.execute<DbRow>(
+        `SELECT id
+         FROM database_inventory
+         WHERE id <> :id
+           AND UPPER(database_name) = UPPER(:databaseName)
+         FETCH FIRST 1 ROW ONLY`,
+        { id, databaseName: normalized.databaseName }
+      );
+      if (duplicate.rows?.length) {
+        throw new Error("Another database already has that name.");
+      }
+
+      await connection.execute(
+        `UPDATE database_inventory
+         SET database_name = :databaseName,
+             environment = :environment,
+             server_name = :serverName,
+             server_ip = :serverIp,
+             zone = :zone,
+             location = :location,
+             operating_system = :operatingSystem,
+             database_role = :databaseRole,
+             database_type = :databaseType,
+             status = :status,
+             environment_label = :environmentLabel,
+             owner_id = :ownerId,
+             updated_by = :actor
+         WHERE id = :id`,
+        {
+          id,
+          databaseName: normalized.databaseName,
+          environment: normalized.environment,
+          serverName: normalized.serverName || null,
+          serverIp: normalized.serverIp || null,
+          zone: normalized.zone,
+          location: normalized.location,
+          operatingSystem: normalized.operatingSystem,
+          databaseRole: normalized.databaseRole,
+          databaseType: normalized.databaseType,
+          status: normalized.status,
+          environmentLabel: normalized.environmentLabel,
+          ownerId: normalized.ownerId,
+          actor
+        }
+      );
+
+      if (existing.owner_id !== normalized.ownerId) {
+        await connection.execute(
+          `UPDATE db_owner_mapping
+           SET is_active = 'N'
+           WHERE database_id = :databaseId
+             AND is_active = 'Y'`,
+          { databaseId: id }
+        );
+
+        await connection.execute(
+          `INSERT INTO db_owner_mapping (
+             id,
+             owner_id,
+             database_id,
+             assigned_by,
+             is_active
+           ) VALUES (
+             db_owner_mapping_seq.NEXTVAL,
+             :ownerId,
+             :databaseId,
+             :actor,
+             'Y'
+           )`,
+          { ownerId: normalized.ownerId, databaseId: id, actor }
+        );
+      }
+
+      await connection.commit();
+      const updated = await fetchDatabaseInventoryById(connection, id);
+      if (!updated) throw new Error("Updated database was not found.");
+      return updated;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function changeDatabaseOwner(id: number, ownerId: number, actor: string): Promise<DatabaseInventoryItem> {
+  if (!Number.isInteger(ownerId) || ownerId <= 0) {
+    throw new Error("Owner is required.");
+  }
+
+  return executeOne(async (connection) => {
+    try {
+      const existing = await fetchDatabaseInventoryById(connection, id);
+      if (!existing) {
+        throw new Error("Database not found.");
+      }
+      await assertActiveClientOwner(connection, ownerId);
+
+      if (existing.owner_id !== ownerId) {
+        await connection.execute(
+          `UPDATE db_owner_mapping
+           SET is_active = 'N'
+           WHERE database_id = :databaseId
+             AND is_active = 'Y'`,
+          { databaseId: id }
+        );
+
+        await connection.execute(
+          `INSERT INTO db_owner_mapping (
+             id,
+             owner_id,
+             database_id,
+             assigned_by,
+             is_active
+           ) VALUES (
+             db_owner_mapping_seq.NEXTVAL,
+             :ownerId,
+             :databaseId,
+             :actor,
+             'Y'
+           )`,
+          { ownerId, databaseId: id, actor }
+        );
+
+        await connection.execute(
+          `UPDATE database_inventory
+           SET owner_id = :ownerId,
+               updated_by = :actor
+           WHERE id = :databaseId`,
+          { ownerId, actor, databaseId: id }
+        );
+      }
+
+      await connection.commit();
+      const updated = await fetchDatabaseInventoryById(connection, id);
+      if (!updated) throw new Error("Updated database was not found.");
+      return updated;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function deleteDatabaseInventory(id: number): Promise<void> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await fetchDatabaseInventoryById(connection, id);
+      if (!existing) {
+        throw new Error("Database not found.");
+      }
+
+      await connection.execute(
+        `DELETE FROM db_owner_mapping
+         WHERE database_id = :id`,
+        { id }
+      );
+      await connection.execute(
+        `DELETE FROM database_inventory
+         WHERE id = :id`,
+        { id }
+      );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
   });
 }
 
@@ -542,10 +1115,10 @@ export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser>
     const existingRole = mapUserRole(existing.ROLE);
     const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
     const nextActive = Boolean(input.isActive);
-    if (existingRole === "admin" && existingActive && (normalized.role !== "admin" || !nextActive)) {
+    if (existingRole === "app_admin" && existingActive && (normalized.role !== "app_admin" || !nextActive)) {
       const activeAdmins = await countActiveAdmins(connection);
       if (activeAdmins <= 1) {
-        throw new Error("At least one active admin user must remain.");
+        throw new Error("At least one active app admin user must remain.");
       }
     }
 
@@ -618,10 +1191,10 @@ export async function removeAppUser(userId: number): Promise<void> {
 
     const existingRole = mapUserRole(existing.ROLE);
     const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
-    if (existingRole === "admin" && existingActive) {
+    if (existingRole === "app_admin" && existingActive) {
       const activeAdmins = await countActiveAdmins(connection);
       if (activeAdmins <= 1) {
-        throw new Error("Cannot delete the last active admin user.");
+        throw new Error("Cannot delete the last active app admin user.");
       }
     }
 
@@ -631,8 +1204,8 @@ export async function removeAppUser(userId: number): Promise<void> {
     // Check if app_password_resets exists before deleting (some minimal setups might omit it)
     try {
       await connection.execute(`DELETE FROM app_password_resets WHERE user_id = :userId`, { userId });
-    } catch (e: any) {
-      if (!e.message?.includes("ORA-00942")) {
+    } catch (e: unknown) {
+      if (!isOracleMissingTableError(e)) {
         throw e; // Reraise if it's not a "table or view does not exist" error
       }
     }
@@ -640,14 +1213,14 @@ export async function removeAppUser(userId: number): Promise<void> {
     // Detach audit logs and history so we don't lose the records (user_id is nullable)
     try {
       await connection.execute(`UPDATE app_audit_logs SET user_id = NULL WHERE user_id = :userId`, { userId });
-    } catch (e: any) {
-      if (!e.message?.includes("ORA-00942")) throw e;
+    } catch (e: unknown) {
+      if (!isOracleMissingTableError(e)) throw e;
     }
     
     try {
       await connection.execute(`UPDATE app_request_history SET user_id = NULL WHERE user_id = :userId`, { userId });
-    } catch (e: any) {
-      if (!e.message?.includes("ORA-00942")) throw e;
+    } catch (e: unknown) {
+      if (!isOracleMissingTableError(e)) throw e;
     }
 
     await connection.execute(
@@ -674,10 +1247,10 @@ export async function toggleAppUserStatus(userId: number): Promise<AppUser> {
     const existingRole = mapUserRole(existing.ROLE);
     const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
 
-    if (existingRole === "admin" && existingActive) {
+    if (existingRole === "app_admin" && existingActive) {
       const activeAdmins = await countActiveAdmins(connection);
       if (activeAdmins <= 1) {
-        throw new Error("Cannot deactivate the last active admin user.");
+        throw new Error("Cannot deactivate the last active app admin user.");
       }
     }
 
@@ -847,7 +1420,7 @@ export async function revokeSession(sessionToken: string) {
 
 export async function insertAuditLog(input: {
   actor: string;
-  action: DbaAction | "login" | "logout" | "retry";
+  action: DbaAction | "login" | "logout" | "retry" | string;
   db?: string;
   status: string;
   detail: string;

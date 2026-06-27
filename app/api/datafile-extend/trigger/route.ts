@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { findDatabaseTarget } from "@/lib/constants";
 import { getServerEnv } from "@/lib/server/env";
-import { insertAuditLog } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAuditLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const dbTarget = findDatabaseTarget(db);
+  const dbTarget = await getDatabaseTargetByName(db);
   const payload = {
     action: "datafile_extend",
     db,

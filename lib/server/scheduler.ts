@@ -2,9 +2,9 @@ import "server-only";
 
 import cron, { type ScheduledTask } from "node-cron";
 
-import { findDatabaseTarget } from "@/lib/constants";
 import { getServerEnv } from "@/lib/server/env";
 import {
+  getDatabaseTargetByName,
   getActiveSchedules,
   insertAuditLog,
   updateScheduleRunMetadata,
@@ -88,7 +88,7 @@ async function triggerRefresh(schedule: DashboardSchedule): Promise<void> {
     return;
   }
 
-  const dbTarget = findDatabaseTarget(schedule.db_name);
+  const dbTarget = await getDatabaseTargetByName(schedule.db_name);
 
   const payload: DbaRequestPayload = {
     action: "refresh_dashboard",

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getActionDefinition } from "@/lib/action-catalog";
-import { findDatabaseTarget } from "@/lib/constants";
 import { getServerEnv } from "@/lib/server/env";
-import { insertAuditLog, insertRequestHistory, persistRunData } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { createMockResponse } from "@/services/mock-data";
 import type { DbaAction, DbaRequestPayload, DbaResponse } from "@/types/dba";
@@ -223,7 +222,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: `Unsupported action: ${action}` }, { status: 400 });
     }
 
-    const dbTarget = findDatabaseTarget(db);
+    const dbTarget = await getDatabaseTargetByName(db);
     payload = {
       action,
       db,

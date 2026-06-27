@@ -18,7 +18,6 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { startRmanBackgroundJob } from "@/services/rman-background";
-import { findDatabaseTarget } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 
@@ -93,6 +92,7 @@ function CheckRow({
 
 export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
   const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
   const user = useAppStore((s) => s.user);
 
   const [params, setParams] = useState<RmanBackupParams>(DEFAULT_PARAMS);
@@ -100,7 +100,7 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
   const [rawJson, setRawJson] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
 
-  const dbTarget = useMemo(() => findDatabaseTarget(selectedDb), [selectedDb]);
+  const dbTarget = useMemo(() => databases.find((db) => db.name === selectedDb), [databases, selectedDb]);
 
   const fullPayload = useMemo(
     () => ({

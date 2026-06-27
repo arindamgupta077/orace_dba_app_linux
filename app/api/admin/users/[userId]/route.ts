@@ -22,8 +22,8 @@ async function requireAdmin() {
   if (!session) {
     return { session: null, response: NextResponse.json({ message: "Unauthorized." }, { status: 401 }) };
   }
-  if (session.user.role !== "admin") {
-    return { session: null, response: NextResponse.json({ message: "Admin role required." }, { status: 403 }) };
+  if (session.user.role !== "app_admin") {
+    return { session: null, response: NextResponse.json({ message: "App admin role required." }, { status: 403 }) };
   }
   return { session, response: null };
 }
@@ -44,12 +44,12 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const userId = await readUserId(context);
     const body = (await request.json()) as UpdateUserBody;
-    const nextRole = String(body.role || "operator") as AppUserRole;
+    const nextRole = String(body.role || "client") as AppUserRole;
     const nextActive = body.isActive !== false;
 
-    if (auth.session?.userId === userId && (nextRole !== "admin" || !nextActive)) {
+    if (auth.session?.userId === userId && (nextRole !== "app_admin" || !nextActive)) {
       return NextResponse.json(
-        { message: "You cannot remove admin access from your own active session." },
+        { message: "You cannot remove app admin access from your own active session." },
         { status: 400 }
       );
     }
@@ -82,7 +82,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const userId = await readUserId(context);
     if (auth.session?.userId === userId) {
       return NextResponse.json(
-        { message: "You cannot delete your own admin account." },
+        { message: "You cannot delete your own app admin account." },
         { status: 400 }
       );
     }
