@@ -1430,10 +1430,24 @@ export async function insertAuditLog(input: {
   console.log(`[Audit Log Bypass] actor: ${input.actor}, action: ${input.action}, db: ${input.db}, status: ${input.status}, detail: ${input.detail}`);
 }
 
-export async function listAuditLogs(limit = 200): Promise<AuditLogItem[]> {
+export async function listAuditLogs(
+  limit = 200,
+  input: { role?: UserRole; userId?: number } = {}
+): Promise<AuditLogItem[]> {
   const safeLimit = Math.min(Math.max(limit, 1), 1000);
 
+  // For "client" role users, restrict to audit logs whose db_name belongs
+  // to a database they own in db_inventory.
+  const isClientRestricted = input.role === "client" && !!input.userId;
+  const whereClause = isClientRestricted
+    ? `WHERE db_name IN (
+         SELECT database_name FROM database_inventory WHERE owner_id = :ownerId
+       )`
+    : "";
+
   return executeOne(async (connection) => {
+    const binds: BindParameters = isClientRestricted ? { ownerId: input.userId } : {};
+
     const result = await connection.execute<DbRow>(
       `SELECT
          audit_id,
@@ -1446,8 +1460,10 @@ export async function listAuditLogs(limit = 200): Promise<AuditLogItem[]> {
          metadata_json,
          created_at
        FROM app_audit_logs
+       ${whereClause}
        ORDER BY created_at DESC
-       FETCH FIRST ${safeLimit} ROWS ONLY`
+       FETCH FIRST ${safeLimit} ROWS ONLY`,
+      binds
     );
 
     return (result.rows || []).map((row) => ({
@@ -2409,10 +2425,6 @@ export interface PerformanceRunAllRow {
   created_at: string;
 }
 
-/**
- * Returns the single most-recent row from performance_run_all_hist
- * for the given db_name, or null if no run has been recorded yet.
- */
 export async function getLatestPerformanceRunAll(
   db: string
 ): Promise<PerformanceRunAllRow | null> {
@@ -2452,3 +2464,4 @@ export async function getLatestPerformanceRunAll(
     };
   });
 }
+

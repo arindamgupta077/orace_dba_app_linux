@@ -14,7 +14,12 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get("limit") || "200");
-    const items = await listAuditLogs(limit);
+
+    // For "client" role users, restrict results to their own databases only.
+    const items = await listAuditLogs(limit, {
+      role: session.user.role,
+      userId: session.userId,
+    });
     return NextResponse.json({ items });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected audit log error.";

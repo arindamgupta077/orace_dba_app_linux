@@ -427,12 +427,30 @@ function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: bo
   );
 }
 
+function NoDatabasesState() {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-secondary/20 py-20 text-center">
+      <div className="mb-4 rounded-full border border-amber-400/30 bg-amber-400/10 p-4">
+        <Database className="h-10 w-10 text-amber-300" />
+      </div>
+      <h3 className="text-lg font-semibold text-slate-200">No Databases Assigned</h3>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+        No databases have been assigned to your account yet. Please contact your administrator to have a database assigned to you.
+      </p>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
 export function DashboardOverview() {
   const selectedDb = useAppStore((s) => s.selectedDb);
   const databases = useAppStore((s) => s.databases);
+  const user = useAppStore((s) => s.user);
   const { runAction } = useDbaAction();
+
+  // Client users with no assigned databases see a dedicated message — no data fetched.
+  const isClientWithNoDatabases = user?.role === "client" && databases.length === 0;
 
   const [metrics, setMetrics]               = useState<DashboardMetrics | null>(null);
   const [refreshedAt, setRefreshedAt]       = useState<string | null>(null);
@@ -481,13 +499,15 @@ export function DashboardOverview() {
   }, []);
 
   useEffect(() => {
+    // Skip all data fetching if this client has no databases assigned.
+    if (isClientWithNoDatabases) return;
     if (prevDb.current !== selectedDb) {
       prevDb.current = selectedDb;
       setMetrics(null);
     }
     loadHistory(selectedDb);
     loadServerSchedule(selectedDb);
-  }, [selectedDb, loadHistory, loadServerSchedule]);
+  }, [selectedDb, loadHistory, loadServerSchedule, isClientWithNoDatabases]);
 
   // Trigger n8n refresh_dashboard workflow.
   // After n8n responds, normalise its raw_data (same UPPERCASE key issue applies).
@@ -545,6 +565,12 @@ export function DashboardOverview() {
   const overallColor = !m ? "" : isHealthy ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : isWarning ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-red-400/30 bg-red-500/10 text-red-300";
 
   const csvData = tablespaces.map((t) => ({ tablespace: t.tablespace_name, total_mb: t.total_mb, used_mb: t.used_mb, free_mb: t.free_mb, pct_used: t.pct_used }));
+
+  // ── No databases assigned (client role) ─────────────────────────────────
+
+  if (isClientWithNoDatabases) {
+    return <NoDatabasesState />;
+  }
 
   // ── Loading skeleton ────────────────────────────────────────────────────
 

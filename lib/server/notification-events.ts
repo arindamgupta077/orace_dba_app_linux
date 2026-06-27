@@ -32,13 +32,34 @@ function removeListener(id: string) {
   listeners.delete(id);
 }
 
-export function addGlobalNotificationListener(controller: ReadableStreamDefaultController<Uint8Array>) {
+/**
+ * Register a new SSE client.
+ * @param controller  - The ReadableStream controller to write SSE frames into.
+ * @param replayItems - Optional recent notifications to replay immediately on connect.
+ *                      Ensures the bell icon is populated even after the browser was closed.
+ */
+export function addGlobalNotificationListener(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  replayItems?: NotificationPayload[]
+) {
   const id = `gn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const listener: NotificationListener = { id, controller };
   listeners.set(id, listener);
 
   try {
     writeSse(listener, "connected", { sent_at: new Date().toISOString() });
+
+    // Replay any missed notifications (alerts that arrived while the browser was closed)
+    if (replayItems && replayItems.length > 0) {
+      for (const item of replayItems) {
+        try {
+          writeSse(listener, "notification", { ...item, replayed: true, sent_at: new Date().toISOString() });
+        } catch {
+          break; // stream already closed
+        }
+      }
+    }
+
     listener.heartbeatId = setInterval(() => {
       try {
         writeSse(listener, "heartbeat", { sent_at: new Date().toISOString() });

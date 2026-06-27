@@ -29,8 +29,11 @@ import { useOnlineStatus } from "@/hooks/use-online-status";
 import { fetchCurrentSession, fetchDatabases, isMockMode, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
+// Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
+const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
+
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, clientAllowed: true },
   { href: "/admin-panel", label: "Admin Panel", icon: ShieldCheck, adminOnly: true },
   { href: "/db-inventory", label: "DB Inventory", icon: DatabaseZap, adminOnly: true },
   { href: "/general-admin", label: "General Admin", icon: Settings2 },
@@ -42,13 +45,17 @@ const navItems = [
   { href: "/alerts", label: "Alert Log", icon: FileWarning },
   { href: "/performance-tuning", label: "Performance Tuning", icon: TrendingUp },
   { href: "/chat", label: "Chat with DB", icon: Bot },
-  { href: "/audit", label: "Audit Logs", icon: ClipboardList }
+  { href: "/audit", label: "Audit Logs", icon: ClipboardList, clientAllowed: true },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const user = useAppStore((state) => state.user);
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || user?.role === "app_admin");
+  const visibleNavItems = navItems.filter((item) => {
+    if (user?.role === "client") return item.clientAllowed === true;
+    if (item.adminOnly) return user?.role === "app_admin";
+    return true;
+  });
 
   return (
     <div className="flex h-full flex-col">
@@ -110,12 +117,22 @@ function RmanRunningBadge() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const isOnline = useOnlineStatus();
   const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
   const setDatabases = useAppStore((state) => state.setDatabases);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+
+  // Redirect "client" users away from pages they are not authorised to view.
+  useEffect(() => {
+    if (!user || user.role !== "client") return;
+    const isAllowed = CLIENT_ALLOWED_PATHS.some((allowed) => pathname === allowed || pathname.startsWith(allowed + "/"));
+    if (!isAllowed) {
+      router.replace("/dashboard");
+    }
+  }, [user, pathname, router]);
 
   useEffect(() => {
     let active = true;

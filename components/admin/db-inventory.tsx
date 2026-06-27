@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { DatabaseZap, Edit3, Loader2, Plus, Search, Trash2, UserRoundCog } from "lucide-react";
+import { DatabaseZap, Edit3, Loader2, Plus, Search, Trash2, UserRoundCog, SlidersHorizontal, X, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ import {
   updateDatabase
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
+import { cn } from "@/lib/utils";
 import type { AppUser, DatabaseInventoryInput, DatabaseInventoryItem, DbEnvironment, DbOs, DbType } from "@/types/dba";
 
 const ENVIRONMENT_OPTIONS = ["Production", "non-production", "DR"];
@@ -120,6 +121,12 @@ export function DbInventory() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
+  const [selectedEnvLabel, setSelectedEnvLabel] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedDbType, setSelectedDbType] = useState<string>("all");
+  const [selectedOs, setSelectedOs] = useState<string>("all");
+  const [selectedZone, setSelectedZone] = useState<string>("all");
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
@@ -153,26 +160,76 @@ export function DbInventory() {
   }, [loadData]);
 
   const filteredDatabases = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return databases;
-    return databases.filter((database) =>
-      [
-        database.database_name,
-        database.environment,
-        database.location,
-        database.os,
-        database.owner?.username,
-        database.db_type,
-        database.status,
-        database.server_name,
-        database.server_ip,
-        database.zone
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized)
+    return databases.filter((database) => {
+      // 1. Text Search Filter
+      const normalizedQuery = query.trim().toLowerCase();
+      if (normalizedQuery) {
+        const matchesText = [
+          database.database_name,
+          database.environment,
+          database.location,
+          database.os,
+          database.owner?.username,
+          database.db_type,
+          database.status,
+          database.server_name,
+          database.server_ip,
+          database.zone
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+        if (!matchesText) return false;
+      }
+
+      // 2. Environment Label Filter
+      if (selectedEnvLabel !== "all" && database.env_label !== selectedEnvLabel) {
+        return false;
+      }
+
+      // 3. Status Filter
+      if (selectedStatus !== "all" && database.status !== selectedStatus) {
+        return false;
+      }
+
+      // 4. DB Type Filter
+      if (selectedDbType !== "all" && database.db_type !== selectedDbType) {
+        return false;
+      }
+
+      // 5. Operating System Filter
+      if (selectedOs !== "all" && database.os !== selectedOs) {
+        return false;
+      }
+
+      // 6. Zone Filter
+      if (selectedZone !== "all" && database.zone !== selectedZone) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [databases, query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone]);
+
+  const hasActiveFilters = useMemo(() => {
+    return (
+      query.trim() !== "" ||
+      selectedEnvLabel !== "all" ||
+      selectedStatus !== "all" ||
+      selectedDbType !== "all" ||
+      selectedOs !== "all" ||
+      selectedZone !== "all"
     );
-  }, [databases, query]);
+  }, [query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone]);
+
+  const handleClearFilters = () => {
+    setQuery("");
+    setSelectedEnvLabel("all");
+    setSelectedStatus("all");
+    setSelectedDbType("all");
+    setSelectedOs("all");
+    setSelectedZone("all");
+  };
 
   const openCreate = () => {
     setForm({ ...emptyForm, owner_id: clients[0]?.userId ? String(clients[0].userId) : "" });
@@ -472,17 +529,207 @@ export function DbInventory() {
       )}
 
       <Card>
-        <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
-          <CardTitle>Databases</CardTitle>
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search databases"
-              className="pl-9"
-            />
+        <CardHeader className="flex flex-col gap-4 border-b border-border/40 pb-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle>Databases</CardTitle>
+              <Badge variant="outline" className="border-cyan-500/20 bg-cyan-500/5 text-cyan-300">
+                {filteredDatabases.length} of {databases.length} visible
+              </Badge>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full md:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search database, server, IP, owner..."
+                  className="pl-9 bg-background/50 border-border/80 focus-visible:ring-cyan-500/30"
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "gap-2 h-10 border-border/80 bg-background/40 hover:bg-background/80 transition-colors",
+                  showAdvanced && "bg-cyan-950/20 border-cyan-500/30 text-cyan-300 hover:bg-cyan-950/30"
+                )}
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>Filters</span>
+                {hasActiveFilters && (
+                  <Badge variant="secondary" className="ml-1 px-1.5 py-0.5 text-[10px] bg-cyan-500/20 text-cyan-200 border-0">
+                    {
+                      (query.trim() ? 1 : 0) +
+                      (selectedEnvLabel !== "all" ? 1 : 0) +
+                      (selectedStatus !== "all" ? 1 : 0) +
+                      (selectedDbType !== "all" ? 1 : 0) +
+                      (selectedOs !== "all" ? 1 : 0) +
+                      (selectedZone !== "all" ? 1 : 0)
+                    }
+                  </Badge>
+                )}
+              </Button>
+
+              {hasActiveFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearFilters}
+                  className="h-10 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Clear all
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* Advanced filters dropdown panel */}
+          {showAdvanced && (
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5 p-4 rounded-lg border border-border/60 bg-muted/20 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Environment Label</label>
+                <Select value={selectedEnvLabel} onValueChange={setSelectedEnvLabel}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Environments</SelectItem>
+                    {ENV_LABEL_OPTIONS.map((env) => (
+                      <SelectItem key={env} value={env}>{env}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Status</label>
+                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    {STATUS_OPTIONS.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">DB Type</label>
+                <Select value={selectedDbType} onValueChange={setSelectedDbType}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All DB Types</SelectItem>
+                    {DB_TYPE_OPTIONS.map((type) => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Operating System</label>
+                <Select value={selectedOs} onValueChange={setSelectedOs}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All OS</SelectItem>
+                    {OS_OPTIONS.map((os) => (
+                      <SelectItem key={os} value={os}>{os}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Zone</label>
+                <Select value={selectedZone} onValueChange={setSelectedZone}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Zones</SelectItem>
+                    {ZONE_OPTIONS.map((zone) => (
+                      <SelectItem key={zone} value={zone}>{zone}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Active Filter Chips */}
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-xs text-muted-foreground mr-1">Active filters:</span>
+              
+              {query.trim() !== "" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Search: &quot;{query}&quot;
+                  <button onClick={() => setQuery("")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedEnvLabel !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Env: {selectedEnvLabel}
+                  <button onClick={() => setSelectedEnvLabel("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedStatus !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Status: {selectedStatus}
+                  <button onClick={() => setSelectedStatus("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedDbType !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Type: {selectedDbType}
+                  <button onClick={() => setSelectedDbType("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedOs !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  OS: {selectedOs}
+                  <button onClick={() => setSelectedOs("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedZone !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Zone: {selectedZone}
+                  <button onClick={() => setSelectedZone("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {loading ? (
