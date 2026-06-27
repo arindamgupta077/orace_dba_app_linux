@@ -6,6 +6,8 @@ interface ServerEnv {
   oraclePassword: string;
   webhookUrl: string;
   webhookToken: string;
+  adminWebhookUrl: string;
+  adminWebhookSecret: string;
   mockMode: boolean;
   authSecret: string;
   sessionCookieName: string;
@@ -38,6 +40,8 @@ export function getServerEnv(): ServerEnv {
 
   const webhookUrl = process.env.NEXT_PUBLIC_DBA_WEBHOOK_URL?.trim() || "";
   const webhookToken = process.env.NEXT_PUBLIC_DBA_TOKEN?.trim() || "";
+  const adminWebhookUrl = process.env.NEXT_PUBLIC_ADMIN_WEBHOOK_URL?.trim() || "";
+  const adminWebhookSecret = process.env.ADMIN_WEBHOOK_SECRET?.trim() || "";
 
   cached = {
     oracleConnectString: readRequired("ORACLE_CONNECTION_STRING"),
@@ -45,6 +49,8 @@ export function getServerEnv(): ServerEnv {
     oraclePassword: readRequired("ORACLE_PASSWORD"),
     webhookUrl,
     webhookToken,
+    adminWebhookUrl,
+    adminWebhookSecret,
     mockMode: process.env.NEXT_PUBLIC_DBA_MOCK !== "false",
     authSecret: readRequired("APP_AUTH_SECRET"),
     sessionCookieName: process.env.APP_SESSION_COOKIE_NAME?.trim() || "dba_session",

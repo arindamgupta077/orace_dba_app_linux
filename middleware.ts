@@ -16,7 +16,12 @@ export function middleware(request: NextRequest) {
 
   const hasSessionCookie = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 
-  if (pathname.startsWith("/api/auth/login")) {
+  if (
+    pathname.startsWith("/api/auth/login") ||
+    pathname.startsWith("/api/auth/logout") ||
+    pathname.startsWith("/api/auth/forgot-password") ||
+    pathname.startsWith("/api/auth/reset-password")
+  ) {
     return NextResponse.next();
   }
 
@@ -42,7 +47,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/login") {
+  if (
+    pathname === "/login" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password"
+  ) {
     return NextResponse.next();
   }
 

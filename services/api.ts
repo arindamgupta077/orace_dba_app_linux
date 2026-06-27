@@ -38,7 +38,14 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    if (response.status === 401 && !url.includes("/api/auth/login")) {
+    const isAuthProbe =
+      url.includes("/api/auth/login") ||
+      url.includes("/api/auth/logout") ||
+      url.includes("/api/auth/session") ||
+      url.includes("/api/auth/forgot-password") ||
+      url.includes("/api/auth/reset-password");
+
+    if (response.status === 401 && !isAuthProbe) {
       const { clearAuthAndRedirect } = await import("@/lib/auth-client");
       await clearAuthAndRedirect();
     }
@@ -52,14 +59,28 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export async function loginWithPassword(username: string, password: string, remember: boolean) {
+export async function loginWithPassword(email: string, password: string, remember: boolean) {
   return requestJson<{ user: UserSession; expiresAt: string }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({
-      username,
+      email,
       password,
       remember
     })
+  });
+}
+
+export async function requestPasswordReset(email: string) {
+  return requestJson<{ success: boolean; message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email })
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string) {
+  return requestJson<{ success: boolean; message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, newPassword })
   });
 }
 

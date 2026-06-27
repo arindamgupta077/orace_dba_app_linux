@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Activity, DatabaseZap, LockKeyhole, Server, ShieldCheck } from "lucide-react";
+import { Activity, DatabaseZap, LockKeyhole, Mail, Server, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ export default function LoginPage() {
   const setUser = useAppStore((state) => state.setUser);
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ username: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   // Tracks whether the user has already submitted a successful login so that
   // the auto-session-check effect cannot race against the post-login redirect
   // and call clearAuthAndRedirect() (which would log them back out immediately).
@@ -66,7 +67,7 @@ export default function LoginPage() {
     event.preventDefault();
     setLoading(true);
     try {
-      const response = await loginWithPassword(form.username, form.password, remember);
+      const response = await loginWithPassword(form.email, form.password, remember);
       // Mark login as succeeded BEFORE navigating so that if the useEffect
       // above fires again on any re-render/remount it won't clear the session.
       loginSucceededRef.current = true;
@@ -157,24 +158,37 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold">Sign in</h2>
-                  <p className="text-sm text-muted-foreground">Use your portal credentials to continue</p>
+                  <p className="text-sm text-muted-foreground">Use your email address to continue</p>
                 </div>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    id="username"
-                    autoComplete="username"
-                    value={form.username}
-                    onChange={(event) => setForm({ ...form, username: event.target.value })}
-                    placeholder="Enter your username"
-                    disabled={loading}
-                  />
+                  <Label htmlFor="email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      value={form.email}
+                      onChange={(event) => setForm({ ...form, email: event.target.value })}
+                      placeholder="you@company.com"
+                      disabled={loading}
+                      className="pl-10"
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="password">Password</Label>
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs font-medium text-cyan-200 transition-colors hover:text-cyan-100"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
                   <Input
                     id="password"
                     type="password"
@@ -195,7 +209,7 @@ export default function LoginPage() {
                   />
                   Remember this device
                 </label>
-                <Button className="w-full" type="submit" disabled={loading || !form.username || !form.password}>
+                <Button className="w-full" type="submit" disabled={loading || !form.email || !form.password}>
                   {loading ? "Signing in..." : "Sign in"}
                 </Button>
               </form>

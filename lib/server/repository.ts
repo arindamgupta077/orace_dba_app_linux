@@ -269,6 +269,40 @@ export async function findUserForLogin(username: string): Promise<UserLoginRecor
   });
 }
 
+export async function findUserForLoginByEmail(email: string): Promise<UserLoginRecord | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         user_id,
+         username,
+         role,
+         password_salt,
+         password_hash,
+         api_token_hash,
+         is_active,
+         locked_until
+       FROM app_users
+       WHERE LOWER(email) = :email`,
+      { email: normalizedEmail }
+    );
+
+    const row = result.rows?.[0];
+    if (!row) return null;
+
+    return {
+      userId: Number(row.USER_ID),
+      username: String(row.USERNAME),
+      role: mapUserRole(row.ROLE),
+      passwordSalt: String(row.PASSWORD_SALT),
+      passwordHash: String(row.PASSWORD_HASH),
+      apiTokenHash: row.API_TOKEN_HASH ? String(row.API_TOKEN_HASH) : undefined,
+      isActive: String(row.IS_ACTIVE || "N") === "Y",
+      lockedUntil: asDate(row.LOCKED_UNTIL)
+    };
+  });
+}
+
 export async function registerFailedLogin(userId: number) {
   await executeOne(async (connection) => {
     await connection.execute(

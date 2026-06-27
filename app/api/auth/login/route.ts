@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import {
   clearFailedLogin,
   createSession,
-  findUserForLogin,
+  findUserForLoginByEmail,
   insertAuditLog,
   registerFailedLogin
 } from "@/lib/server/repository";
@@ -12,7 +12,7 @@ import { setSessionCookie } from "@/lib/server/session";
 import type { UserSession } from "@/types/dba";
 
 interface LoginBody {
-  username?: string;
+  email?: string;
   password?: string;
   remember?: boolean;
 }
@@ -26,21 +26,21 @@ function getClientIp(headers: Headers) {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as LoginBody;
-    const username = (body.username || "").trim();
+    const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";
     const rememberSession = Boolean(body.remember);
 
-    if (!username) {
-      return NextResponse.json({ message: "Username is required." }, { status: 400 });
+    if (!email) {
+      return NextResponse.json({ message: "Email is required." }, { status: 400 });
     }
 
-    const userRecord = await findUserForLogin(username);
+    const userRecord = await findUserForLoginByEmail(email);
     if (!userRecord || !userRecord.isActive) {
       await insertAuditLog({
-        actor: username,
+        actor: email,
         action: "login",
         status: "failed",
-        detail: "Invalid username or disabled account.",
+        detail: "Invalid email or disabled account.",
         metadata: { auth_mode: "jwt" }
       });
       return NextResponse.json({ message: "Invalid credentials." }, { status: 401 });

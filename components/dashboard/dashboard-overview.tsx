@@ -866,26 +866,38 @@ export function DashboardOverview() {
               </CardContent>
             </Card>
 
-            {/* SGA & PGA */}
+            {/* RMAN Backup History */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
-                  <Zap className="h-4 w-4 text-amber-300" />
-                  SGA &amp; PGA Parameters
+                  <ArchiveRestore className="h-4 w-4 text-emerald-300" />
+                  RMAN Backup History
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 jobs</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {[
-                  { label: "SGA Target",           value: sgaPga?.sga_target           ?? "—" },
-                  { label: "SGA Max Size",          value: sgaPga?.sga_max_size         ?? "—" },
-                  { label: "PGA Aggregate Target",  value: sgaPga?.pga_aggregate_target ?? "—" },
-                  { label: "PGA Aggregate Limit",   value: sgaPga?.pga_aggregate_limit  ?? "—" }
-                ].map(({ label, value }) => (
-                  <div key={label} className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-secondary/20 px-3 py-2">
-                    <span className="text-xs text-muted-foreground">{label}</span>
-                    <span className="rounded border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs font-bold font-mono text-amber-300">{value}</span>
-                  </div>
-                ))}
+              <CardContent>
+                <div className="max-h-[200px] overflow-y-auto pr-1 space-y-2">
+                  {backups.length > 0 ? backups.map((b, i) => (
+                    <div key={i} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
+                        {i + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-slate-200">{b.input_type}</span>
+                          <BackupStatusBadge status={b.status} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {b.start_time}
+                          {b.duration_min ? <> &middot; <span className="text-slate-400">{safeNum(b.duration_min).toFixed(1)} min</span></> : ""}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    </div>
+                  )) : (
+                    <p className="py-6 text-center text-sm text-muted-foreground">No backup history found.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -931,35 +943,30 @@ export function DashboardOverview() {
               </CardContent>
             </Card>
 
-            {/* RMAN Backup History — moved here beside Tablespace */}
+            {/* Critical ORA Errors */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
-                  <ArchiveRestore className="h-4 w-4 text-emerald-300" />
-                  RMAN Backup History
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 jobs</span>
+                  <AlertTriangle className="h-4 w-4 text-red-300" />
+                  Critical ORA Errors
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 from alert log</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {backups.length > 0 ? backups.map((b, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
-                      {i + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-slate-200">{b.input_type}</span>
-                        <BackupStatusBadge status={b.status} />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {b.start_time}
-                        {b.duration_min ? <> &middot; <span className="text-slate-400">{safeNum(b.duration_min).toFixed(1)} min</span></> : ""}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                {oraErrors.length > 0 ? oraErrors.map((e, i) => (
+                  <div key={i} className="rounded-lg border border-red-400/20 bg-red-500/5 p-3">
+                    <p className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {formatAppDateTime(e.originating_timestamp)}
+                    </p>
+                    <p className="font-mono text-xs leading-relaxed text-red-300 break-all">{e.message_text}</p>
                   </div>
                 )) : (
-                  <p className="py-6 text-center text-sm text-muted-foreground">No backup history found.</p>
+                  <div className="flex flex-col items-center gap-2 py-8">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-400/60" />
+                    <p className="text-sm font-medium text-emerald-300">No critical ORA errors</p>
+                    <p className="text-xs text-muted-foreground">Alert log is clean.</p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1004,31 +1011,26 @@ export function DashboardOverview() {
               </CardContent>
             </Card>
 
-            {/* Critical ORA Errors */}
+            {/* SGA & PGA */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-300" />
-                  Critical ORA Errors
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 from alert log</span>
+                  <Zap className="h-4 w-4 text-amber-300" />
+                  SGA &amp; PGA Parameters
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {oraErrors.length > 0 ? oraErrors.map((e, i) => (
-                  <div key={i} className="rounded-lg border border-red-400/20 bg-red-500/5 p-3">
-                    <p className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {formatAppDateTime(e.originating_timestamp)}
-                    </p>
-                    <p className="font-mono text-xs leading-relaxed text-red-300 break-all">{e.message_text}</p>
+              <CardContent className="space-y-3">
+                {[
+                  { label: "SGA Target",           value: sgaPga?.sga_target           ?? "—" },
+                  { label: "SGA Max Size",          value: sgaPga?.sga_max_size         ?? "—" },
+                  { label: "PGA Aggregate Target",  value: sgaPga?.pga_aggregate_target ?? "—" },
+                  { label: "PGA Aggregate Limit",   value: sgaPga?.pga_aggregate_limit  ?? "—" }
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-secondary/20 px-3 py-2">
+                    <span className="text-xs text-muted-foreground">{label}</span>
+                    <span className="rounded border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs font-bold font-mono text-amber-300">{value}</span>
                   </div>
-                )) : (
-                  <div className="flex flex-col items-center gap-2 py-8">
-                    <CheckCircle2 className="h-8 w-8 text-emerald-400/60" />
-                    <p className="text-sm font-medium text-emerald-300">No critical ORA errors</p>
-                    <p className="text-xs text-muted-foreground">Alert log is clean.</p>
-                  </div>
-                )}
+                ))}
               </CardContent>
             </Card>
           </div>
