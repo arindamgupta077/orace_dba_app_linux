@@ -68,6 +68,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const response = await loginWithPassword(form.email, form.password, remember);
+      if (response.requiresPasswordReset) {
+        toast.info("Password reset required", { description: response.message });
+        router.push(`/first-login-reset?email=${encodeURIComponent(response.email)}`);
+        return;
+      }
+
       // Mark login as succeeded BEFORE navigating so that if the useEffect
       // above fires again on any re-render/remount it won't clear the session.
       loginSucceededRef.current = true;

@@ -51,6 +51,14 @@ EXCEPTION
 END;
 /
 
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE app_users DROP CONSTRAINT app_users_must_change_pw_ck';
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLCODE != -2443 AND SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+
 -- Drop the unique email index this script adds to app_users
 BEGIN
   EXECUTE IMMEDIATE 'DROP INDEX app_users_email_luk';
@@ -91,6 +99,21 @@ BEGIN
 
   IF v_column_count = 0 THEN
     EXECUTE IMMEDIATE 'ALTER TABLE app_users ADD (email VARCHAR2(320))';
+  END IF;
+END;
+/
+
+DECLARE
+  v_column_count NUMBER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_column_count
+  FROM user_tab_columns
+  WHERE table_name = 'APP_USERS'
+    AND column_name = 'MUST_CHANGE_PASSWORD';
+
+  IF v_column_count = 0 THEN
+    EXECUTE IMMEDIATE q'[ALTER TABLE app_users ADD (must_change_password CHAR(1) DEFAULT 'N' NOT NULL)]';
   END IF;
 END;
 /
@@ -180,6 +203,21 @@ BEGIN
 
   IF v_constraint_count = 0 THEN
     EXECUTE IMMEDIATE 'ALTER TABLE app_users ADD CONSTRAINT app_users_email_lower_ck CHECK (email = LOWER(TRIM(email)))';
+  END IF;
+END;
+/
+
+DECLARE
+  v_constraint_count NUMBER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_constraint_count
+  FROM user_constraints
+  WHERE table_name = 'APP_USERS'
+    AND constraint_name = 'APP_USERS_MUST_CHANGE_PW_CK';
+
+  IF v_constraint_count = 0 THEN
+    EXECUTE IMMEDIATE q'[ALTER TABLE app_users ADD CONSTRAINT app_users_must_change_pw_ck CHECK (must_change_password IN ('Y', 'N'))]';
   END IF;
 END;
 /
@@ -668,6 +706,7 @@ CREATE OR REPLACE PACKAGE BODY app_auth_reset_pkg AS
     UPDATE app_users
     SET password_salt = v_new_salt,
         password_hash = v_new_password_hash,
+        must_change_password = 'N',
         failed_login_count = 0,
         locked_until = NULL,
         updated_at = SYSTIMESTAMP

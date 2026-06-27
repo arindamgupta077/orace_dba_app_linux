@@ -14,6 +14,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  ShieldCheck,
   Settings2,
   TrendingUp,
   UserCog
@@ -30,6 +31,7 @@ import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin-panel", label: "Admin Panel", icon: ShieldCheck, adminOnly: true },
   { href: "/general-admin", label: "General Admin", icon: Settings2 },
   { href: "/tablespaces", label: "Tablespace", icon: Database },
   { href: "/user-management", label: "User Management", icon: UserCog },
@@ -44,6 +46,8 @@ const navItems = [
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const user = useAppStore((state) => state.user);
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || user?.role === "admin");
 
   return (
     <div className="flex h-full flex-col">
@@ -64,7 +68,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href;
           return (
@@ -158,6 +162,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} title="Open navigation">
                 <Menu className="h-5 w-5" />
               </Button>
+              {user?.role === "admin" && (
+                <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+                  <Link href="/admin-panel">
+                    <ShieldCheck className="h-4 w-4" />
+                    Admin Panel
+                  </Link>
+                </Button>
+              )}
               <DatabaseSelector />
             </div>
             <div className="flex items-center gap-2">

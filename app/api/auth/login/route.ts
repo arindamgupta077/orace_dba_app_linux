@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   clearFailedLogin,
+  clearLoginLockout,
   createSession,
   findUserForLoginByEmail,
   insertAuditLog,
@@ -77,6 +78,23 @@ export async function POST(request: Request) {
         metadata: { auth_mode: "jwt" }
       });
       return NextResponse.json({ message: "Invalid credentials." }, { status: 401 });
+    }
+
+    if (userRecord.mustChangePassword) {
+      await clearLoginLockout(userRecord.userId);
+      await insertAuditLog({
+        actor: userRecord.username,
+        action: "login",
+        status: "password_reset_required",
+        detail: "Initial password accepted; user must reset password before signing in.",
+        metadata: { auth_mode: "jwt" }
+      });
+
+      return NextResponse.json({
+        requiresPasswordReset: true,
+        email: userRecord.email,
+        message: "Password reset is required before first sign in."
+      });
     }
 
     await clearFailedLogin(userRecord.userId);

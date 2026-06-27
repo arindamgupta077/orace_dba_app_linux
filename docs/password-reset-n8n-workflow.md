@@ -35,6 +35,7 @@ Run as the application schema owner:
 This script:
 
 - Adds `app_users.email`
+- Adds `app_users.must_change_password`
 - Normalizes `app_users.username` to uppercase
 - Normalizes `app_users.email` to lowercase
 - Creates a case-insensitive unique email index
@@ -483,6 +484,7 @@ Reset password failure:
 - Reset links expire after 15 minutes.
 - Tokens are single-use.
 - Password reset clears `failed_login_count` and `locked_until`.
+- Password reset clears `must_change_password`, which lets first-login users enter the portal after choosing their own password.
 - Active sessions for the user are revoked after password reset.
 - Forgot-password responses are generic.
 - n8n webhook calls require `X-Admin-Webhook-Secret`.

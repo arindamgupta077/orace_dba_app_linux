@@ -4,12 +4,14 @@ import type { BindParameters, Connection } from "oracledb";
 
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
-import { generateSessionToken, hashSessionToken, normalizeUsername } from "@/lib/server/security";
+import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
 import type {
   AlertNotification,
   AlertNotificationSeverity,
   AlertNotificationStatus,
   AlertNotificationType,
+  AppUser,
+  AppUserRole,
   AuditLogItem,
   DbaAction,
   DbaAlertLogRow,
@@ -31,11 +33,13 @@ type DbRow = Record<string, unknown>;
 interface UserLoginRecord {
   userId: number;
   username: string;
+  email: string;
   role: UserRole;
   passwordSalt: string;
   passwordHash: string;
   apiTokenHash?: string;
   isActive: boolean;
+  mustChangePassword: boolean;
   lockedUntil?: Date;
 }
 
@@ -142,10 +146,30 @@ function toIstIsoString(value: unknown) {
 
 function mapUserRole(role: unknown): UserRole {
   const normalized = String(role || "operator").toLowerCase();
-  if (normalized === "dba_admin" || normalized === "operator" || normalized === "auditor") {
+  if (normalized === "admin" || normalized === "dba_admin" || normalized === "operator" || normalized === "auditor") {
     return normalized;
   }
   return "operator";
+}
+
+function isAppUserRole(value: string): value is AppUserRole {
+  return value === "admin" || value === "dba_admin" || value === "operator" || value === "auditor";
+}
+
+function mapAppUserRow(row: DbRow): AppUser {
+  return {
+    userId: Number(row.USER_ID),
+    username: String(row.USERNAME),
+    email: String(row.EMAIL || ""),
+    role: mapUserRole(row.ROLE),
+    isActive: String(row.IS_ACTIVE || "N") === "Y",
+    mustChangePassword: String(row.MUST_CHANGE_PASSWORD || "N") === "Y",
+    failedLoginCount: Number(row.FAILED_LOGIN_COUNT || 0),
+    lockedUntil: row.LOCKED_UNTIL ? toIsoString(row.LOCKED_UNTIL) : undefined,
+    lastLoginAt: row.LAST_LOGIN_AT ? toIsoString(row.LAST_LOGIN_AT) : undefined,
+    createdAt: toIsoString(row.CREATED_AT),
+    updatedAt: toIsoString(row.UPDATED_AT)
+  };
 }
 
 function mapAuthMode(): AuthMode {
@@ -242,11 +266,13 @@ export async function findUserForLogin(username: string): Promise<UserLoginRecor
       `SELECT
          user_id,
          username,
+         email,
          role,
          password_salt,
          password_hash,
          api_token_hash,
          is_active,
+         must_change_password,
          locked_until
        FROM app_users
        WHERE username = :username`,
@@ -259,11 +285,13 @@ export async function findUserForLogin(username: string): Promise<UserLoginRecor
     return {
       userId: Number(row.USER_ID),
       username: String(row.USERNAME),
+      email: String(row.EMAIL || ""),
       role: mapUserRole(row.ROLE),
       passwordSalt: String(row.PASSWORD_SALT),
       passwordHash: String(row.PASSWORD_HASH),
       apiTokenHash: row.API_TOKEN_HASH ? String(row.API_TOKEN_HASH) : undefined,
       isActive: String(row.IS_ACTIVE || "N") === "Y",
+      mustChangePassword: String(row.MUST_CHANGE_PASSWORD || "N") === "Y",
       lockedUntil: asDate(row.LOCKED_UNTIL)
     };
   });
@@ -276,11 +304,13 @@ export async function findUserForLoginByEmail(email: string): Promise<UserLoginR
       `SELECT
          user_id,
          username,
+         email,
          role,
          password_salt,
          password_hash,
          api_token_hash,
          is_active,
+         must_change_password,
          locked_until
        FROM app_users
        WHERE LOWER(email) = :email`,
@@ -293,11 +323,13 @@ export async function findUserForLoginByEmail(email: string): Promise<UserLoginR
     return {
       userId: Number(row.USER_ID),
       username: String(row.USERNAME),
+      email: String(row.EMAIL || normalizedEmail),
       role: mapUserRole(row.ROLE),
       passwordSalt: String(row.PASSWORD_SALT),
       passwordHash: String(row.PASSWORD_HASH),
       apiTokenHash: row.API_TOKEN_HASH ? String(row.API_TOKEN_HASH) : undefined,
       isActive: String(row.IS_ACTIVE || "N") === "Y",
+      mustChangePassword: String(row.MUST_CHANGE_PASSWORD || "N") === "Y",
       lockedUntil: asDate(row.LOCKED_UNTIL)
     };
   });
@@ -330,6 +362,387 @@ export async function clearFailedLogin(userId: number) {
            updated_at = SYSTIMESTAMP
        WHERE user_id = :userId`,
       { userId },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function clearLoginLockout(userId: number) {
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_users
+       SET failed_login_count = 0,
+           locked_until = NULL,
+           updated_at = SYSTIMESTAMP
+       WHERE user_id = :userId`,
+      { userId },
+      { autoCommit: true }
+    );
+  });
+}
+
+export interface CreateAppUserInput {
+  username: string;
+  email: string;
+  role: AppUserRole;
+  initialPassword: string;
+  isActive?: boolean;
+}
+
+export interface UpdateAppUserInput {
+  userId: number;
+  username: string;
+  email: string;
+  role: AppUserRole;
+  isActive: boolean;
+}
+
+function normalizeAppUserInput(input: { username: string; email: string; role: string }) {
+  const username = normalizeUsername(input.username);
+  const email = input.email.trim().toLowerCase();
+  const role = input.role.trim().toLowerCase();
+
+  if (!username || username.length > 128) {
+    throw new Error("Username is required and must be 128 characters or fewer.");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+    throw new Error("Enter a valid email address.");
+  }
+  if (!isAppUserRole(role)) {
+    throw new Error("Invalid role.");
+  }
+
+  return { username, email, role };
+}
+
+async function countActiveAdmins(connection: Connection) {
+  const result = await connection.execute<DbRow>(
+    `SELECT COUNT(*) AS active_admin_count
+     FROM app_users
+     WHERE role = 'admin'
+       AND is_active = 'Y'`
+  );
+  return Number(result.rows?.[0]?.ACTIVE_ADMIN_COUNT || 0);
+}
+
+export async function listAppUsers(): Promise<AppUser[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         user_id,
+         username,
+         email,
+         role,
+         is_active,
+         must_change_password,
+         failed_login_count,
+         locked_until,
+         last_login_at,
+         created_at,
+         updated_at
+       FROM app_users
+       ORDER BY created_at DESC, user_id DESC`
+    );
+
+    return (result.rows || []).map(mapAppUserRow);
+  });
+}
+
+export async function createAppUser(input: CreateAppUserInput): Promise<AppUser> {
+  const normalized = normalizeAppUserInput(input);
+  if (input.initialPassword.length < 8 || input.initialPassword.length > 128) {
+    throw new Error("Initial password must be between 8 and 128 characters.");
+  }
+
+  const passwordSalt = generatePasswordSalt();
+  const passwordHash = hashPassword(input.initialPassword, passwordSalt);
+
+  return executeOne(async (connection) => {
+    const duplicate = await connection.execute<DbRow>(
+      `SELECT username, email
+       FROM app_users
+       WHERE username = :username
+          OR LOWER(email) = :email
+       FETCH FIRST 1 ROW ONLY`,
+      { username: normalized.username, email: normalized.email }
+    );
+    if (duplicate.rows?.length) {
+      throw new Error("A user with that username or email already exists.");
+    }
+
+    await connection.execute(
+      `INSERT INTO app_users (
+         username,
+         email,
+         password_salt,
+         password_hash,
+         role,
+         is_active,
+         must_change_password,
+         failed_login_count
+       ) VALUES (
+         :username,
+         :email,
+         :passwordSalt,
+         :passwordHash,
+         :role,
+         :isActive,
+         'Y',
+         0
+       )`,
+      {
+        username: normalized.username,
+        email: normalized.email,
+        passwordSalt,
+        passwordHash,
+        role: normalized.role,
+        isActive: input.isActive === false ? "N" : "Y"
+      },
+      { autoCommit: true }
+    );
+
+    const created = await connection.execute<DbRow>(
+      `SELECT
+         user_id,
+         username,
+         email,
+         role,
+         is_active,
+         must_change_password,
+         failed_login_count,
+         locked_until,
+         last_login_at,
+         created_at,
+         updated_at
+       FROM app_users
+       WHERE username = :username`,
+      { username: normalized.username }
+    );
+    const row = created.rows?.[0];
+    if (!row) throw new Error("Created user was not found.");
+    return mapAppUserRow(row);
+  });
+}
+
+export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser> {
+  const normalized = normalizeAppUserInput(input);
+
+  return executeOne(async (connection) => {
+    const existingResult = await connection.execute<DbRow>(
+      `SELECT user_id, role, is_active
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId: input.userId }
+    );
+    const existing = existingResult.rows?.[0];
+    if (!existing) {
+      throw new Error("User not found.");
+    }
+
+    const existingRole = mapUserRole(existing.ROLE);
+    const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
+    const nextActive = Boolean(input.isActive);
+    if (existingRole === "admin" && existingActive && (normalized.role !== "admin" || !nextActive)) {
+      const activeAdmins = await countActiveAdmins(connection);
+      if (activeAdmins <= 1) {
+        throw new Error("At least one active admin user must remain.");
+      }
+    }
+
+    const duplicate = await connection.execute<DbRow>(
+      `SELECT user_id
+       FROM app_users
+       WHERE user_id <> :userId
+         AND (username = :username OR LOWER(email) = :email)
+       FETCH FIRST 1 ROW ONLY`,
+      { userId: input.userId, username: normalized.username, email: normalized.email }
+    );
+    if (duplicate.rows?.length) {
+      throw new Error("Another user already has that username or email.");
+    }
+
+    await connection.execute(
+      `UPDATE app_users
+       SET username = :username,
+           email = :email,
+           role = :role,
+           is_active = :isActive,
+           locked_until = CASE WHEN :isActive = 'Y' THEN locked_until ELSE NULL END,
+           failed_login_count = CASE WHEN :isActive = 'Y' THEN failed_login_count ELSE 0 END
+       WHERE user_id = :userId`,
+      {
+        username: normalized.username,
+        email: normalized.email,
+        role: normalized.role,
+        isActive: nextActive ? "Y" : "N",
+        userId: input.userId
+      },
+      { autoCommit: true }
+    );
+
+    const updated = await connection.execute<DbRow>(
+      `SELECT
+         user_id,
+         username,
+         email,
+         role,
+         is_active,
+         must_change_password,
+         failed_login_count,
+         locked_until,
+         last_login_at,
+         created_at,
+         updated_at
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId: input.userId }
+    );
+    const row = updated.rows?.[0];
+    if (!row) throw new Error("Updated user was not found.");
+    return mapAppUserRow(row);
+  });
+}
+
+export async function removeAppUser(userId: number): Promise<void> {
+  return executeOne(async (connection) => {
+    const existingResult = await connection.execute<DbRow>(
+      `SELECT user_id, role, is_active
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId }
+    );
+    const existing = existingResult.rows?.[0];
+    if (!existing) {
+      throw new Error("User not found.");
+    }
+
+    const existingRole = mapUserRole(existing.ROLE);
+    const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
+    if (existingRole === "admin" && existingActive) {
+      const activeAdmins = await countActiveAdmins(connection);
+      if (activeAdmins <= 1) {
+        throw new Error("Cannot delete the last active admin user.");
+      }
+    }
+
+    // Clean up dependent tables to avoid ORA-02292 (child record found)
+    await connection.execute(`DELETE FROM app_sessions WHERE user_id = :userId`, { userId });
+    
+    // Check if app_password_resets exists before deleting (some minimal setups might omit it)
+    try {
+      await connection.execute(`DELETE FROM app_password_resets WHERE user_id = :userId`, { userId });
+    } catch (e: any) {
+      if (!e.message?.includes("ORA-00942")) {
+        throw e; // Reraise if it's not a "table or view does not exist" error
+      }
+    }
+
+    // Detach audit logs and history so we don't lose the records (user_id is nullable)
+    try {
+      await connection.execute(`UPDATE app_audit_logs SET user_id = NULL WHERE user_id = :userId`, { userId });
+    } catch (e: any) {
+      if (!e.message?.includes("ORA-00942")) throw e;
+    }
+    
+    try {
+      await connection.execute(`UPDATE app_request_history SET user_id = NULL WHERE user_id = :userId`, { userId });
+    } catch (e: any) {
+      if (!e.message?.includes("ORA-00942")) throw e;
+    }
+
+    await connection.execute(
+      `DELETE FROM app_users WHERE user_id = :userId`,
+      { userId },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function toggleAppUserStatus(userId: number): Promise<AppUser> {
+  return executeOne(async (connection) => {
+    const existingResult = await connection.execute<DbRow>(
+      `SELECT user_id, role, is_active
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId }
+    );
+    const existing = existingResult.rows?.[0];
+    if (!existing) {
+      throw new Error("User not found.");
+    }
+
+    const existingRole = mapUserRole(existing.ROLE);
+    const existingActive = String(existing.IS_ACTIVE || "N") === "Y";
+
+    if (existingRole === "admin" && existingActive) {
+      const activeAdmins = await countActiveAdmins(connection);
+      if (activeAdmins <= 1) {
+        throw new Error("Cannot deactivate the last active admin user.");
+      }
+    }
+
+    const newActive = existingActive ? "N" : "Y";
+    await connection.execute(
+      `UPDATE app_users
+       SET is_active = :newActive,
+           failed_login_count = CASE WHEN :newActive = 'Y' THEN failed_login_count ELSE 0 END,
+           locked_until = CASE WHEN :newActive = 'Y' THEN locked_until ELSE NULL END,
+           updated_at = SYSTIMESTAMP
+       WHERE user_id = :userId`,
+      { newActive, userId },
+      { autoCommit: true }
+    );
+
+    const updated = await connection.execute<DbRow>(
+      `SELECT
+         user_id,
+         username,
+         email,
+         role,
+         is_active,
+         must_change_password,
+         failed_login_count,
+         locked_until,
+         last_login_at,
+         created_at,
+         updated_at
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId }
+    );
+    const row = updated.rows?.[0];
+    if (!row) throw new Error("Updated user was not found.");
+    return mapAppUserRow(row);
+  });
+}
+
+export async function revokeUserSessions(userId: number) {
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_sessions
+       SET revoked_at = SYSTIMESTAMP
+       WHERE user_id = :userId
+         AND revoked_at IS NULL`,
+      { userId },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function clearMustChangePasswordByResetToken(resetToken: string) {
+  const tokenHash = sha256Hex(resetToken.trim());
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_users u
+       SET u.must_change_password = 'N',
+           u.updated_at = SYSTIMESTAMP
+       WHERE EXISTS (
+         SELECT 1
+         FROM app_password_resets r
+         WHERE r.user_id = u.user_id
+           AND r.token_hash = :tokenHash
+       )`,
+      { tokenHash },
       { autoCommit: true }
     );
   });

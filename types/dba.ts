@@ -409,7 +409,23 @@ export interface UserSession {
   userId?: number;
   jwt?: string;
   authMode: "jwt";
-  role: "dba_admin" | "operator" | "auditor";
+  role: "admin" | "dba_admin" | "operator" | "auditor";
+}
+
+export type AppUserRole = UserSession["role"];
+
+export interface AppUser {
+  userId: number;
+  username: string;
+  email: string;
+  role: AppUserRole;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  failedLoginCount: number;
+  lockedUntil?: string;
+  lastLoginAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ============================================================

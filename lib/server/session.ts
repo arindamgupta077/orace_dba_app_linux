@@ -43,6 +43,14 @@ export function invalidateSessionCache(token: string): void {
   sessionCache.delete(token);
 }
 
+export function invalidateSessionCacheForUser(userId: number): void {
+  for (const [token, entry] of sessionCache) {
+    if (entry.result.userId === userId) {
+      sessionCache.delete(token);
+    }
+  }
+}
+
 export async function readSessionTokenFromCookie() {
   const { sessionCookieName } = getServerEnv();
   const store = await cookies();

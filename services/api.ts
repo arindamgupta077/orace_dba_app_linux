@@ -2,6 +2,8 @@ import type {
   AlertNotification,
   AlertNotificationStatus,
   AlertSqlApprovalDecision,
+  AppUser,
+  AppUserRole,
   AuditLogItem,
   DashboardMetrics,
   DbaAction,
@@ -60,7 +62,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export async function loginWithPassword(email: string, password: string, remember: boolean) {
-  return requestJson<{ user: UserSession; expiresAt: string }>("/api/auth/login", {
+  return requestJson<
+    | { user: UserSession; expiresAt: string; requiresPasswordReset?: false }
+    | { requiresPasswordReset: true; email: string; message: string }
+  >("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({
       email,
@@ -101,6 +106,50 @@ export async function fetchCurrentSession() {
 
 export async function logoutSession() {
   return requestJson<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+}
+
+export async function fetchAppUsers() {
+  return requestJson<{ users: AppUser[] }>("/api/admin/users");
+}
+
+export async function createAppUser(input: {
+  username: string;
+  email: string;
+  role: AppUserRole;
+  initialPassword: string;
+  isActive: boolean;
+}) {
+  return requestJson<{ user: AppUser }>("/api/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateAppUser(
+  userId: number,
+  input: {
+    username: string;
+    email: string;
+    role: AppUserRole;
+    isActive: boolean;
+  }
+) {
+  return requestJson<{ user: AppUser }>(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function removeAppUser(userId: number) {
+  return requestJson<{ ok: boolean }>(`/api/admin/users/${userId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function toggleAppUserStatus(userId: number) {
+  return requestJson<{ user: AppUser }>(`/api/admin/users/${userId}`, {
+    method: "PUT"
+  });
 }
 
 export async function fetchAuditLogs(limit = 200) {

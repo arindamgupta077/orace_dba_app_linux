@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { clearMustChangePasswordByResetToken } from "@/lib/server/repository";
 import {
   postPasswordResetWebhook,
   RESET_PASSWORD_FAILURE_RESPONSE,
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
     if (!result.ok) {
       console.error(`[reset-password] n8n webhook returned ${result.status}`);
       return NextResponse.json(RESET_PASSWORD_FAILURE_RESPONSE, { status: 400 });
+    }
+
+    if (result.payload?.success) {
+      await clearMustChangePasswordByResetToken(token);
     }
 
     return NextResponse.json(result.payload || RESET_PASSWORD_FAILURE_RESPONSE);

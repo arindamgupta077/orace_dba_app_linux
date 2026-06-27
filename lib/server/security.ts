@@ -16,6 +16,10 @@ export function hashPassword(password: string, salt: string) {
   return sha256Hex(`${salt}:${password}`);
 }
 
+export function generatePasswordSalt() {
+  return randomBytes(32).toString("hex");
+}
+
 export function hashApiToken(token: string, salt: string) {
   return sha256Hex(`${salt}:${token}`);
 }

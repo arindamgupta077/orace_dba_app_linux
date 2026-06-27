@@ -50,6 +50,7 @@ export function middleware(request: NextRequest) {
   if (
     pathname === "/login" ||
     pathname === "/forgot-password" ||
+    pathname === "/first-login-reset" ||
     pathname === "/reset-password"
   ) {
     return NextResponse.next();
