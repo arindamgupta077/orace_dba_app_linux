@@ -19,23 +19,25 @@ import {
   TrendingUp,
   UserCog
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { DatabaseSelector } from "@/components/visual/database-selector";
-import { StatusBadge } from "@/components/visual/status-badge";
-import { useOnlineStatus } from "@/hooks/use-online-status";
-import { fetchCurrentSession, fetchDatabases, isMockMode, logoutSession } from "@/services/api";
+import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
 const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
 
-const navItems = [
+const navItems: Array<{
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  clientAllowed?: boolean;
+  adminOnly?: boolean;
+}> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, clientAllowed: true },
-  { href: "/admin-panel", label: "Admin Panel", icon: ShieldCheck, adminOnly: true },
-  { href: "/db-inventory", label: "DB Inventory", icon: DatabaseZap, adminOnly: true },
   { href: "/general-admin", label: "General Admin", icon: Settings2 },
   { href: "/tablespaces", label: "Tablespace", icon: Database },
   { href: "/user-management", label: "User Management", icon: UserCog },
@@ -45,7 +47,6 @@ const navItems = [
   { href: "/alerts", label: "Alert Log", icon: FileWarning },
   { href: "/performance-tuning", label: "Performance Tuning", icon: TrendingUp },
   { href: "/chat", label: "Chat with DB", icon: Bot },
-  { href: "/audit", label: "Audit Logs", icon: ClipboardList, clientAllowed: true },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -118,12 +119,27 @@ function RmanRunningBadge() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const isOnline = useOnlineStatus();
   const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
   const setDatabases = useAppStore((state) => state.setDatabases);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+  const [showDatabase, setShowDatabase] = useState(true);
+
+  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/db-inventory") || pathname.startsWith("/audit");
+  const isClient = user?.role === "client";
+  const isSidebarVisible = !!user && !isClient && showDatabase && !isNonDbRoute;
+  const isDbSelectorVisible = !!user && showDatabase && !isNonDbRoute;
+  const isDatabaseActive = !isNonDbRoute && showDatabase;
+
+  const handleDatabaseToggle = () => {
+    if (isNonDbRoute) {
+      setShowDatabase(true);
+      router.push("/dashboard");
+    } else {
+      setShowDatabase(!showDatabase);
+    }
+  };
 
   // Redirect "client" users away from pages they are not authorised to view.
   useEffect(() => {
@@ -178,45 +194,118 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-border/70 bg-background/80 backdrop-blur-xl lg:block">
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-40 w-72 border-r border-border/70 bg-background/80 backdrop-blur-xl transition-all duration-300 ease-in-out hidden lg:block",
+        isSidebarVisible ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0 pointer-events-none"
+      )}>
         <SidebarContent />
       </aside>
-      <div className="lg:pl-72">
+      <div className={cn(
+        "transition-all duration-300 ease-in-out",
+        isSidebarVisible ? "lg:pl-72" : "lg:pl-0"
+      )}>
         <header className="sticky top-0 z-30 border-b border-border/70 bg-background/75 backdrop-blur-xl">
           <div className="flex min-h-16 items-center justify-between gap-3 px-4 lg:px-6">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} title="Open navigation">
-                <Menu className="h-5 w-5" />
-              </Button>
-              {user?.role === "app_admin" && (
-                <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-                  <Link href="/admin-panel">
-                    <ShieldCheck className="h-4 w-4" />
-                    Admin Panel
-                  </Link>
+              {isClient && (
+                <Link href="/dashboard" className="group flex items-center gap-2.5 mr-4 shrink-0">
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 via-rose-600 to-orange-500 text-white shadow-[0_0_10px_rgba(225,29,72,0.3)] transition-all duration-300 group-hover:scale-105">
+                    <DatabaseZap className="h-4.5 w-4.5 drop-shadow-sm" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-sm font-extrabold tracking-tight text-transparent">
+                      ITSS DBA <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">PORTAL</span>
+                    </p>
+                  </div>
+                </Link>
+              )}
+              {isSidebarVisible && (
+                <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} title="Open navigation">
+                  <Menu className="h-5 w-5" />
                 </Button>
               )}
-              <DatabaseSelector />
+              {/* Database Toggle Button */}
+              <Button
+                variant={isDatabaseActive ? "secondary" : "outline"}
+                size="sm"
+                onClick={handleDatabaseToggle}
+                className={cn(
+                  "gap-1.5 transition-all",
+                  isDatabaseActive && "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
+                )}
+              >
+                <Database className="h-4 w-4" />
+                <span className="hidden sm:inline">Database</span>
+              </Button>
+
+              {/* Admin-only buttons */}
+              {user?.role === "app_admin" && (
+                <>
+                  <Button
+                    asChild
+                    variant={pathname.startsWith("/admin-panel") ? "secondary" : "outline"}
+                    size="sm"
+                    className={cn(
+                      "transition-all",
+                      pathname.startsWith("/admin-panel") && "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20"
+                    )}
+                  >
+                    <Link href="/admin-panel">
+                      <ShieldCheck className="h-4 w-4" />
+                      <span className="hidden sm:inline">Admin Panel</span>
+                    </Link>
+                  </Button>
+                  <Button
+                    asChild
+                    variant={pathname.startsWith("/db-inventory") ? "secondary" : "outline"}
+                    size="sm"
+                    className={cn(
+                      "transition-all",
+                      pathname.startsWith("/db-inventory") && "bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                    )}
+                  >
+                    <Link href="/db-inventory">
+                      <DatabaseZap className="h-4 w-4" />
+                      <span className="hidden sm:inline">DB Inventory</span>
+                    </Link>
+                  </Button>
+                </>
+              )}
+
+              {/* Audit Logs button */}
+              <Button
+                asChild
+                variant={pathname.startsWith("/audit") ? "secondary" : "outline"}
+                size="sm"
+                className={cn(
+                  "transition-all",
+                  pathname.startsWith("/audit") && "bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+                )}
+              >
+                <Link href="/audit">
+                  <ClipboardList className="h-4 w-4" />
+                  <span className="hidden sm:inline">Audit log</span>
+                </Link>
+              </Button>
             </div>
             <div className="flex items-center gap-2">
               <RmanRunningBadge />
-              <StatusBadge status={isOnline ? "healthy" : "critical"} className="hidden sm:inline-flex">
-                {isOnline ? "Online" : "Offline"}
-              </StatusBadge>
-              <StatusBadge status={isMockMode() ? "warning" : "healthy"} className="hidden md:inline-flex">
-                {isMockMode() ? "Mock API" : "n8n Live"}
-              </StatusBadge>
               {user && (
                 <div className="hidden rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm text-muted-foreground md:block">
                   {user.username} / {user.role}
                 </div>
               )}
-              <NotificationBell />
+              {!isClient && <NotificationBell />}
               <Button variant="ghost" size="icon" onClick={logout} title="Logout">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
+          {isDbSelectorVisible && (
+            <div className="px-4 py-3 lg:px-6 border-t border-border/70 bg-background/40 flex items-center gap-3">
+              <DatabaseSelector />
+            </div>
+          )}
         </header>
         <main className="px-4 py-5 lg:px-6">{children}</main>
       </div>

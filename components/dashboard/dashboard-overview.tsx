@@ -604,7 +604,7 @@ export function DashboardOverview() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Oracle DBA Monitoring</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Oracle Database Monitoring</h1>
             <span className="rounded-md border border-border/50 bg-secondary/60 px-2 py-0.5 text-xs font-mono font-semibold text-cyan-300">
               {selectedDb}
             </span>
