@@ -1,0 +1,142 @@
+{
+  "name": "DBA - Tablespace Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "17e6d70d-24f6-4e88-9b9a-61c6e0d4a001",
+      "name": "Schedule Tablespace Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-760, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const db = $env.DETECTION_DB || 'ORCL';\nconst environment = $env.DETECTION_ENVIRONMENT || 'PROD';\nconst os = $env.DETECTION_OS || 'Windows';\nconst dbType = $env.DETECTION_DB_TYPE || 'Standalone';\nconst thresholdPct = Number($env.TABLESPACE_THRESHOLD_PCT || 90);\nconst criticalPct = Number($env.TABLESPACE_CRITICAL_PCT || 95);\nconst extendSizeGb = Number($env.TABLESPACE_EXTEND_SIZE_GB || 10);\nconst query = `WITH datafiles AS (\n  SELECT tablespace_name, SUM(bytes) bytes\n  FROM dba_data_files\n  GROUP BY tablespace_name\n),\nfree_space AS (\n  SELECT tablespace_name, SUM(bytes) bytes\n  FROM dba_free_space\n  GROUP BY tablespace_name\n)\nSELECT\n  d.tablespace_name,\n  ROUND(d.bytes / 1024 / 1024 / 1024, 2) AS total_gb,\n  ROUND((d.bytes - NVL(f.bytes, 0)) / 1024 / 1024 / 1024, 2) AS used_gb,\n  ROUND(NVL(f.bytes, 0) / 1024 / 1024 / 1024, 2) AS free_gb,\n  ROUND(((d.bytes - NVL(f.bytes, 0)) / d.bytes) * 100, 2) AS usage_pct\nFROM datafiles d\nLEFT JOIN free_space f ON f.tablespace_name = d.tablespace_name\nORDER BY usage_pct DESC`;\nreturn [{ json: { db, environment, os, db_type: dbType, threshold_pct: thresholdPct, critical_pct: criticalPct, extend_size_gb: extendSizeGb, query } }];"
+      },
+      "id": "71671120-95f4-41ad-bf56-e8b5d71d2a68",
+      "name": "Prepare Detection Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-520, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.query}}"
+      },
+      "id": "017de4d6-1658-4a18-b48b-452e6aa5f236",
+      "name": "Oracle - Check Tablespace Usage",
+      "type": "n8n-nodes-base.oracledb",
+      "typeVersion": 1,
+      "position": [-280, 0],
+      "credentials": {
+        "oracleDbApi": {
+          "id": "REPLACE_WITH_ORACLE_CREDENTIAL_ID",
+          "name": "Oracle Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Prepare Detection Context').first().json;\nconst rows = $input.all().map((item) => item.json);\nconst executionId = $execution.id || Date.now();\nfunction pick(row, ...keys) {\n  for (const key of keys) {\n    if (row[key] != null && row[key] !== '') return row[key];\n    const upper = key.toUpperCase();\n    const lower = key.toLowerCase();\n    if (row[upper] != null && row[upper] !== '') return row[upper];\n    if (row[lower] != null && row[lower] !== '') return row[lower];\n  }\n  return undefined;\n}\nconst alerts = [];\nfor (const row of rows) {\n  const tablespace = String(pick(row, 'tablespace_name') || '').trim().toUpperCase();\n  const usagePct = Number(pick(row, 'usage_pct') || 0);\n  if (!tablespace || usagePct < Number(context.threshold_pct)) continue;\n  const usedGb = Number(pick(row, 'used_gb') || 0);\n  const freeGb = Number(pick(row, 'free_gb') || 0);\n  const totalGb = Number(pick(row, 'total_gb') || 0);\n  const severity = usagePct >= Number(context.critical_pct) ? 'critical' : 'warning';\n  const idempotencyKey = `tablespace:${context.db}:${context.environment}:${tablespace}`;\n  alerts.push({\n    event_id: `evt_${executionId}_${tablespace}`,\n    correlation_id: `corr_${executionId}_${tablespace}`,\n    idempotency_key: idempotencyKey,\n    action: 'tablespace',\n    alert_type: 'tablespace',\n    source: 'n8n',\n    db: context.db,\n    severity,\n    requested_by: 'n8n',\n    environment: context.environment,\n    os: context.os,\n    db_type: context.db_type,\n    message: `Tablespace ${tablespace} on ${context.db} is ${usagePct}% used. Recommended extension: ${context.extend_size_gb} GB.`,\n    params: {\n      tablespace,\n      usage_pct: usagePct,\n      threshold_pct: Number(context.threshold_pct),\n      critical_pct: Number(context.critical_pct),\n      used_gb: usedGb,\n      free_gb: freeGb,\n      total_gb: totalGb,\n      extend_size_gb: Number(context.extend_size_gb),\n      recommendation: `Extend ${tablespace} by ${context.extend_size_gb} GB`\n    },\n    metadata: {\n      workflow: 'DBA - Tablespace Detection',\n      execution_id: executionId,\n      total_gb: totalGb\n    }\n  });\n}\nreturn alerts.map((alert) => ({ json: alert }));"
+      },
+      "id": "1edc5569-783d-4210-93d7-f8699daa4b63",
+      "name": "Build Alert Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.NEXTJS_APP_URL || 'http://host.docker.internal:3000') + '/api/alerts'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-DBA-Token",
+              "value": "={{$env.DBA_WEBHOOK_TOKEN || ''}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {}
+      },
+      "id": "9ba289e7-a83b-41ff-810e-0fdc266918c9",
+      "name": "POST Alert to App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Schedule Tablespace Check": {
+      "main": [
+        [
+          {
+            "node": "Prepare Detection Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Detection Context": {
+      "main": [
+        [
+          {
+            "node": "Oracle - Check Tablespace Usage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oracle - Check Tablespace Usage": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Payloads": {
+      "main": [
+        [
+          {
+            "node": "POST Alert to App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-29T00:00:00.000Z",
+  "versionId": "tablespace-detection-event-driven-v1"
+}

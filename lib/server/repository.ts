@@ -123,6 +123,17 @@ interface PatchAlertNotificationInput {
   metadata?: Record<string, unknown>;
 }
 
+interface FindPendingAlertOccurrenceInput {
+  db: string;
+  alertType: AlertNotificationType;
+  tablespace?: string;
+  objectName?: string;
+}
+
+interface ReplacePendingAlertNotificationInput extends Omit<InsertAlertNotificationInput, "id"> {
+  id: string;
+}
+
 function asDate(value: unknown) {
   if (!value) return undefined;
   if (value instanceof Date) return value;
@@ -404,10 +415,10 @@ function mapAlertNotificationRow(row: DbRow): AlertNotification {
     callback_url: row.CALLBACK_URL ? String(row.CALLBACK_URL) : undefined,
     created_by: String(row.CREATED_BY || "n8n"),
     approved_by: row.APPROVED_BY ? String(row.APPROVED_BY) : undefined,
-    created_at: toIsoString(row.CREATED_AT),
-    updated_at: toIsoString(row.UPDATED_AT),
-    approved_at: row.APPROVED_AT ? toIsoString(row.APPROVED_AT) : undefined,
-    completed_at: row.COMPLETED_AT ? toIsoString(row.COMPLETED_AT) : undefined,
+    created_at: toIstIsoString(row.CREATED_AT),
+    updated_at: toIstIsoString(row.UPDATED_AT),
+    approved_at: row.APPROVED_AT ? toIstIsoString(row.APPROVED_AT) : undefined,
+    completed_at: row.COMPLETED_AT ? toIstIsoString(row.COMPLETED_AT) : undefined,
     metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON)
   };
 }
@@ -1763,6 +1774,131 @@ export async function getAlertNotification(id: string): Promise<AlertNotificatio
     const row = result.rows?.[0];
     return row ? mapAlertNotificationRow(row) : null;
   });
+}
+
+export async function findPendingAlertNotificationOccurrence(
+  input: FindPendingAlertOccurrenceInput
+): Promise<AlertNotification | null> {
+  const objectName = input.objectName || input.tablespace;
+
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         alert_id,
+         source_name,
+         alert_type,
+         db_name,
+         tablespace_name,
+         object_name,
+         severity,
+         alert_status,
+         message_text,
+         utilization_pct,
+         threshold_pct,
+         critical_pct,
+         used_gb,
+         free_gb,
+         extend_size_gb,
+         datafile_name,
+         workflow_run_id,
+         approval_url,
+         reject_url,
+         callback_url,
+         created_by,
+         approved_by,
+         created_at,
+         updated_at,
+         approved_at,
+         completed_at,
+         metadata_json
+       FROM app_alert_notifications
+       WHERE db_name = :dbName
+         AND alert_type = :alertType
+         AND alert_status = 'pending_approval'
+         AND (
+           (:tablespaceName IS NOT NULL AND tablespace_name = :tablespaceName)
+           OR (:objectName IS NOT NULL AND object_name = :objectName)
+         )
+       ORDER BY updated_at DESC, created_at DESC
+       FETCH FIRST 1 ROWS ONLY`,
+      {
+        dbName: input.db,
+        alertType: input.alertType,
+        tablespaceName: input.tablespace || null,
+        objectName: objectName || null
+      }
+    );
+
+    const row = result.rows?.[0];
+    return row ? mapAlertNotificationRow(row) : null;
+  });
+}
+
+export async function replacePendingAlertNotification(
+  input: ReplacePendingAlertNotificationInput
+): Promise<AlertNotification> {
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_alert_notifications
+       SET source_name = :sourceName,
+           alert_type = :alertType,
+           db_name = :dbName,
+           tablespace_name = :tablespaceName,
+           object_name = :objectName,
+           severity = :severity,
+           alert_status = 'pending_approval',
+           message_text = :messageText,
+           utilization_pct = :utilizationPct,
+           threshold_pct = :thresholdPct,
+           critical_pct = :criticalPct,
+           used_gb = :usedGb,
+           free_gb = :freeGb,
+           extend_size_gb = :extendSizeGb,
+           datafile_name = :datafileName,
+           workflow_run_id = :workflowRunId,
+           approval_url = :approvalUrl,
+           reject_url = :rejectUrl,
+           callback_url = :callbackUrl,
+           created_by = :createdBy,
+           approved_by = NULL,
+           approved_at = NULL,
+           completed_at = NULL,
+           metadata_json = :metadataJson,
+           updated_at = SYSTIMESTAMP
+       WHERE alert_id = :alertId
+         AND alert_status = 'pending_approval'`,
+      {
+        alertId: input.id,
+        sourceName: input.source || "n8n",
+        alertType: input.alertType || "tablespace",
+        dbName: input.db,
+        tablespaceName: input.tablespace || null,
+        objectName: input.objectName || input.tablespace || null,
+        severity: input.severity,
+        messageText: input.message,
+        utilizationPct: nullableNumber(input.utilizationPct),
+        thresholdPct: nullableNumber(input.thresholdPct),
+        criticalPct: nullableNumber(input.criticalPct),
+        usedGb: nullableNumber(input.usedGb),
+        freeGb: nullableNumber(input.freeGb),
+        extendSizeGb: nullableNumber(input.extendSizeGb),
+        datafileName: input.datafile || null,
+        workflowRunId: input.workflowRunId || null,
+        approvalUrl: input.approvalUrl || null,
+        rejectUrl: input.rejectUrl || null,
+        callbackUrl: input.callbackUrl || null,
+        createdBy: input.createdBy,
+        metadataJson: input.metadata ? JSON.stringify(input.metadata) : null
+      },
+      { autoCommit: true }
+    );
+  });
+
+  const alert = await getAlertNotification(input.id);
+  if (!alert) {
+    throw new Error(`Alert notification not found after pending replacement: ${input.id}`);
+  }
+  return alert;
 }
 
 export async function listAlertNotifications(input: ListAlertNotificationsInput = {}): Promise<ListAlertNotificationsResult> {

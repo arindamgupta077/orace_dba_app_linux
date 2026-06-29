@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
   if (!env.webhookUrl) {
     return NextResponse.json(
-      { message: "NEXT_PUBLIC_DBA_WEBHOOK_URL is not configured." },
+      { message: "DBA_WEBHOOK_URL is not configured." },
       { status: 503 }
     );
   }
@@ -45,9 +45,7 @@ export async function POST(request: Request) {
   };
 
   // n8n must respond immediately via "Respond to Webhook" node.
-  // Workflow continues async after that. A 30s timeout is generous for the
-  // initial handshake; AbortError is treated as a successful fire-and-forget
-  // because n8n may already be in a Wait node when the timeout fires.
+  // Workflow continues async after that; human approval state lives in the app.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
@@ -75,8 +73,8 @@ export async function POST(request: Request) {
       const message = err instanceof Error ? err.message : "Failed to reach n8n.";
       return NextResponse.json({ message }, { status: 502 });
     }
-    // AbortError = 30 s timeout. n8n workflow is still running on its side
-    // (it hit a Wait node before responding). We proceed optimistically.
+    // AbortError = 30 s timeout. n8n may still be running on its side.
+    // We proceed optimistically and rely on callback alerts for progress.
   } finally {
     clearTimeout(timeoutId);
   }

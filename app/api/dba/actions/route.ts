@@ -242,7 +242,7 @@ export async function POST(request: Request) {
       result = normalizeDbaResponse(createMockResponse(action, db, Boolean(definition.destructive), params), action);
     } else {
       if (!env.webhookUrl) {
-        throw new Error("NEXT_PUBLIC_DBA_WEBHOOK_URL is required when mock mode is disabled.");
+        throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
       }
 
       const response = await fetch(env.webhookUrl, {

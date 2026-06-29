@@ -1,0 +1,580 @@
+{
+  "name": "DBA - Tablespace Command Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dba-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "87f5bf6f-1f13-4f28-bfd5-dba000000001",
+      "name": "DBA Command Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1120, 40],
+      "webhookId": "dba-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst headers = {};\nfor (const [key, value] of Object.entries(item.headers || {})) {\n  headers[key.toLowerCase()] = Array.isArray(value) ? String(value[0] || '') : String(value || '');\n}\nconst expectedToken = $env.DBA_WEBHOOK_TOKEN || '';\nconst providedToken = headers['x-dba-token'] || '';\nconst body = item.body && typeof item.body === 'object' ? item.body : item;\nconst params = body.params && typeof body.params === 'object' ? body.params : {};\nconst action = String(body.action || '').trim();\nconst db = String(body.db || '').trim();\nconst alertId = String(body.alert_id || params.alert_id || '').trim();\nconst tablespace = String(params.tablespace || params.selected_tablespace || body.tablespace || '').trim().toUpperCase();\nfunction sqlString(value, max = 4000) {\n  return String(value || '').slice(0, max).replace(/'/g, \"''\");\n}\nconst authorized = !expectedToken || providedToken === expectedToken;\nconst metadataSql = `SELECT\n  df.tablespace_name,\n  df.file_name,\n  ROUND(df.bytes / 1024 / 1024 / 1024, 2) AS file_size_gb,\n  df.autoextensible,\n  ROUND(df.maxbytes / 1024 / 1024 / 1024, 2) AS max_size_gb,\n  ROUND(NVL(fs.free_bytes, 0) / 1024 / 1024 / 1024, 2) AS free_gb,\n  p.value AS db_create_file_dest\nFROM dba_data_files df\nLEFT JOIN (\n  SELECT file_id, SUM(bytes) free_bytes\n  FROM dba_free_space\n  GROUP BY file_id\n) fs ON fs.file_id = df.file_id\nLEFT JOIN v$parameter p ON p.name = 'db_create_file_dest'\nWHERE df.tablespace_name = '${sqlString(tablespace, 128)}'\nORDER BY df.bytes DESC`;\nreturn [{ json: { authorized, action, db, alert_id: alertId, correlation_id: body.correlation_id || alertId, requested_by: body.requested_by || 'n8n', user_id: body.user_id, environment: body.environment, os: body.os, db_type: body.db_type, params, tablespace, sql: body.sql || params.sql || '', metadata_sql: metadataSql, received_at: new Date().toISOString() } }];"
+      },
+      "id": "0dc3a54f-bf0b-4a15-8dd1-dba000000002",
+      "name": "Validate DBA Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-880, 40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.authorized}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "62e14ef7-f92f-4c28-ad05-dba000000003",
+      "name": "Is Authorized",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-640, 40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equal",
+              "value2": "extension_approved"
+            }
+          ]
+        }
+      },
+      "id": "cb445a4d-68e2-4c0c-8a37-dba000000004",
+      "name": "Is Extension Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-400, -160]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.metadata_sql}}"
+      },
+      "id": "3fd8f1ec-95d5-4076-9f43-dba000000005",
+      "name": "Oracle - Query Tablespace Metadata",
+      "type": "n8n-nodes-base.oracledb",
+      "typeVersion": 1,
+      "position": [-140, -280],
+      "credentials": {
+        "oracleDbApi": {
+          "id": "REPLACE_WITH_ORACLE_CREDENTIAL_ID",
+          "name": "Oracle Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const req = $('Validate DBA Command').first().json;\nconst rows = $input.all().map((item) => item.json);\nfunction pick(row, ...keys) {\n  for (const key of keys) {\n    if (row[key] != null && row[key] !== '') return row[key];\n    const upper = key.toUpperCase();\n    const lower = key.toLowerCase();\n    if (row[upper] != null && row[upper] !== '') return row[upper];\n    if (row[lower] != null && row[lower] !== '') return row[lower];\n  }\n  return undefined;\n}\nfunction sanitizeId(value) {\n  const text = String(value || '').trim().toUpperCase();\n  if (!/^[A-Z][A-Z0-9_$#]{0,127}$/.test(text)) throw new Error(`Invalid tablespace name: ${text}`);\n  return text;\n}\nfunction dirname(fileName) {\n  const normalized = String(fileName || '').replace(/\\\\/g, '/');\n  const idx = normalized.lastIndexOf('/');\n  return idx >= 0 ? normalized.slice(0, idx + 1) : '';\n}\nconst tablespace = sanitizeId(req.tablespace);\nconst sizeGb = Math.max(1, Number(req.params.selected_size_gb || req.params.size_gb || req.params.extend_size_gb || 10));\nconst largest = rows[0] || {};\nconst dbCreateFileDest = String(pick(largest, 'db_create_file_dest') || '').trim();\nconst firstFile = String(pick(largest, 'file_name') || '').trim();\nlet generatedSql;\nif (dbCreateFileDest || firstFile.startsWith('+')) {\n  generatedSql = `ALTER TABLESPACE ${tablespace} ADD DATAFILE SIZE ${sizeGb}G AUTOEXTEND ON NEXT 1G MAXSIZE 32G`;\n} else {\n  const dir = dirname(firstFile);\n  if (!dir) throw new Error(`Cannot derive datafile directory for ${tablespace}. Enable OMF or provide an existing datafile path.`);\n  const stableSuffix = String(req.alert_id || 'ext').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();\n  const filePath = `${dir}${tablespace.toLowerCase()}_auto_${stableSuffix}.dbf`;\n  generatedSql = `ALTER TABLESPACE ${tablespace} ADD DATAFILE '${filePath}' SIZE ${sizeGb}G AUTOEXTEND ON NEXT 1G MAXSIZE 32G`;\n}\nconst warnings = [\n  'Confirm ASM or filesystem free space before execution.',\n  `${req.environment || 'Target'} database storage allocation will change if this SQL is approved.`\n];\nconst explanation = `Tablespace ${tablespace} was approved for extension. The proposal adds ${sizeGb} GB with autoextend enabled, using deterministic SQL generation from current DBA_DATA_FILES metadata.`;\nreturn [{ json: { sql_approval_payload: { alert_id: req.alert_id, correlation_id: req.correlation_id, db: req.db, tablespace, generated_sql: generatedSql, explanation, warnings, database_info: { environment: req.environment, os: req.os, db_type: req.db_type, tablespace, requested_by: req.requested_by, file_count: rows.length, db_create_file_dest: dbCreateFileDest || null, largest_file: firstFile || null, metadata_rows: rows } } } }];"
+      },
+      "id": "9e9f4668-983d-49c8-920c-dba000000006",
+      "name": "Build SQL Proposal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, -280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.NEXTJS_APP_URL || 'http://host.docker.internal:3000') + '/api/alerts/sql-approval'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-DBA-Token",
+              "value": "={{$env.DBA_WEBHOOK_TOKEN || ''}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.sql_approval_payload}}",
+        "options": {}
+      },
+      "id": "4e785713-38ca-4757-b0e5-dba000000007",
+      "name": "POST SQL Approval to App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [380, -280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: true, action: 'extension_approved', message: 'SQL proposal generated and sent to the application.' } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "f72458e9-9248-4105-b731-dba000000008",
+      "name": "Respond SQL Proposal Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [640, -280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equal",
+              "value2": "execute_sql"
+            }
+          ]
+        }
+      },
+      "id": "2db7a9f8-fdce-4e26-a3ac-dba000000009",
+      "name": "Is Execute SQL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-140, -20]
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $json;\nconst rawSql = String(req.sql || '').trim();\nconst upper = rawSql.replace(/\\s+/g, ' ').toUpperCase();\nconst blocked = ['DROP','TRUNCATE','DELETE','UPDATE','INSERT','MERGE','CREATE USER','GRANT','REVOKE','ALTER SYSTEM','ALTER USER','EXEC','EXECUTE','BEGIN','DECLARE','DBMS_'];\nlet error = '';\nif (!rawSql) error = 'SQL command is required.';\nif (!error && rawSql.includes(';')) error = 'Only one SQL statement is allowed. Remove semicolons.';\nif (!error) {\n  const token = blocked.find((item) => upper.includes(item));\n  if (token) error = `SQL contains blocked token: ${token}`;\n}\nconst allowed = /^ALTER\\s+TABLESPACE\\s+[A-Z0-9_$#\"]+\\s+ADD\\s+DATAFILE\\s+/i.test(rawSql) || /^ALTER\\s+DATABASE\\s+DATAFILE\\s+.+\\s+RESIZE\\s+\\d+\\s*[KMGT]?B?$/i.test(rawSql) || /^ALTER\\s+DATABASE\\s+DATAFILE\\s+.+\\s+AUTOEXTEND\\s+ON\\s+/i.test(rawSql);\nif (!error && !allowed) error = 'SQL is not in the approved tablespace-extension allowlist.';\nconst tablespace = String(req.params.tablespace || req.tablespace || '').trim().toUpperCase();\nconst postUsageSql = tablespace ? `WITH datafiles AS (SELECT tablespace_name, SUM(bytes) bytes FROM dba_data_files WHERE tablespace_name = '${tablespace.replace(/'/g, \"''\")}' GROUP BY tablespace_name), free_space AS (SELECT tablespace_name, SUM(bytes) bytes FROM dba_free_space WHERE tablespace_name = '${tablespace.replace(/'/g, \"''\")}' GROUP BY tablespace_name) SELECT d.tablespace_name, ROUND(((d.bytes - NVL(f.bytes, 0)) / d.bytes) * 100, 2) AS usage_pct, ROUND(d.bytes / 1024 / 1024 / 1024, 2) AS total_gb, ROUND(NVL(f.bytes, 0) / 1024 / 1024 / 1024, 2) AS free_gb FROM datafiles d LEFT JOIN free_space f ON f.tablespace_name = d.tablespace_name` : 'SELECT NULL AS tablespace_name, NULL AS usage_pct FROM dual';\nif (error) {\n  return [{ json: { ...req, execution_blocked: true, result_payload: { alert_id: req.alert_id, correlation_id: req.correlation_id, db: req.db, status: 'failed', sql_command: rawSql, message: error, sql_output: error } } }];\n}\nreturn [{ json: { ...req, execution_blocked: false, exec_sql: rawSql, post_usage_sql: postUsageSql } }];"
+      },
+      "id": "9e760e2d-c803-4183-a650-dba000000010",
+      "name": "Validate Execute SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, -80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.execution_blocked}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "68fdbad2-0892-4d20-904c-dba000000011",
+      "name": "Is SQL Blocked",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [380, -80]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.exec_sql}}"
+      },
+      "id": "f98b5f52-622b-45e2-9330-dba000000012",
+      "name": "Oracle - Execute Approved SQL",
+      "type": "n8n-nodes-base.oracledb",
+      "typeVersion": 1,
+      "position": [640, 20],
+      "continueOnFail": true,
+      "credentials": {
+        "oracleDbApi": {
+          "id": "REPLACE_WITH_ORACLE_CREDENTIAL_ID",
+          "name": "Oracle Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$('Validate Execute SQL').first().json.post_usage_sql}}"
+      },
+      "id": "dfaf22b3-9137-48b7-a47b-dba000000013",
+      "name": "Oracle - Query Post Usage",
+      "type": "n8n-nodes-base.oracledb",
+      "typeVersion": 1,
+      "position": [900, 20],
+      "continueOnFail": true,
+      "credentials": {
+        "oracleDbApi": {
+          "id": "REPLACE_WITH_ORACLE_CREDENTIAL_ID",
+          "name": "Oracle Database account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Validate Execute SQL').first().json;\nif (req.execution_blocked) return [{ json: { result_payload: req.result_payload } }];\nconst execResult = $('Oracle - Execute Approved SQL').first().json || {};\nconst postRows = $input.all().map((item) => item.json);\nfunction pick(row, ...keys) {\n  for (const key of keys) {\n    if (row[key] != null && row[key] !== '') return row[key];\n    const upper = key.toUpperCase();\n    const lower = key.toLowerCase();\n    if (row[upper] != null && row[upper] !== '') return row[upper];\n    if (row[lower] != null && row[lower] !== '') return row[lower];\n  }\n  return undefined;\n}\nconst errorMessage = execResult.error?.message || execResult.message || execResult.description || '';\nconst failed = Boolean(execResult.error) || /ORA-\\d+/i.test(String(errorMessage));\nconst usageRow = postRows[0] || {};\nconst afterUsagePct = pick(usageRow, 'usage_pct');\nconst payload = { alert_id: req.alert_id, correlation_id: req.correlation_id, db: req.db, status: failed ? 'failed' : 'completed', sql_command: req.exec_sql, message: failed ? String(errorMessage || 'Oracle SQL execution failed.') : 'SQL executed successfully.', sql_output: failed ? String(errorMessage || JSON.stringify(execResult)) : 'SQL executed successfully.', database_result: { after_usage_pct: afterUsagePct != null ? Number(afterUsagePct) : null, post_usage_rows: postRows, oracle_execute_result: execResult }, executed_by: req.requested_by };\nreturn [{ json: { result_payload: payload } }];"
+      },
+      "id": "273e7f5e-631f-430e-b404-dba000000014",
+      "name": "Build Execution Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.NEXTJS_APP_URL || 'http://host.docker.internal:3000') + '/api/alerts/sql-approval'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-DBA-Token",
+              "value": "={{$env.DBA_WEBHOOK_TOKEN || ''}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.result_payload}}",
+        "options": {}
+      },
+      "id": "c119dcce-3332-47b9-bde1-dba000000015",
+      "name": "POST Execution Result to App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, -40]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: true, action: 'execute_sql', message: 'Execution result sent to the application.' } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "8745e97d-cdc5-439d-80e9-dba000000016",
+      "name": "Respond Execute Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1680, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "regex",
+              "value2": "^(extension_rejected|sql_rejected)$"
+            }
+          ]
+        }
+      },
+      "id": "8afcf241-65b5-4928-a7d2-dba000000017",
+      "name": "Is Rejection",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [120, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { accepted: true, action: $json.action, alert_id: $json.alert_id, message: 'No Oracle action required.' } }];"
+      },
+      "id": "890b0384-9ded-48f9-9baa-dba000000018",
+      "name": "Build Rejection Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, 160]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "7f8e403c-32ed-4c6f-9117-dba000000019",
+      "name": "Respond Rejection Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [640, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { accepted: false, action: $json.action || 'unknown', message: `Unsupported DBA command action: ${$json.action || 'unknown'}` } }];"
+      },
+      "id": "653c6de2-c363-49c9-a4ba-dba000000020",
+      "name": "Build Unsupported Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, 360]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "922f34c3-d78f-433c-b45b-dba000000021",
+      "name": "Respond Unsupported",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [640, 360]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: false, message: 'Unauthorized.' } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "572c6ec2-c3ac-4656-bc5e-dba000000022",
+      "name": "Respond Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-400, 180]
+    }
+  ],
+  "connections": {
+    "DBA Command Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate DBA Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate DBA Command": {
+      "main": [
+        [
+          {
+            "node": "Is Authorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Authorized": {
+      "main": [
+        [
+          {
+            "node": "Is Extension Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Extension Approved": {
+      "main": [
+        [
+          {
+            "node": "Oracle - Query Tablespace Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Execute SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oracle - Query Tablespace Metadata": {
+      "main": [
+        [
+          {
+            "node": "Build SQL Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL Proposal": {
+      "main": [
+        [
+          {
+            "node": "POST SQL Approval to App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST SQL Approval to App": {
+      "main": [
+        [
+          {
+            "node": "Respond SQL Proposal Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Execute SQL": {
+      "main": [
+        [
+          {
+            "node": "Validate Execute SQL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Execute SQL": {
+      "main": [
+        [
+          {
+            "node": "Is SQL Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is SQL Blocked": {
+      "main": [
+        [
+          {
+            "node": "POST Execution Result to App",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Oracle - Execute Approved SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oracle - Execute Approved SQL": {
+      "main": [
+        [
+          {
+            "node": "Oracle - Query Post Usage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oracle - Query Post Usage": {
+      "main": [
+        [
+          {
+            "node": "Build Execution Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Execution Result": {
+      "main": [
+        [
+          {
+            "node": "POST Execution Result to App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Execution Result to App": {
+      "main": [
+        [
+          {
+            "node": "Respond Execute Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Rejection": {
+      "main": [
+        [
+          {
+            "node": "Build Rejection Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Unsupported Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Rejection Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Rejection Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Unsupported Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Unsupported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-29T00:00:00.000Z",
+  "versionId": "tablespace-command-router-event-driven-v1"
+}

@@ -83,7 +83,7 @@ async function triggerRefresh(schedule: DashboardSchedule): Promise<void> {
 
   if (!env.webhookUrl) {
     console.warn(
-      `[scheduler] Skipping refresh for ${schedule.db_name}: NEXT_PUBLIC_DBA_WEBHOOK_URL not configured.`
+      `[scheduler] Skipping refresh for ${schedule.db_name}: DBA_WEBHOOK_URL not configured.`
     );
     return;
   }

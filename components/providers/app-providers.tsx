@@ -9,7 +9,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <ErrorBoundary>
       <TooltipProvider delayDuration={250}>
         {children}
-        <Toaster richColors closeButton position="top-right" toastOptions={{ className: "glass-panel" }} />
+        <Toaster richColors closeButton position="top-right" theme="dark" toastOptions={{ className: "app-toast glass-panel" }} />
       </TooltipProvider>
     </ErrorBoundary>
   );

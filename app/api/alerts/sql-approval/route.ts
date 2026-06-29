@@ -22,6 +22,60 @@ function readString(body: BodyRecord, keys: string[]) {
   return "";
 }
 
+function isRecord(value: unknown): value is BodyRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function unwrapN8nPayload(raw: unknown): BodyRecord {
+  let current = raw;
+
+  for (let index = 0; index < 6; index += 1) {
+    if (Array.isArray(current)) {
+      current = current[0];
+      continue;
+    }
+
+    if (!isRecord(current)) return {};
+    if (isRecord(current.alert)) return current;
+
+    const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+    if (wrapped && wrapped !== current) {
+      current = wrapped;
+      continue;
+    }
+
+    return current;
+  }
+
+  return isRecord(current) ? current : {};
+}
+
+function normalizeN8nCallbackBody(raw: unknown): BodyRecord {
+  const firstItem = unwrapN8nPayload(raw);
+
+  const alert = firstItem.alert;
+  if (!isRecord(alert)) return firstItem;
+
+  const metadata = isRecord(alert.metadata) ? alert.metadata : {};
+  const sqlExecution = isRecord(metadata.sql_execution) ? metadata.sql_execution : {};
+  const sqlApproval = isRecord(metadata.sql_approval) ? metadata.sql_approval : {};
+  const executionStatus = normalizeExecutionStatus(String(sqlExecution.status || ""));
+
+  return {
+    ...firstItem,
+    ...alert,
+    alert_id: alert.id,
+    status: executionStatus || alert.status,
+    message: alert.message,
+    actor: sqlExecution.executed_by || alert.approved_by || alert.created_by || firstItem.actor,
+    sql_command: sqlExecution.sql_command || sqlApproval.sql_command || firstItem.sql_command,
+    sql_output: sqlExecution.sql_output || firstItem.sql_output,
+    database_result: sqlExecution.database_result || firstItem.database_result,
+    rows_affected: sqlExecution.rows_affected || firstItem.rows_affected,
+    metadata
+  };
+}
+
 function readObject(body: BodyRecord, keys: string[]) {
   for (const key of keys) {
     const value = body[key];
@@ -54,6 +108,62 @@ function readValue(body: BodyRecord, keys: string[]) {
   return undefined;
 }
 
+function readStringArray(body: BodyRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = body[key];
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+      } catch {
+        return value
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+    }
+  }
+  return undefined;
+}
+
+function readObjectArray(body: BodyRecord, keys: string[]) {
+  for (const key of keys) {
+    const rows = normalizeObjectRows(body[key]);
+    if (rows.length) return rows;
+  }
+  return undefined;
+}
+
+function normalizeObjectRows(value: unknown): BodyRecord[] {
+  let current = value;
+  if (typeof current === "string" && current.trim()) {
+    try {
+      current = JSON.parse(current) as unknown;
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(current)) {
+    return current.flatMap((item) => normalizeObjectRows(item));
+  }
+
+  if (!isRecord(current)) return [];
+
+  const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+  if (wrapped && wrapped !== current) {
+    const wrappedRows = normalizeObjectRows(wrapped);
+    if (wrappedRows.length) return wrappedRows;
+  }
+
+  return [current];
+}
+
 function normalizeDecision(raw: string): AlertSqlApprovalDecision {
   const decision = raw.toLowerCase();
   if (decision === "approved" || decision === "rejected") return decision;
@@ -64,6 +174,24 @@ function normalizeExecutionStatus(raw: string) {
   const status = raw.toLowerCase();
   if (status === "completed" || status === "success" || status === "executed" || status === "execution_completed") return "completed";
   if (status === "failed" || status === "error" || status === "failure" || status === "execution_failed") return "failed";
+  return "";
+}
+
+function readExecutionStatus(body: BodyRecord) {
+  const directStatus = normalizeExecutionStatus(readString(body, ["status", "state", "execution_status", "executionStatus"]));
+  if (directStatus) return directStatus;
+
+  const metadata = readObject(body, ["metadata"]);
+  const sqlExecution = metadata ? readObject(metadata, ["sql_execution", "sqlExecution"]) : undefined;
+  const metadataStatus = sqlExecution ? normalizeExecutionStatus(readString(sqlExecution, ["status", "state"])) : "";
+  if (metadataStatus) return metadataStatus;
+
+  const errorCode = readString(body, ["error_code", "errorCode", "code", "reason"]);
+  const message = readString(body, ["message", "detail", "completion_message", "completionMessage", "sql_output", "sqlOutput", "output"]);
+  if (/no[_\s-]?disk[_\s-]?space|disk[_\s-]?space/i.test(errorCode)) return "failed";
+  if (/sql\s+executed\s+successfully|execution\s+completed/i.test(message)) return "completed";
+  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
+
   return "";
 }
 
@@ -134,10 +262,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as BodyRecord;
+    const body = normalizeN8nCallbackBody(await request.json());
     const alertId = readString(body, ["id", "alert_id", "alertId"]);
     const sqlCommand = readString(body, ["sql_command", "sqlCommand", "generated_sql", "generatedSql", "sql", "command"]);
-    const executionStatus = normalizeExecutionStatus(readString(body, ["status", "state"]));
+    const executionStatus = readExecutionStatus(body);
     const actor = readString(body, ["created_by", "createdBy", "requested_by", "requestedBy", "actor"]) || PUBLIC_ALERT_ACTOR;
 
     if (!alertId) {
@@ -190,6 +318,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "sql_command is required." }, { status: 400 });
     }
 
+    const metadata = readObject(body, ["metadata", "raw", "payload"]) || {};
+    const warnings = readStringArray(body, ["warnings", "warning_messages", "warningMessages"]);
+    const explanation = readString(body, ["explanation", "ai_explanation", "aiExplanation", "summary"]);
+    const databaseInfo = readObject(body, ["database_info", "databaseInfo", "db_info", "dbInfo"]);
+    const tablespaceMetadata = readObjectArray(body, [
+      "tablespace_metadata",
+      "tablespaceMetadata",
+      "metadata_rows",
+      "metadataRows",
+      "datafile_metadata",
+      "datafileMetadata"
+    ]);
+    const databaseInfoMetadata = databaseInfo ? readObjectArray(databaseInfo, ["metadata"]) : undefined;
+
     const alert = await registerAlertSqlApproval({
       alertId,
       sqlCommand,
@@ -199,7 +341,14 @@ export async function POST(request: Request) {
       callbackUrl: readString(body, ["callback_url", "callbackUrl", "resume_url", "resumeUrl"]),
       callbackMethod: readString(body, ["callback_method", "callbackMethod", "method"]),
       message: readString(body, ["message", "description", "detail"]),
-      metadata: readObject(body, ["metadata", "raw", "payload"])
+      metadata: {
+        ...metadata,
+        ...(explanation ? { explanation } : {}),
+        ...(warnings ? { warnings } : {}),
+        ...(databaseInfo ? { database_info: databaseInfo } : {}),
+        ...(tablespaceMetadata || databaseInfoMetadata ? { tablespace_metadata: tablespaceMetadata || databaseInfoMetadata } : {}),
+        request_payload: body
+      }
     });
 
     return NextResponse.json({ alert }, { status: 202 });

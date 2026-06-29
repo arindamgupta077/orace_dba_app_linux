@@ -155,6 +155,23 @@ function getSqlExecutionResult(alert: AlertNotification): AlertSqlExecutionResul
     }
   }
   const sqlApproval = getSqlApproval(alert);
+  const failedByMessage =
+    alert.status === "approved" &&
+    sqlApproval?.status === "approved" &&
+    /no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space|sql\s+execution\s+failed|execution\s+failed|ora-\d+/i.test(
+      alert.message
+    );
+
+  if (failedByMessage) {
+    return {
+      status: "failed",
+      message: alert.message,
+      sql_command: sqlApproval.sql_command,
+      sql_output: alert.message,
+      executed_at: alert.completed_at || alert.updated_at
+    };
+  }
+
   if (!sqlApproval || (alert.status !== "completed" && alert.status !== "failed")) return null;
   return {
     status: alert.status as "completed" | "failed",
@@ -164,12 +181,85 @@ function getSqlExecutionResult(alert: AlertNotification): AlertSqlExecutionResul
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getFieldValue(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return "";
+  for (const key of keys) {
+    const value = record[key] ?? record[key.toUpperCase()] ?? record[key.toLowerCase()];
+    if (value !== undefined && value !== null && value !== "") return String(value);
+  }
+  return "";
+}
+
+function normalizeMetadataRows(value: unknown): Array<Record<string, unknown>> {
+  let current = value;
+  if (typeof current === "string" && current.trim()) {
+    try {
+      current = JSON.parse(current) as unknown;
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(current)) {
+    return current.flatMap((item) => normalizeMetadataRows(item));
+  }
+
+  if (!isRecord(current)) return [];
+
+  const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+  if (wrapped && wrapped !== current) {
+    const wrappedRows = normalizeMetadataRows(wrapped);
+    if (wrappedRows.length) return wrappedRows;
+  }
+
+  return [current];
+}
+
+function uniqueMetadataRows(rows: Array<Record<string, unknown>>) {
+  const seen = new Set<string>();
+  return rows.filter((row, index) => {
+    const fileName = getFieldValue(row, ["file_name"]);
+    const key = fileName || JSON.stringify(row) || String(index);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getNestedRecord(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key];
+  return isRecord(value) ? value : undefined;
+}
+
+function getTablespaceMetadataRows(sqlApproval: AlertSqlApproval | null | undefined) {
+  const databaseInfo = isRecord(sqlApproval?.database_info) ? sqlApproval.database_info : undefined;
+  const request = isRecord(sqlApproval?.request) ? sqlApproval.request : undefined;
+  const requestDatabaseInfo = getNestedRecord(request, "database_info");
+  const requestPayload = getNestedRecord(request, "request_payload");
+  const requestPayloadDatabaseInfo = getNestedRecord(requestPayload, "database_info");
+
+  return uniqueMetadataRows([
+    ...normalizeMetadataRows(sqlApproval?.tablespace_metadata),
+    ...normalizeMetadataRows(databaseInfo?.metadata),
+    ...normalizeMetadataRows(requestDatabaseInfo?.metadata),
+    ...normalizeMetadataRows(requestPayload?.tablespace_metadata),
+    ...normalizeMetadataRows(requestPayloadDatabaseInfo?.metadata)
+  ]);
+}
+
 function resolveStepFromAlert(alert: AlertNotification): {
   step: WorkflowStep;
   tablespaceList: string[];
   selectedTablespace: string;
   selectedSizeGb: number;
   sqlDraft: string;
+  sqlExplanation: string;
+  sqlDatabaseInfo: Record<string, unknown> | null;
+  sqlTablespaceMetadata: Array<Record<string, unknown>>;
   executionResult: AlertSqlExecutionResult | null;
 } {
   const meta = (alert.metadata || {}) as Record<string, unknown>;
@@ -183,6 +273,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
       selectedTablespace: String(meta.selected_tablespace || ""),
       selectedSizeGb: Number(meta.selected_size_gb || 0),
       sqlDraft: executionResult.sql_command || "",
+      sqlExplanation: "",
+      sqlDatabaseInfo: null,
+      sqlTablespaceMetadata: [],
       executionResult
     };
   }
@@ -193,6 +286,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
       selectedTablespace: String(meta.selected_tablespace || ""),
       selectedSizeGb: Number(meta.selected_size_gb || 0),
       sqlDraft: "",
+      sqlExplanation: "",
+      sqlDatabaseInfo: null,
+      sqlTablespaceMetadata: [],
       executionResult: null
     };
   }
@@ -203,6 +299,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
       selectedTablespace: String(meta.selected_tablespace || ""),
       selectedSizeGb: Number(meta.selected_size_gb || 0),
       sqlDraft: sqlApproval.sql_command,
+      sqlExplanation: sqlApproval.explanation || "",
+      sqlDatabaseInfo: sqlApproval.database_info || null,
+      sqlTablespaceMetadata: getTablespaceMetadataRows(sqlApproval),
       executionResult: null
     };
   }
@@ -213,6 +312,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
       selectedTablespace: String(meta.selected_tablespace || ""),
       selectedSizeGb: Number(meta.selected_size_gb || 0),
       sqlDraft: "",
+      sqlExplanation: "",
+      sqlDatabaseInfo: null,
+      sqlTablespaceMetadata: [],
       executionResult: null
     };
   }
@@ -225,6 +327,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
       selectedTablespace: "",
       selectedSizeGb: 10,
       sqlDraft: "",
+      sqlExplanation: "",
+      sqlDatabaseInfo: null,
+      sqlTablespaceMetadata: [],
       executionResult: null
     };
   }
@@ -234,6 +339,9 @@ function resolveStepFromAlert(alert: AlertNotification): {
     selectedTablespace: "",
     selectedSizeGb: 10,
     sqlDraft: "",
+    sqlExplanation: "",
+    sqlDatabaseInfo: null,
+    sqlTablespaceMetadata: [],
     executionResult: null
   };
 }
@@ -341,6 +449,9 @@ export function DatafileExtendModal({
   const [selectedTablespace, setSelectedTablespace] = useState("");
   const [selectedSizeGb, setSelectedSizeGb] = useState<number>(10);
   const [sqlDraft, setSqlDraft] = useState("");
+  const [sqlExplanation, setSqlExplanation] = useState("");
+  const [sqlDatabaseInfo, setSqlDatabaseInfo] = useState<Record<string, unknown> | null>(null);
+  const [sqlTablespaceMetadata, setSqlTablespaceMetadata] = useState<Array<Record<string, unknown>>>([]);
   const [sqlDecisionLoading, setSqlDecisionLoading] = useState<AlertSqlApprovalDecision | null>(null);
   const [executionResult, setExecutionResult] = useState<AlertSqlExecutionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -373,6 +484,9 @@ export function DatafileExtendModal({
     setSelectedTablespace("");
     setSelectedSizeGb(10);
     setSqlDraft("");
+    setSqlExplanation("");
+    setSqlDatabaseInfo(null);
+    setSqlTablespaceMetadata([]);
     setSqlDecisionLoading(null);
     setExecutionResult(null);
     setErrorMsg(null);
@@ -396,6 +510,9 @@ export function DatafileExtendModal({
         setSelectedTablespace(resolved.selectedTablespace);
         setSelectedSizeGb(resolved.selectedSizeGb || 10);
         setSqlDraft(resolved.sqlDraft);
+        setSqlExplanation(resolved.sqlExplanation);
+        setSqlDatabaseInfo(resolved.sqlDatabaseInfo);
+        setSqlTablespaceMetadata(resolved.sqlTablespaceMetadata);
         setExecutionResult(resolved.executionResult);
         setStep(resolved.step);
       })
@@ -461,6 +578,9 @@ export function DatafileExtendModal({
           const approval = getSqlApproval(found);
           if (approval?.status === "pending" && approval.sql_command) {
             setSqlDraft(approval.sql_command);
+            setSqlExplanation(approval.explanation || "");
+            setSqlDatabaseInfo(approval.database_info || null);
+            setSqlTablespaceMetadata(getTablespaceMetadataRows(approval));
             setStep("reviewing");
             return;
           }
@@ -486,6 +606,9 @@ export function DatafileExtendModal({
         const approval = getSqlApproval(alert);
         if (approval?.status === "pending" && approval.sql_command) {
           setSqlDraft(approval.sql_command);
+          setSqlExplanation(approval.explanation || "");
+          setSqlDatabaseInfo(approval.database_info || null);
+          setSqlTablespaceMetadata(getTablespaceMetadataRows(approval));
           setStep("reviewing");
         } else {
           const execResult = getSqlExecutionResult(alert);
@@ -611,8 +734,18 @@ export function DatafileExtendModal({
     setSqlDecisionLoading(decision);
     setErrorMsg(null);
     try {
-      await decideAlertSqlApproval(alertId, decision, sqlDraft, username);
+      const result = await decideAlertSqlApproval(alertId, decision, sqlDraft, username);
       if (decision === "approved") {
+        const execResult = getSqlExecutionResult(result.alert);
+        if (execResult) {
+          setExecutionResult(execResult);
+          setStep(execResult.status === "completed" ? "success" : "failed");
+          onWorkflowComplete?.();
+          toast(execResult.status === "completed" ? "SQL executed successfully" : "SQL execution failed", {
+            description: execResult.message
+          });
+          return;
+        }
         setStep("polling_result");
         toast.success("SQL approved — executing on Oracle...");
       } else {
@@ -644,6 +777,9 @@ export function DatafileExtendModal({
     setSelectedTablespace("");
     setSelectedSizeGb(10);
     setSqlDraft("");
+    setSqlExplanation("");
+    setSqlDatabaseInfo(null);
+    setSqlTablespaceMetadata([]);
     setSqlDecisionLoading(null);
     setExecutionResult(null);
     setErrorMsg(null);
@@ -791,7 +927,7 @@ export function DatafileExtendModal({
                 id="sql-editor"
                 value={sqlDraft}
                 onChange={(e) => setSqlDraft(e.target.value)}
-                className="min-h-[220px] resize-y font-mono text-xs leading-relaxed text-cyan-50"
+                className="min-h-[150px] resize-y font-mono text-xs leading-relaxed text-cyan-50"
                 spellCheck={false}
                 placeholder="Generated SQL will appear here..."
               />
@@ -800,6 +936,67 @@ export function DatafileExtendModal({
                 on <span className="font-medium text-foreground">{selectedDb}</span>.
               </p>
             </div>
+            {sqlExplanation ? (
+              <div className="rounded-md border border-border/70 bg-secondary/30 p-3">
+                <Label>AI explanation</Label>
+                <p className="mt-2 text-sm leading-relaxed text-slate-100">{sqlExplanation}</p>
+              </div>
+            ) : null}
+            {sqlDatabaseInfo ? (
+              <div className="grid gap-3">
+                <Label>Database information</Label>
+                <div className="grid gap-2 rounded-md border border-border/70 bg-background/50 p-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {[
+                    ["Environment", getFieldValue(sqlDatabaseInfo, ["environment"])],
+                    ["OS", getFieldValue(sqlDatabaseInfo, ["os"])],
+                    ["DB type", getFieldValue(sqlDatabaseInfo, ["db_type", "dbType"])],
+                    ["Tablespace", getFieldValue(sqlDatabaseInfo, ["tablespace", "tablespace_name"])],
+                    ["Requested by", getFieldValue(sqlDatabaseInfo, ["requested_by", "requestedBy"])],
+                    ["Database", selectedDb]
+                  ]
+                    .filter(([, value]) => value)
+                    .map(([label, value]) => (
+                      <div key={label} className="rounded-md border border-border/50 bg-secondary/20 px-2.5 py-1.5">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                        <p className="mt-1 truncate text-sm font-medium text-slate-100">{value}</p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+            {sqlTablespaceMetadata.length ? (
+              <div className="grid gap-2">
+                <Label>Tablespace metadata</Label>
+                <div className="overflow-auto rounded-md border border-border/70">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <thead className="bg-secondary/60 text-muted-foreground">
+                      <tr>
+                        {["Tablespace", "Datafile", "File size GB", "Free GB", "Autoextend", "Max size GB", "OMF destination"].map((heading) => (
+                          <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sqlTablespaceMetadata.map((row, index) => (
+                        <tr key={`${getFieldValue(row, ["file_name"])}-${index}`} className="border-t border-border/60">
+                          <td className="px-3 py-2 font-mono text-cyan-100">{getFieldValue(row, ["tablespace_name"])}</td>
+                          <td className="max-w-72 truncate px-3 py-2 font-mono text-slate-100" title={getFieldValue(row, ["file_name"])}>
+                            {getFieldValue(row, ["file_name"])}
+                          </td>
+                          <td className="px-3 py-2">{getFieldValue(row, ["file_size_gb"])}</td>
+                          <td className="px-3 py-2">{getFieldValue(row, ["free_gb"])}</td>
+                          <td className="px-3 py-2">{getFieldValue(row, ["autoextensible"])}</td>
+                          <td className="px-3 py-2">{getFieldValue(row, ["max_size_gb"])}</td>
+                          <td className="max-w-48 truncate px-3 py-2" title={getFieldValue(row, ["db_create_file_dest"])}>
+                            {getFieldValue(row, ["db_create_file_dest"]) || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         );
 
@@ -1011,7 +1208,7 @@ export function DatafileExtendModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+      <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HardDriveDownload className="h-5 w-5 text-cyan-200" />

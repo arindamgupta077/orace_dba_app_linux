@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Code2, Loader2, RefreshCcw, SquareTerminal, UserCheck, UserX, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Code2, Loader2, RefreshCcw, Sparkles, SquareTerminal, UserCheck, UserX, WandSparkles, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import type { AlertNotification, AlertNotificationStatus, AlertSqlApproval, Aler
 
 const PAGE_SIZE = 6;
 const ACTIVE_ALERT_FETCH_LIMIT = 200;
+const SQL_PHASE_TIMEOUT_MS = 3 * 60 * 1000;
 type StatusFilter = AlertNotificationStatus | "all";
 const DEFAULT_STATUS_FILTER: StatusFilter = "pending_approval";
 
@@ -99,6 +100,23 @@ function getSqlExecutionResult(alert: AlertNotification): AlertSqlExecutionResul
   }
 
   const sqlApproval = getSqlApproval(alert);
+  const failedByMessage =
+    alert.status === "approved" &&
+    sqlApproval?.status === "approved" &&
+    /no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space|sql\s+execution\s+failed|execution\s+failed|ora-\d+/i.test(
+      alert.message
+    );
+
+  if (failedByMessage) {
+    return {
+      status: "failed",
+      message: alert.message,
+      sql_command: sqlApproval.sql_command,
+      sql_output: alert.message,
+      executed_at: alert.completed_at || alert.updated_at
+    };
+  }
+
   if (!sqlApproval || (alert.status !== "completed" && alert.status !== "failed")) return null;
 
   return {
@@ -134,8 +152,25 @@ function isActiveApprovalAlert(alert: AlertNotification) {
   return alert.status === "approved" && !getSqlExecutionResult(alert);
 }
 
+function getTimedOutSqlPhase(alert: AlertNotification) {
+  if (alert.status !== "approved") return null;
+  if (getSqlExecutionResult(alert)) return null;
+
+  const sqlApproval = getSqlApproval(alert);
+  const startedAtRaw =
+    sqlApproval?.status === "approved"
+      ? sqlApproval.updated_at || sqlApproval.approved_at || alert.approved_at || alert.updated_at
+      : alert.approved_at || alert.updated_at;
+  const startedAt = Date.parse(String(startedAtRaw || ""));
+  if (!Number.isFinite(startedAt) || Date.now() - startedAt <= SQL_PHASE_TIMEOUT_MS) return null;
+
+  if (!sqlApproval) return "generation";
+  if (sqlApproval.status === "approved") return "execution";
+  return null;
+}
+
 function sortAlertsByCreatedAt(alerts: AlertNotification[]) {
-  return [...alerts].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  return [...alerts].sort((left, right) => Date.parse(right.updated_at || right.created_at) - Date.parse(left.updated_at || left.created_at));
 }
 
 function getWorkflowState(alert: AlertNotification) {
@@ -147,28 +182,34 @@ function getWorkflowState(alert: AlertNotification) {
 
   if (!sqlApproval) {
     return {
+      phase: "generating",
       badge: "Generating SQL",
       title: "Generating SQL",
-      description: "First approval received. Waiting for n8n to return the generated SQL for DBA review.",
-      actionLabel: "Generating SQL"
+      description: "Approval received. n8n is reading Oracle metadata and preparing a DBA-reviewable SQL proposal.",
+      actionLabel: "Generating SQL",
+      steps: ["Approved", "Oracle metadata", "AI SQL proposal"]
     };
   }
 
   if (sqlApproval.status === "pending") {
     return {
+      phase: "review",
       badge: "SQL review",
       title: "SQL ready for DBA approval",
       description: "Generated SQL is attached. Review the final command before n8n executes anything.",
-      actionLabel: "SQL review pending"
+      actionLabel: "SQL review pending",
+      steps: ["Generated", "Review SQL", "Approve execution"]
     };
   }
 
   if (sqlApproval.status === "approved") {
     return {
+      phase: "executing",
       badge: "Executing SQL",
       title: "Executing approved SQL",
       description: "Final SQL approval sent. Waiting for n8n to post the execution result.",
-      actionLabel: "Executing SQL"
+      actionLabel: "Executing SQL",
+      steps: ["SQL approved", "Oracle execution", "Result callback"]
     };
   }
 
@@ -179,6 +220,247 @@ function formatExecutionValue(value: unknown) {
   if (value == null || value === "") return "";
   if (typeof value === "string") return value;
   return JSON.stringify(value, null, 2);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getFieldValue(record: Record<string, unknown> | undefined, keys: string[]) {
+  if (!record) return "";
+  for (const key of keys) {
+    const value = record[key] ?? record[key.toUpperCase()] ?? record[key.toLowerCase()];
+    if (value !== undefined && value !== null && value !== "") return String(value);
+  }
+  return "";
+}
+
+function parseStructuredExecutionValue(value: unknown) {
+  if (typeof value !== "string") return value;
+
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  if (!/^[{[]/.test(trimmed)) return value;
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function isPrimitiveExecutionValue(value: unknown) {
+  return value == null || typeof value !== "object";
+}
+
+function formatExecutionLabel(key: string) {
+  const normalized = key.trim().toLowerCase();
+  const overrides: Record<string, string> = {
+    after_usage_pct: "After usage %",
+    post_usage_rows: "Post-usage rows",
+    oracle_execute_result: "Oracle execute result",
+    tablespace_name: "Tablespace",
+    usage_pct: "Usage %",
+    total_gb: "Total GB",
+    free_gb: "Free GB",
+    rows_affected: "Rows affected",
+    sql_output: "SQL output"
+  };
+
+  if (overrides[normalized]) return overrides[normalized];
+
+  return normalized
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => {
+      if (word === "db" || word === "gb" || word === "pct" || word === "sql" || word === "os") return word.toUpperCase();
+      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function formatExecutionCellValue(value: unknown) {
+  if (value == null || value === "") return "-";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return formatNumber(value, Number.isInteger(value) ? 0 : 2);
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function getExecutionTableColumns(rows: Array<Record<string, unknown>>) {
+  const columns: string[] = [];
+  rows.forEach((row) => {
+    Object.keys(row).forEach((key) => {
+      if (!columns.includes(key)) columns.push(key);
+    });
+  });
+  return columns;
+}
+
+function renderExecutionSummary(record: Record<string, unknown>) {
+  const primitiveEntries = Object.entries(record).filter(([, value]) => isPrimitiveExecutionValue(value));
+  if (!primitiveEntries.length) return null;
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {primitiveEntries.map(([key, value]) => (
+        <div key={key} className="rounded-md border border-border/60 bg-secondary/20 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{formatExecutionLabel(key)}</p>
+          <p className="mt-1 break-words text-sm font-medium text-slate-100">{formatExecutionCellValue(value)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function renderExecutionTable(title: string, rows: Array<Record<string, unknown>>) {
+  const columns = getExecutionTableColumns(rows);
+  if (!columns.length) return null;
+
+  return (
+    <div key={title} className="grid gap-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{formatExecutionLabel(title)}</p>
+      <div className="overflow-auto rounded-md border border-border/70">
+        <table className="w-full min-w-[560px] text-left text-xs">
+          <thead className="bg-secondary/60 text-muted-foreground">
+            <tr>
+              {columns.map((column) => (
+                <th key={column} className="px-3 py-2 font-medium">
+                  {formatExecutionLabel(column)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${title}-${index}`} className="border-t border-border/60">
+                {columns.map((column) => (
+                  <td key={column} className="px-3 py-2 text-slate-100">
+                    {formatExecutionCellValue(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function renderStructuredExecutionValue(value: unknown, title = "Result") {
+  const parsed = parseStructuredExecutionValue(value);
+
+  if (isPrimitiveExecutionValue(parsed)) {
+    const text = formatExecutionValue(parsed);
+    if (!text) return null;
+    return (
+      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
+        {text}
+      </pre>
+    );
+  }
+
+  if (Array.isArray(parsed)) {
+    const rows = parsed.filter(isRecord);
+    if (rows.length === parsed.length && rows.length) return renderExecutionTable(title, rows);
+    return (
+      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
+        {JSON.stringify(parsed, null, 2)}
+      </pre>
+    );
+  }
+
+  if (!isRecord(parsed)) return null;
+
+  const nestedEntries = Object.entries(parsed).filter(([, item]) => !isPrimitiveExecutionValue(item));
+
+  return (
+    <div className="grid gap-3 rounded-md border border-border/70 bg-background/50 p-3">
+      {renderExecutionSummary(parsed)}
+      {nestedEntries.map(([key, item]) => {
+        const nested = parseStructuredExecutionValue(item);
+        if (Array.isArray(nested)) {
+          const rows = nested.filter(isRecord);
+          if (rows.length === nested.length && rows.length) return renderExecutionTable(key, rows);
+        }
+
+        if (isRecord(nested)) {
+          return (
+            <div key={key} className="grid gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{formatExecutionLabel(key)}</p>
+              {renderStructuredExecutionValue(nested, key)}
+            </div>
+          );
+        }
+
+        return (
+          <div key={key} className="grid gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{formatExecutionLabel(key)}</p>
+            {renderStructuredExecutionValue(nested, key)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function normalizeMetadataRows(value: unknown): Array<Record<string, unknown>> {
+  let current = value;
+  if (typeof current === "string" && current.trim()) {
+    try {
+      current = JSON.parse(current) as unknown;
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(current)) {
+    return current.flatMap((item) => normalizeMetadataRows(item));
+  }
+
+  if (!isRecord(current)) return [];
+
+  const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+  if (wrapped && wrapped !== current) {
+    const wrappedRows = normalizeMetadataRows(wrapped);
+    if (wrappedRows.length) return wrappedRows;
+  }
+
+  return [current];
+}
+
+function uniqueMetadataRows(rows: Array<Record<string, unknown>>) {
+  const seen = new Set<string>();
+  return rows.filter((row, index) => {
+    const fileName = getFieldValue(row, ["file_name"]);
+    const key = fileName || JSON.stringify(row) || String(index);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getNestedRecord(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key];
+  return isRecord(value) ? value : undefined;
+}
+
+function getTablespaceMetadataRows(sqlApproval: AlertSqlApproval | null | undefined) {
+  const databaseInfo = isRecord(sqlApproval?.database_info) ? sqlApproval.database_info : undefined;
+  const request = isRecord(sqlApproval?.request) ? sqlApproval.request : undefined;
+  const requestDatabaseInfo = getNestedRecord(request, "database_info");
+  const requestPayload = getNestedRecord(request, "request_payload");
+  const requestPayloadDatabaseInfo = getNestedRecord(requestPayload, "database_info");
+
+  return uniqueMetadataRows([
+    ...normalizeMetadataRows(sqlApproval?.tablespace_metadata),
+    ...normalizeMetadataRows(databaseInfo?.metadata),
+    ...normalizeMetadataRows(requestDatabaseInfo?.metadata),
+    ...normalizeMetadataRows(requestPayload?.tablespace_metadata),
+    ...normalizeMetadataRows(requestPayloadDatabaseInfo?.metadata)
+  ]);
 }
 
 export function TablespaceAlertsPanel() {
@@ -259,7 +541,25 @@ export function TablespaceAlertsPanel() {
             limit: ACTIVE_ALERT_FETCH_LIMIT
           })
         ]);
-        const activeAlerts = sortAlertsByCreatedAt([...pendingResult.items, ...approvedResult.items].filter(isActiveApprovalAlert));
+        const normalizedApprovedItems = await Promise.all(
+          approvedResult.items.map(async (alert) => {
+            const timedOutPhase = getTimedOutSqlPhase(alert);
+            if (!timedOutPhase) return alert;
+
+            const message =
+              timedOutPhase === "generation"
+                ? "SQL generation timed out after 3 minutes without an n8n SQL proposal."
+                : "SQL execution timed out after 3 minutes without an n8n completion acknowledgement.";
+
+            try {
+              const result = await updateAlertNotificationStatus(alert.id, "failed", message, "n8n");
+              return result.alert;
+            } catch {
+              return alert;
+            }
+          })
+        );
+        const activeAlerts = sortAlertsByCreatedAt([...pendingResult.items, ...normalizedApprovedItems].filter(isActiveApprovalAlert));
         const offset = (page - 1) * PAGE_SIZE;
         setAlerts(activeAlerts.slice(offset, offset + PAGE_SIZE));
         setTotal(activeAlerts.length);
@@ -405,9 +705,16 @@ export function TablespaceAlertsPanel() {
     const reviewKey = getSqlReviewKey(sqlReviewAlert);
     setSqlDecisionLoading(decision);
     try {
-      await decideAlertSqlApproval(sqlReviewAlert.id, decision, sqlDraft, user?.username);
-      toast.success(decision === "approved" ? "SQL approved" : "SQL rejected");
+      const result = await decideAlertSqlApproval(sqlReviewAlert.id, decision, sqlDraft, user?.username);
+      const executionResult = getSqlExecutionResult(result.alert);
+      toast(executionResult?.status === "failed" ? "SQL execution failed" : decision === "approved" ? "SQL approved" : "SQL rejected", {
+        description: executionResult?.message
+      });
       closeSqlReview(reviewKey || undefined);
+      if (executionResult) {
+        setSqlExecutionAlert(result.alert);
+        setSqlExecutionDialogOpen(true);
+      }
       await loadAlerts({ silent: true });
     } catch (decisionError) {
       const message = decisionError instanceof Error ? decisionError.message : "Could not submit SQL decision.";
@@ -420,7 +727,10 @@ export function TablespaceAlertsPanel() {
   const sqlReviewApproval = sqlReviewAlert ? getSqlApproval(sqlReviewAlert) : null;
   const sqlExecutionResult = sqlExecutionAlert ? getSqlExecutionResult(sqlExecutionAlert) : null;
   const sqlExecutionOutput = formatExecutionValue(sqlExecutionResult?.sql_output);
-  const databaseResultOutput = formatExecutionValue(sqlExecutionResult?.database_result);
+  const databaseResult = parseStructuredExecutionValue(sqlExecutionResult?.database_result);
+  const hasDatabaseResult = databaseResult != null && databaseResult !== "";
+  const sqlDatabaseInfo = isRecord(sqlReviewApproval?.database_info) ? sqlReviewApproval.database_info : undefined;
+  const sqlMetadataRows = getTablespaceMetadataRows(sqlReviewApproval);
 
   return (
     <>
@@ -503,7 +813,7 @@ export function TablespaceAlertsPanel() {
                       </div>
                       <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
                         <span>
-                          {alert.db} / {formatDateTime(alert.created_at)}
+                          {alert.db} / {formatDateTime(alert.updated_at || alert.created_at)}
                         </span>
                         <span>Requested by {alert.created_by}</span>
                         {decisionMeta && DecisionIcon ? (
@@ -553,19 +863,77 @@ export function TablespaceAlertsPanel() {
                   </div>
                   <p className="mt-3 text-sm text-slate-200">{alert.message}</p>
                   {workflowState ? (
-                    <div className="mt-3 rounded-md border border-cyan-400/20 bg-background/45 p-3">
+                    <div
+                      className={cn(
+                        "mt-3 rounded-md border p-3",
+                        workflowState.phase === "executing"
+                          ? "border-amber-300/30 bg-amber-300/10"
+                          : "border-cyan-400/20 bg-background/45"
+                      )}
+                    >
                       <div className="flex items-center gap-3">
-                        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-cyan-300/30 bg-cyan-300/10">
-                          <span className="absolute inset-1 rounded-md border border-cyan-300/20 opacity-70 animate-ping" />
-                          <Loader2 className="relative h-4 w-4 animate-spin text-cyan-100" />
+                        <span
+                          className={cn(
+                            "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-md border",
+                            workflowState.phase === "executing"
+                              ? "border-amber-300/40 bg-amber-300/10"
+                              : "border-cyan-300/30 bg-cyan-300/10"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "absolute inset-1 rounded-md border opacity-70 animate-ping",
+                              workflowState.phase === "executing" ? "border-amber-300/25" : "border-cyan-300/20"
+                            )}
+                          />
+                          {workflowState.phase === "generating" ? (
+                            <WandSparkles className="relative h-4 w-4 text-cyan-100" />
+                          ) : workflowState.phase === "executing" ? (
+                            <Loader2 className="relative h-4 w-4 animate-spin text-amber-100" />
+                          ) : (
+                            <Sparkles className="relative h-4 w-4 text-cyan-100" />
+                          )}
                         </span>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-cyan-50">{workflowState.title}</p>
+                          <p className={cn("text-sm font-medium", workflowState.phase === "executing" ? "text-amber-50" : "text-cyan-50")}>
+                            {workflowState.title}
+                          </p>
                           <p className="text-xs leading-relaxed text-muted-foreground">{workflowState.description}</p>
                         </div>
                       </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {workflowState.steps.map((step, index) => (
+                          <div
+                            key={step}
+                            className={cn(
+                              "flex min-h-9 items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs",
+                              index === 0
+                                ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                                : workflowState.phase === "executing" && index === 1
+                                  ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+                                  : "border-cyan-300/20 bg-cyan-300/5 text-cyan-100"
+                            )}
+                          >
+                            {index === 0 ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            ) : index === 1 ? (
+                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                            )}
+                            <span className="truncate">{step}</span>
+                          </div>
+                        ))}
+                      </div>
                       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background/70">
-                        <div className="tablespace-wait-bar h-full w-1/2 rounded-full bg-gradient-to-r from-cyan-300 via-amber-300 to-cyan-300" />
+                        <div
+                          className={cn(
+                            "tablespace-wait-bar h-full w-1/2 rounded-full",
+                            workflowState.phase === "executing"
+                              ? "bg-gradient-to-r from-amber-300 via-red-300 to-amber-300"
+                              : "bg-gradient-to-r from-cyan-300 via-emerald-300 to-cyan-300"
+                          )}
+                        />
                       </div>
                     </div>
                   ) : null}
@@ -595,7 +963,7 @@ export function TablespaceAlertsPanel() {
           }
         }}
       >
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Code2 className="h-5 w-5 text-cyan-200" />
@@ -610,12 +978,73 @@ export function TablespaceAlertsPanel() {
             <Label htmlFor="sql-review-command">SQL command</Label>
             <Textarea
               id="sql-review-command"
-              className="min-h-[280px] resize-y font-mono text-xs leading-relaxed text-cyan-50"
+              className="min-h-[150px] resize-y font-mono text-xs leading-relaxed text-cyan-50"
               value={sqlDraft}
               onChange={(event) => setSqlDraft(event.target.value)}
               spellCheck={false}
             />
           </div>
+          {sqlReviewApproval?.explanation ? (
+            <div className="rounded-md border border-border/70 bg-secondary/30 p-3">
+              <Label>AI explanation</Label>
+              <p className="mt-2 text-sm leading-relaxed text-slate-100">{sqlReviewApproval.explanation}</p>
+            </div>
+          ) : null}
+          {sqlDatabaseInfo ? (
+            <div className="grid gap-3">
+              <Label>Database information</Label>
+              <div className="grid gap-2 rounded-md border border-border/70 bg-background/50 p-2 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ["Environment", getFieldValue(sqlDatabaseInfo, ["environment"])],
+                  ["OS", getFieldValue(sqlDatabaseInfo, ["os"])],
+                  ["DB type", getFieldValue(sqlDatabaseInfo, ["db_type", "dbType"])],
+                  ["Tablespace", getFieldValue(sqlDatabaseInfo, ["tablespace", "tablespace_name"])],
+                  ["Requested by", getFieldValue(sqlDatabaseInfo, ["requested_by", "requestedBy"])],
+                  ["Database", sqlReviewAlert?.db || ""]
+                ]
+                  .filter(([, value]) => value)
+                  .map(([label, value]) => (
+                    <div key={label} className="rounded-md border border-border/50 bg-secondary/20 px-2.5 py-1.5">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                      <p className="mt-1 truncate text-sm font-medium text-slate-100">{value}</p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+          {sqlMetadataRows.length ? (
+            <div className="grid gap-2">
+              <Label>Tablespace metadata</Label>
+              <div className="overflow-auto rounded-md border border-border/70">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="bg-secondary/60 text-muted-foreground">
+                    <tr>
+                      {["Tablespace", "Datafile", "File size GB", "Free GB", "Autoextend", "Max size GB", "OMF destination"].map((heading) => (
+                        <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sqlMetadataRows.map((row, index) => (
+                      <tr key={`${getFieldValue(row, ["file_name"])}-${index}`} className="border-t border-border/60">
+                        <td className="px-3 py-2 font-mono text-cyan-100">{getFieldValue(row, ["tablespace_name"])}</td>
+                        <td className="max-w-72 truncate px-3 py-2 font-mono text-slate-100" title={getFieldValue(row, ["file_name"])}>
+                          {getFieldValue(row, ["file_name"])}
+                        </td>
+                        <td className="px-3 py-2">{getFieldValue(row, ["file_size_gb"])}</td>
+                        <td className="px-3 py-2">{getFieldValue(row, ["free_gb"])}</td>
+                        <td className="px-3 py-2">{getFieldValue(row, ["autoextensible"])}</td>
+                        <td className="px-3 py-2">{getFieldValue(row, ["max_size_gb"])}</td>
+                        <td className="max-w-48 truncate px-3 py-2" title={getFieldValue(row, ["db_create_file_dest"])}>
+                          {getFieldValue(row, ["db_create_file_dest"]) || "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
           <DialogFooter>
             <Button variant="ghost" onClick={() => handleSqlDecision("rejected")} disabled={Boolean(sqlDecisionLoading)}>
               {sqlDecisionLoading === "rejected" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
@@ -638,7 +1067,7 @@ export function TablespaceAlertsPanel() {
           }
         }}
       >
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {sqlExecutionResult?.status === "completed" ? (
@@ -673,15 +1102,13 @@ export function TablespaceAlertsPanel() {
                 </pre>
               </div>
             ) : null}
-            {databaseResultOutput ? (
+            {hasDatabaseResult ? (
               <div className="grid gap-2">
                 <Label className="inline-flex items-center gap-2">
                   <SquareTerminal className="h-4 w-4" />
                   Database result
                 </Label>
-                <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
-                  {databaseResultOutput}
-                </pre>
+                {renderStructuredExecutionValue(databaseResult)}
               </div>
             ) : null}
             {sqlExecutionOutput ? (

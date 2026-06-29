@@ -38,8 +38,14 @@ function parsePositiveNumber(name: string, fallback: number) {
 export function getServerEnv(): ServerEnv {
   if (cached) return cached;
 
-  const webhookUrl = process.env.NEXT_PUBLIC_DBA_WEBHOOK_URL?.trim() || "";
-  const webhookToken = process.env.NEXT_PUBLIC_DBA_TOKEN?.trim() || "";
+  const webhookUrl =
+    process.env.DBA_WEBHOOK_URL?.trim() ||
+    process.env.NEXT_PUBLIC_DBA_WEBHOOK_URL?.trim() ||
+    "";
+  const webhookToken =
+    process.env.DBA_WEBHOOK_TOKEN?.trim() ||
+    process.env.NEXT_PUBLIC_DBA_TOKEN?.trim() ||
+    "";
   const adminWebhookUrl = process.env.NEXT_PUBLIC_ADMIN_WEBHOOK_URL?.trim() || "";
   const adminWebhookSecret = process.env.ADMIN_WEBHOOK_SECRET?.trim() || "";
 

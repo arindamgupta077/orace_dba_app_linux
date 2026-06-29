@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
+import { dispatchDbaWorkflowCommand } from "@/lib/server/dba-workflow";
 import { alertTypeToTargetPath, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
-import { getAlertNotification, insertAlertNotification, insertAuditLog, listAlertNotifications, updateAlertNotification } from "@/lib/server/repository";
+import {
+  findPendingAlertNotificationOccurrence,
+  getAlertNotification,
+  insertAlertNotification,
+  insertAuditLog,
+  listAlertNotifications,
+  replacePendingAlertNotification,
+  updateAlertNotification
+} from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
+import { sha256Hex } from "@/lib/server/security";
 import { registerAlertSqlApproval } from "@/lib/server/sql-approval";
 import type { AlertNotificationSeverity, AlertNotificationStatus, AlertNotificationType } from "@/types/dba";
 
@@ -12,6 +22,7 @@ export const dynamic = "force-dynamic";
 type BodyRecord = Record<string, unknown>;
 
 const PUBLIC_ALERT_ACTOR = "n8n";
+const DEFAULT_SQL_EXECUTION_TIMEOUT_MINUTES = 3;
 
 function readString(body: BodyRecord, keys: string[]) {
   for (const key of keys) {
@@ -21,6 +32,60 @@ function readString(body: BodyRecord, keys: string[]) {
     }
   }
   return "";
+}
+
+function isRecord(value: unknown): value is BodyRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function unwrapN8nPayload(raw: unknown): BodyRecord {
+  let current = raw;
+
+  for (let index = 0; index < 6; index += 1) {
+    if (Array.isArray(current)) {
+      current = current[0];
+      continue;
+    }
+
+    if (!isRecord(current)) return {};
+    if (isRecord(current.alert)) return current;
+
+    const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+    if (wrapped && wrapped !== current) {
+      current = wrapped;
+      continue;
+    }
+
+    return current;
+  }
+
+  return isRecord(current) ? current : {};
+}
+
+function normalizeAlertWebhookBody(raw: unknown): BodyRecord {
+  const firstItem = unwrapN8nPayload(raw);
+
+  const alert = firstItem.alert;
+  if (!isRecord(alert)) return firstItem;
+
+  const metadata = isRecord(alert.metadata) ? alert.metadata : {};
+  const sqlExecution = isRecord(metadata.sql_execution) ? metadata.sql_execution : {};
+  const sqlApproval = isRecord(metadata.sql_approval) ? metadata.sql_approval : {};
+  const executionStatus = normalizeStatus(String(sqlExecution.status || ""));
+
+  return {
+    ...firstItem,
+    ...alert,
+    alert_id: alert.id,
+    status: isExecutionResultStatus(executionStatus) ? executionStatus : alert.status,
+    message: alert.message,
+    actor: sqlExecution.executed_by || alert.approved_by || alert.created_by || firstItem.actor,
+    sql_command: sqlExecution.sql_command || sqlApproval.sql_command || firstItem.sql_command,
+    sql_output: sqlExecution.sql_output || firstItem.sql_output,
+    database_result: sqlExecution.database_result || firstItem.database_result,
+    rows_affected: sqlExecution.rows_affected || firstItem.rows_affected,
+    metadata
+  };
 }
 
 function readNumber(body: BodyRecord, keys: string[]) {
@@ -55,6 +120,62 @@ function readValue(body: BodyRecord, keys: string[]) {
   return undefined;
 }
 
+function readStringArray(body: BodyRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = body[key];
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+      } catch {
+        return value
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+    }
+  }
+  return undefined;
+}
+
+function normalizeObjectRows(value: unknown): BodyRecord[] {
+  let current = value;
+  if (typeof current === "string" && current.trim()) {
+    try {
+      current = JSON.parse(current) as unknown;
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(current)) {
+    return current.flatMap((item) => normalizeObjectRows(item));
+  }
+
+  if (!isRecord(current)) return [];
+
+  const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+  if (wrapped && wrapped !== current) {
+    const wrappedRows = normalizeObjectRows(wrapped);
+    if (wrappedRows.length) return wrappedRows;
+  }
+
+  return [current];
+}
+
+function readObjectArray(body: BodyRecord, keys: string[]) {
+  for (const key of keys) {
+    const rows = normalizeObjectRows(body[key]);
+    if (rows.length) return rows;
+  }
+  return undefined;
+}
+
 function normalizeSeverity(raw: string): AlertNotificationSeverity {
   const value = raw.toLowerCase();
   if (value === "info" || value === "warning" || value === "critical" || value === "error") return value;
@@ -78,6 +199,24 @@ function normalizeStatus(raw: string): AlertNotificationStatus {
   return "pending_approval";
 }
 
+function readExecutionStatus(body: BodyRecord) {
+  const directStatus = normalizeStatus(readString(body, ["status", "state", "execution_status", "executionStatus"]));
+  if (isExecutionResultStatus(directStatus)) return directStatus;
+
+  const metadata = readObject(body, ["metadata"]);
+  const sqlExecution = metadata ? readObject(metadata, ["sql_execution", "sqlExecution"]) : undefined;
+  const metadataStatus = sqlExecution ? normalizeStatus(readString(sqlExecution, ["status", "state"])) : "pending_approval";
+  if (isExecutionResultStatus(metadataStatus)) return metadataStatus;
+
+  const errorCode = readString(body, ["error_code", "errorCode", "code", "reason"]);
+  const message = readString(body, ["message", "detail", "completion_message", "completionMessage", "sql_output", "sqlOutput", "output"]);
+  if (/no[_\s-]?disk[_\s-]?space|disk[_\s-]?space/i.test(errorCode)) return "failed";
+  if (/sql\s+executed\s+successfully|execution\s+completed/i.test(message)) return "completed";
+  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
+
+  return "pending_approval";
+}
+
 function normalizeAlertType(raw: string): AlertNotificationType {
   const normalized = raw
     .trim()
@@ -88,6 +227,15 @@ function normalizeAlertType(raw: string): AlertNotificationType {
 
 function createAlertId() {
   return `ALT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function createDeterministicAlertId(value: string) {
+  return `ALT-${sha256Hex(value).slice(0, 32).toUpperCase()}`;
+}
+
+function createAlertOccurrenceId(baseId: string) {
+  const suffix = `-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  return `${baseId.slice(0, Math.max(1, 64 - suffix.length))}${suffix}`;
 }
 
 function buildAlertTitle(alertType: string, target: string, severity: string) {
@@ -256,6 +404,174 @@ function buildSqlExecutionMetadata(input: {
   return metadata;
 }
 
+function getSqlExecutionTimeoutMs() {
+  const raw = process.env.ALERT_SQL_EXECUTION_TIMEOUT_MINUTES?.trim();
+  const minutes = raw ? Number(raw) : DEFAULT_SQL_EXECUTION_TIMEOUT_MINUTES;
+  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_SQL_EXECUTION_TIMEOUT_MINUTES * 60_000;
+  return minutes * 60_000;
+}
+
+function readMetadataRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function isSqlExecutionTimedOut(alert: NonNullable<Awaited<ReturnType<typeof getAlertNotification>>>) {
+  if (alert.status !== "approved") return false;
+
+  const sqlExecution = readMetadataRecord(alert.metadata?.sql_execution ?? alert.metadata?.sqlExecution);
+  if (sqlExecution?.status === "completed" || sqlExecution?.status === "failed") return false;
+
+  const sqlApproval = readMetadataRecord(alert.metadata?.sql_approval ?? alert.metadata?.sqlApproval);
+  if (sqlApproval?.status !== "approved") return false;
+
+  const startedAtRaw = sqlApproval.updated_at || sqlApproval.approved_at || alert.approved_at || alert.updated_at;
+  const startedAt = Date.parse(String(startedAtRaw || ""));
+  if (!Number.isFinite(startedAt)) return false;
+
+  return Date.now() - startedAt > getSqlExecutionTimeoutMs();
+}
+
+function isSqlGenerationTimedOut(alert: NonNullable<Awaited<ReturnType<typeof getAlertNotification>>>) {
+  if (alert.status !== "approved") return false;
+
+  const sqlExecution = readMetadataRecord(alert.metadata?.sql_execution ?? alert.metadata?.sqlExecution);
+  if (sqlExecution?.status === "completed" || sqlExecution?.status === "failed") return false;
+
+  const sqlApproval = readMetadataRecord(alert.metadata?.sql_approval ?? alert.metadata?.sqlApproval);
+  if (sqlApproval) return false;
+
+  const startedAt = Date.parse(String(alert.approved_at || alert.updated_at || ""));
+  if (!Number.isFinite(startedAt)) return false;
+
+  return Date.now() - startedAt > getSqlExecutionTimeoutMs();
+}
+
+function inferCompletedSqlExecution(alert: NonNullable<Awaited<ReturnType<typeof getAlertNotification>>>) {
+  if (alert.status !== "approved") return "";
+
+  const sqlExecution = readMetadataRecord(alert.metadata?.sql_execution ?? alert.metadata?.sqlExecution);
+  if (sqlExecution?.status === "completed" || sqlExecution?.status === "failed") return "";
+
+  const sqlApproval = readMetadataRecord(alert.metadata?.sql_approval ?? alert.metadata?.sqlApproval);
+  if (sqlApproval?.status !== "approved") return "";
+
+  if (/sql\s+executed\s+successfully|execution\s+completed/i.test(alert.message)) return "completed";
+  if (
+    /sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(
+      alert.message
+    )
+  ) {
+    return "failed";
+  }
+
+  return "";
+}
+
+async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<typeof getAlertNotification>>>[]) {
+  const nextAlerts = await Promise.all(
+    alerts.map(async (alert) => {
+      const inferredExecutionStatus = inferCompletedSqlExecution(alert);
+      if (inferredExecutionStatus === "completed" || inferredExecutionStatus === "failed") {
+        const sqlApproval = readMetadataRecord(alert.metadata?.sql_approval ?? alert.metadata?.sqlApproval);
+        const message = alert.message || (inferredExecutionStatus === "completed" ? "SQL executed successfully." : "SQL execution failed.");
+        const updatedAlert = await updateAlertNotification({
+          id: alert.id,
+          status: inferredExecutionStatus,
+          actor: PUBLIC_ALERT_ACTOR,
+          message,
+          metadata: buildSqlExecutionMetadata({
+            existingAlert: alert,
+            status: inferredExecutionStatus,
+            message,
+            sqlCommand: typeof sqlApproval?.sql_command === "string" ? sqlApproval.sql_command : undefined,
+            sqlOutput: message,
+            actor: PUBLIC_ALERT_ACTOR
+          })
+        });
+
+        await insertAuditLog({
+          actor: PUBLIC_ALERT_ACTOR,
+          action: "alert_log",
+          db: updatedAlert.db,
+          status: inferredExecutionStatus,
+          detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} inferred SQL execution ${inferredExecutionStatus}.`,
+          metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_execution_inferred: true }
+        });
+
+        emitAlertNotificationEvent("updated", updatedAlert);
+
+        return updatedAlert;
+      }
+
+      if (isSqlGenerationTimedOut(alert)) {
+        const message = `SQL generation timed out after ${Math.round(getSqlExecutionTimeoutMs() / 60_000)} minutes without an n8n SQL proposal.`;
+        const updatedAlert = await updateAlertNotification({
+          id: alert.id,
+          status: "failed",
+          actor: PUBLIC_ALERT_ACTOR,
+          message,
+          metadata: {
+            ...(alert.metadata || {}),
+            sql_generation: {
+              status: "failed",
+              message,
+              failed_at: new Date().toISOString(),
+              timeout: true
+            }
+          }
+        });
+
+        await insertAuditLog({
+          actor: PUBLIC_ALERT_ACTOR,
+          action: "alert_log",
+          db: updatedAlert.db,
+          status: "failed",
+          detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL generation timed out.`,
+          metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_generation_timeout: true }
+        });
+
+        emitAlertNotificationEvent("updated", updatedAlert);
+
+        return updatedAlert;
+      }
+
+      if (!isSqlExecutionTimedOut(alert)) return alert;
+
+      const message = `SQL execution timed out after ${Math.round(getSqlExecutionTimeoutMs() / 60_000)} minutes without an n8n completion acknowledgement.`;
+      const updatedAlert = await updateAlertNotification({
+        id: alert.id,
+        status: "failed",
+        actor: PUBLIC_ALERT_ACTOR,
+        message,
+        metadata: buildSqlExecutionMetadata({
+          existingAlert: alert,
+          status: "failed",
+          message,
+          sqlCommand: readMetadataRecord(alert.metadata?.sql_approval)?.sql_command as string | undefined,
+          sqlOutput: message,
+          databaseResult: { timeout: true },
+          actor: PUBLIC_ALERT_ACTOR
+        })
+      });
+
+      await insertAuditLog({
+        actor: PUBLIC_ALERT_ACTOR,
+        action: "alert_log",
+        db: updatedAlert.db,
+        status: "failed",
+        detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL execution timed out.`,
+        metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_execution_timeout: true }
+      });
+
+      emitAlertNotificationEvent("updated", updatedAlert);
+
+      return updatedAlert;
+    })
+  );
+
+  return nextAlerts;
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -274,8 +590,9 @@ export async function GET(request: Request) {
       limit,
       offset
     });
+    const items = await applySqlExecutionTimeouts(result.items);
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, items });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected alert list error.";
     return NextResponse.json({ message }, { status: 500 });
@@ -284,10 +601,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as BodyRecord;
+    const rawBody = normalizeAlertWebhookBody(await request.json());
+    const params = readObject(rawBody, ["params"]) || {};
+    const body: BodyRecord = { ...params, ...rawBody, params };
     const existingAlertId = readString(body, ["id", "alert_id", "alertId"]);
     const sqlCommand = readString(body, ["sql_command", "sqlCommand", "generated_sql", "generatedSql", "sql"]);
-    const postedStatus = normalizeStatus(readString(body, ["status", "state"]));
+    const postedStatus = readExecutionStatus(body);
 
     if (existingAlertId && isExecutionResultStatus(postedStatus)) {
       const existingAlert = await getAlertNotification(existingAlertId);
@@ -334,6 +653,20 @@ export async function POST(request: Request) {
 
     if (existingAlertId && sqlCommand) {
       const actor = readString(body, ["created_by", "createdBy", "requested_by", "requestedBy", "actor"]) || PUBLIC_ALERT_ACTOR;
+      const metadata = readObject(body, ["metadata", "raw", "payload"]) || {};
+      const warnings = readStringArray(body, ["warnings", "warning_messages", "warningMessages"]);
+      const explanation = readString(body, ["explanation", "ai_explanation", "aiExplanation", "summary"]);
+      const databaseInfo = readObject(body, ["database_info", "databaseInfo", "db_info", "dbInfo"]);
+      const tablespaceMetadata = readObjectArray(body, [
+        "tablespace_metadata",
+        "tablespaceMetadata",
+        "metadata_rows",
+        "metadataRows",
+        "datafile_metadata",
+        "datafileMetadata"
+      ]);
+      const databaseInfoMetadata = databaseInfo ? readObjectArray(databaseInfo, ["metadata"]) : undefined;
+
       const alert = await registerAlertSqlApproval({
         alertId: existingAlertId,
         sqlCommand,
@@ -343,7 +676,14 @@ export async function POST(request: Request) {
         callbackUrl: readString(body, ["callback_url", "callbackUrl", "resume_url", "resumeUrl"]),
         callbackMethod: readString(body, ["callback_method", "callbackMethod", "method"]),
         message: readString(body, ["message", "description", "detail"]),
-        metadata: readObject(body, ["metadata", "raw", "payload"])
+        metadata: {
+          ...metadata,
+          ...(explanation ? { explanation } : {}),
+          ...(warnings ? { warnings } : {}),
+          ...(databaseInfo ? { database_info: databaseInfo } : {}),
+          ...(tablespaceMetadata || databaseInfoMetadata ? { tablespace_metadata: tablespaceMetadata || databaseInfoMetadata } : {}),
+          request_payload: body
+        }
       });
 
       return NextResponse.json({ alert }, { status: 202 });
@@ -365,8 +705,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "db is required." }, { status: 400 });
     }
 
-    const alert = await insertAlertNotification({
-      id: existingAlertId || createAlertId(),
+    const eventId = readString(body, ["event_id", "eventId"]);
+    const correlationId = readString(body, ["correlation_id", "correlationId"]);
+    const idempotencyKey = readString(body, ["idempotency_key", "idempotencyKey"]);
+    const incomingMetadata = readObject(body, ["metadata", "raw", "payload"]) || {};
+    const metadata = {
+      ...incomingMetadata,
+      ...(eventId ? { event_id: eventId } : {}),
+      ...(correlationId ? { correlation_id: correlationId } : {}),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      request_payload: rawBody,
+      last_seen_at: new Date().toISOString()
+    };
+    const alertInput = {
       source: readString(body, ["source"]) || "n8n",
       alertType,
       db,
@@ -387,7 +738,51 @@ export async function POST(request: Request) {
       rejectUrl: readString(body, ["reject_url", "rejectUrl"]),
       callbackUrl: readString(body, ["callback_url", "callbackUrl"]),
       createdBy: readString(body, ["created_by", "createdBy", "requested_by", "requestedBy"]) || PUBLIC_ALERT_ACTOR,
-      metadata: readObject(body, ["metadata", "raw", "payload"])
+      metadata
+    };
+    const pendingOccurrence = await findPendingAlertNotificationOccurrence({
+      db,
+      alertType,
+      tablespace,
+      objectName
+    });
+
+    if (pendingOccurrence) {
+      const alert = await replacePendingAlertNotification({
+        id: pendingOccurrence.id,
+        ...alertInput,
+        metadata: {
+          ...(pendingOccurrence.metadata || {}),
+          ...metadata,
+          refreshed_from_alert_id: pendingOccurrence.id,
+          refreshed_at: new Date().toISOString()
+        }
+      });
+
+      await insertAuditLog({
+        actor: alertInput.createdBy,
+        action: "alert_log",
+        db,
+        status: alert.status,
+        detail: `${alert.alert_type} alert ${alert.id} refreshed for ${tablespace || objectName || db}.`,
+        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, refreshed: true }
+      });
+
+      emitAlertNotificationEvent("updated", alert);
+
+      return NextResponse.json({ alert, refreshed: true }, { status: 200 });
+    }
+
+    const baseAlertId = existingAlertId || (idempotencyKey ? createDeterministicAlertId(idempotencyKey) : eventId || createAlertId());
+    const existingAlert = await getAlertNotification(baseAlertId);
+    const alertId = existingAlert ? createAlertOccurrenceId(baseAlertId) : baseAlertId;
+    const alert = await insertAlertNotification({
+      id: alertId,
+      ...alertInput,
+      metadata: {
+        ...metadata,
+        ...(existingAlert ? { previous_occurrence_alert_id: existingAlert.id } : {})
+      }
     });
 
     await insertAuditLog({
@@ -438,12 +833,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ message: `Alert notification not found: ${id}` }, { status: 404 });
     }
 
-    if (status === "approved" || status === "rejected") {
-      const resumeUrl = getResumeUrlForStatus(existingAlert, status);
-      if (resumeUrl) {
-        await resumeN8nWaitNode(resumeUrl, status, id, actor, userId);
-      }
-    }
+    const isExtensionAlert = existingAlert.alert_type === "tablespace" || existingAlert.alert_type === "datafile_extend";
 
     if (status === "acknowledged" && existingAlert.callback_url) {
       await notifyN8nAcknowledgement({
@@ -514,6 +904,57 @@ export async function PATCH(request: Request) {
     });
 
     emitAlertNotificationEvent("updated", alert);
+
+    if (status === "approved" && isExtensionAlert) {
+      void dispatchDbaWorkflowCommand({
+        action: "extension_approved",
+        alert,
+        actor,
+        userId,
+        params: {
+          tablespace: alert.tablespace || alert.object_name,
+          selected_size_gb: alert.extend_size_gb
+        },
+        message: message || "Tablespace extension approved."
+      }).catch(async (dispatchError) => {
+        const failureMessage =
+          dispatchError instanceof Error
+            ? `n8n SQL generation request failed: ${dispatchError.message}`
+            : "n8n SQL generation request failed.";
+        const failedAlert = await updateAlertNotification({
+          id: alert.id,
+          status: "failed",
+          actor: PUBLIC_ALERT_ACTOR,
+          message: failureMessage,
+          metadata: {
+            ...(alert.metadata || {}),
+            sql_generation_error: {
+              message: failureMessage,
+              failed_at: new Date().toISOString()
+            }
+          }
+        });
+        await insertAuditLog({
+          actor: PUBLIC_ALERT_ACTOR,
+          action: "alert_log",
+          db: failedAlert.db,
+          status: "failed",
+          detail: failureMessage,
+          metadata: { alert_id: failedAlert.id, alert_type: failedAlert.alert_type, n8n_dispatch_failed: true }
+        });
+        emitAlertNotificationEvent("updated", failedAlert);
+      });
+    }
+
+    if (status === "rejected" && isExtensionAlert) {
+      void dispatchDbaWorkflowCommand({
+        action: "extension_rejected",
+        alert,
+        actor,
+        userId,
+        message: message || "Tablespace extension rejected."
+      }).catch(() => undefined);
+    }
 
     return NextResponse.json({ alert });
   } catch (error) {

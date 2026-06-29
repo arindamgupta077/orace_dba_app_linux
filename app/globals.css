@@ -67,6 +67,25 @@ body::selection {
   backdrop-filter: blur(16px);
 }
 
+.app-toast[data-sonner-toast] {
+  color: #f8fafc !important;
+}
+
+.app-toast [data-title] {
+  color: #f8fafc !important;
+  font-weight: 650;
+}
+
+.app-toast [data-description] {
+  color: #cbd5e1 !important;
+}
+
+.app-toast [data-close-button] {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-color: rgba(148, 163, 184, 0.38) !important;
+  color: #f8fafc !important;
+}
+
 .scan-line {
   position: relative;
   overflow: hidden;

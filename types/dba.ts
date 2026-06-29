@@ -16,6 +16,11 @@ export interface AlertSqlApproval {
   status: AlertSqlApprovalStatus;
   sql_command: string;
   original_sql_command?: string;
+  explanation?: string;
+  warnings?: string[];
+  database_info?: Record<string, unknown>;
+  tablespace_metadata?: Array<Record<string, unknown>>;
+  request?: Record<string, unknown>;
   callback_url?: string;
   approval_url?: string;
   reject_url?: string;
