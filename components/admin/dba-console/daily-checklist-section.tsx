@@ -101,9 +101,16 @@ export function DailyChecklistSection() {
   const [search, setSearch] = useState("");
   const [templateDialog, setTemplateDialog] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<BackupTemplate | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("database");
+  const [selectedDbIds, setSelectedDbIds] = useState<Set<number>>(new Set());
+  const [selectedBackupIds, setSelectedBackupIds] = useState<Set<number>>(new Set());
+  const [bulkDbStatus, setBulkDbStatus] = useState<DbStatusValue>("UP");
+  const [bulkDbComment, setBulkDbComment] = useState("");
+  const [bulkBackupStatus, setBulkBackupStatus] = useState<BackupStatusValue>("SUCCESS");
+  const [bulkBackupComment, setBulkBackupComment] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const [dbResult, tplResult, dbCheckResult, bkCheckResult] = await Promise.all([
         fetchDatabases(),
@@ -125,6 +132,11 @@ export function DailyChecklistSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setSelectedDbIds(new Set());
+    setSelectedBackupIds(new Set());
+  }, [shiftNumber, shiftDate]);
 
   const activeDatabases = useMemo(
     () => databases.filter((d) => d.status === "active"),
@@ -210,6 +222,92 @@ export function DailyChecklistSection() {
     }
   };
 
+  const handleBulkSaveDbStatus = async () => {
+    if (selectedDbIds.size === 0) return;
+    setBulkSaving(true);
+    const comment = bulkDbComment.trim() || undefined;
+    const ids = Array.from(selectedDbIds);
+    let ok = 0;
+    let fail = 0;
+    await Promise.all(
+      ids.map(async (databaseId) => {
+        try {
+          await saveDbStatusCheck({
+            databaseId,
+            shiftNumber: Number(shiftNumber),
+            shiftDate,
+            status: bulkDbStatus,
+            commentText: comment
+          });
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      })
+    );
+    if (ok > 0) toast.success(`Saved status for ${ok} database${ok > 1 ? "s" : ""}.`);
+    if (fail > 0) toast.error(`Failed to save ${fail} database${fail > 1 ? "s" : ""}.`);
+    setSelectedDbIds(new Set());
+    setBulkDbComment("");
+    setBulkSaving(false);
+    await load();
+  };
+
+  const handleBulkSaveBackupStatus = async () => {
+    if (selectedBackupIds.size === 0) return;
+    setBulkSaving(true);
+    const comment = bulkBackupComment.trim() || undefined;
+    const ids = Array.from(selectedBackupIds);
+    let ok = 0;
+    let fail = 0;
+    await Promise.all(
+      ids.map(async (backupId) => {
+        const tpl = backupTemplates.find((t) => t.backup_id === backupId);
+        if (!tpl) {
+          fail += 1;
+          return;
+        }
+        try {
+          await saveBackupStatusCheck({
+            backupId,
+            databaseId: tpl.database_id,
+            shiftNumber: Number(shiftNumber),
+            shiftDate,
+            status: bulkBackupStatus,
+            commentText: comment
+          });
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      })
+    );
+    if (ok > 0) toast.success(`Saved status for ${ok} backup${ok > 1 ? "s" : ""}.`);
+    if (fail > 0) toast.error(`Failed to save ${fail} backup${fail > 1 ? "s" : ""}.`);
+    setSelectedBackupIds(new Set());
+    setBulkBackupComment("");
+    setBulkSaving(false);
+    await load();
+  };
+
+  const toggleDbSelection = (id: number) => {
+    setSelectedDbIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleBackupSelection = (id: number) => {
+    setSelectedBackupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleDeleteTemplate = async (id: number, name: string) => {
     if (!confirm(`Delete backup template "${name}"? This will also remove all associated check records.`)) return;
     try {
@@ -264,7 +362,6 @@ export function DailyChecklistSection() {
                   <SelectItem value="1">Shift 1</SelectItem>
                   <SelectItem value="2">Shift 2</SelectItem>
                   <SelectItem value="3">Shift 3</SelectItem>
-                  <SelectItem value="4">General Shift</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -304,7 +401,7 @@ export function DailyChecklistSection() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="database">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="database" className="gap-1.5">
             <Database className="h-3.5 w-3.5" />
@@ -351,33 +448,86 @@ export function DailyChecklistSection() {
                   </div>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Database</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Checked By</TableHead>
-                      <TableHead>Check Time</TableHead>
-                      <TableHead>Comment</TableHead>
-                      {canManage && <TableHead className="text-right">Action</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredDatabases.map((db) => {
-                      const check = dbCheckMap.get(db.id);
-                      return (
-                        <DbStatusRow
-                          key={db.id}
-                          database={db}
-                          check={check}
-                          canManage={canManage}
-                          saving={saving === `db-${db.id}`}
-                          onSave={(status, comment) => void handleSaveDbStatus(db.id, status, comment)}
-                        />
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                <>
+                  {canManage && selectedDbIds.size > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5">
+                      <span className="text-sm font-medium text-cyan-300">
+                        {selectedDbIds.size} selected
+                      </span>
+                      <Select value={bulkDbStatus} onValueChange={(v) => setBulkDbStatus(v as DbStatusValue)}>
+                        <SelectTrigger className="h-8 w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DB_STATUS_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        value={bulkDbComment}
+                        onChange={(e) => setBulkDbComment(e.target.value)}
+                        placeholder="Bulk comment (optional)..."
+                        className="h-8 w-48"
+                      />
+                      <Button size="sm" onClick={() => void handleBulkSaveDbStatus()} disabled={bulkSaving}>
+                        {bulkSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        Save Selected
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedDbIds(new Set())}>
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {canManage && (
+                          <TableHead className="w-10">
+                            <input
+                              type="checkbox"
+                              className="dba-checkbox h-4 w-4 cursor-pointer rounded border-border/60 bg-transparent accent-cyan-500"
+                              checked={selectedDbIds.size === filteredDatabases.length && filteredDatabases.length > 0}
+                              ref={(el) => {
+                                if (el) el.indeterminate = selectedDbIds.size > 0 && selectedDbIds.size < filteredDatabases.length;
+                              }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedDbIds(new Set(filteredDatabases.map((d) => d.id)));
+                                } else {
+                                  setSelectedDbIds(new Set());
+                                }
+                              }}
+                            />
+                          </TableHead>
+                        )}
+                        <TableHead>Database</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Checked By</TableHead>
+                        <TableHead>Check Time</TableHead>
+                        <TableHead>Comment</TableHead>
+                        {canManage && <TableHead className="text-right">Action</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredDatabases.map((db) => {
+                        const check = dbCheckMap.get(db.id);
+                        return (
+                          <DbStatusRow
+                            key={db.id}
+                            database={db}
+                            check={check}
+                            canManage={canManage}
+                            saving={saving === `db-${db.id}`}
+                            selected={selectedDbIds.has(db.id)}
+                            onToggleSelect={() => toggleDbSelection(db.id)}
+                            onSave={(status, comment) => void handleSaveDbStatus(db.id, status, comment)}
+                          />
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </>
               )}
             </CardContent>
           </Card>
@@ -432,37 +582,90 @@ export function DailyChecklistSection() {
                   </div>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Backup Name</TableHead>
-                      <TableHead>Database</TableHead>
-                      <TableHead>Scheduled</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Checked By</TableHead>
-                      <TableHead>Check Time</TableHead>
-                      <TableHead>Comment</TableHead>
-                      {canManage && <TableHead className="text-right">Action</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTemplates.map((tpl) => {
-                      const check = backupCheckMap.get(tpl.backup_id);
-                      return (
-                        <BackupStatusRow
-                          key={tpl.backup_id}
-                          template={tpl}
-                          check={check}
-                          canManage={canManage}
-                          saving={saving === `bk-${tpl.backup_id}`}
-                          onSave={(status, comment) =>
-                            void handleSaveBackupStatus(tpl.backup_id, tpl.database_id, status, comment)
-                          }
-                        />
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                <>
+                  {canManage && selectedBackupIds.size > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5">
+                      <span className="text-sm font-medium text-cyan-300">
+                        {selectedBackupIds.size} selected
+                      </span>
+                      <Select value={bulkBackupStatus} onValueChange={(v) => setBulkBackupStatus(v as BackupStatusValue)}>
+                        <SelectTrigger className="h-8 w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BACKUP_STATUS_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        value={bulkBackupComment}
+                        onChange={(e) => setBulkBackupComment(e.target.value)}
+                        placeholder="Bulk comment (optional)..."
+                        className="h-8 w-48"
+                      />
+                      <Button size="sm" onClick={() => void handleBulkSaveBackupStatus()} disabled={bulkSaving}>
+                        {bulkSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        Save Selected
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedBackupIds(new Set())}>
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {canManage && (
+                          <TableHead className="w-10">
+                            <input
+                              type="checkbox"
+                              className="dba-checkbox h-4 w-4 cursor-pointer rounded border-border/60 bg-transparent accent-cyan-500"
+                              checked={selectedBackupIds.size === filteredTemplates.length && filteredTemplates.length > 0}
+                              ref={(el) => {
+                                if (el) el.indeterminate = selectedBackupIds.size > 0 && selectedBackupIds.size < filteredTemplates.length;
+                              }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedBackupIds(new Set(filteredTemplates.map((t) => t.backup_id)));
+                                } else {
+                                  setSelectedBackupIds(new Set());
+                                }
+                              }}
+                            />
+                          </TableHead>
+                        )}
+                        <TableHead>Backup Name</TableHead>
+                        <TableHead>Database</TableHead>
+                        <TableHead>Scheduled</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Checked By</TableHead>
+                        <TableHead>Check Time</TableHead>
+                        <TableHead>Comment</TableHead>
+                        {canManage && <TableHead className="text-right">Action</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredTemplates.map((tpl) => {
+                        const check = backupCheckMap.get(tpl.backup_id);
+                        return (
+                          <BackupStatusRow
+                            key={tpl.backup_id}
+                            template={tpl}
+                            check={check}
+                            canManage={canManage}
+                            saving={saving === `bk-${tpl.backup_id}`}
+                            selected={selectedBackupIds.has(tpl.backup_id)}
+                            onToggleSelect={() => toggleBackupSelection(tpl.backup_id)}
+                            onSave={(status, comment) =>
+                              void handleSaveBackupStatus(tpl.backup_id, tpl.database_id, status, comment)
+                            }
+                          />
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </>
               )}
             </CardContent>
           </Card>
@@ -500,12 +703,16 @@ function DbStatusRow({
   check,
   canManage,
   saving,
+  selected,
+  onToggleSelect,
   onSave
 }: {
   database: DatabaseInventoryItem;
   check?: DbStatusCheck;
   canManage: boolean;
   saving: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onSave: (status: DbStatusValue, comment?: string) => void;
 }) {
   const [status, setStatus] = useState<DbStatusValue>(check?.status || "UP");
@@ -518,6 +725,16 @@ function DbStatusRow({
 
   return (
     <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+      {canManage && (
+        <TableCell className="w-10">
+          <input
+            type="checkbox"
+            className="dba-checkbox h-4 w-4 cursor-pointer rounded border-border/60 bg-transparent accent-cyan-500"
+            checked={selected}
+            onChange={onToggleSelect}
+          />
+        </TableCell>
+      )}
       <TableCell className="font-medium">
         <div className="flex items-center gap-2.5">
           {check ? (
@@ -572,12 +789,16 @@ function BackupStatusRow({
   check,
   canManage,
   saving,
+  selected,
+  onToggleSelect,
   onSave
 }: {
   template: BackupTemplate;
   check?: BackupStatusCheck;
   canManage: boolean;
   saving: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onSave: (status: BackupStatusValue, comment?: string) => void;
 }) {
   const [status, setStatus] = useState<BackupStatusValue>(check?.status || "NOT_STARTED");
@@ -590,6 +811,16 @@ function BackupStatusRow({
 
   return (
     <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+      {canManage && (
+        <TableCell className="w-10">
+          <input
+            type="checkbox"
+            className="dba-checkbox h-4 w-4 cursor-pointer rounded border-border/60 bg-transparent accent-cyan-500"
+            checked={selected}
+            onChange={onToggleSelect}
+          />
+        </TableCell>
+      )}
       <TableCell className="font-medium">
         <div className="flex items-center gap-2.5">
           {check ? (
