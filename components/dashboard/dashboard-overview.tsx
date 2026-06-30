@@ -1346,9 +1346,8 @@ export function DashboardOverview() {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 shrink-0" />
             <span>
-              Snapshot captured by n8n <span className="font-medium text-slate-300">refresh_dashboard</span> workflow.
-              {m?.captured_at && <> Data as of <span className="font-medium text-slate-300">{formatAppDateTime(m.captured_at)}</span>.</>}
-              {" "}All 12 monitoring queries executed in parallel with Continue On Fail enabled.
+              {m?.captured_at && <>Data as of <span className="font-medium text-slate-300">{formatAppDateTime(m.captured_at)}</span>. </>}
+              All 22 monitoring queries executed in parallel
               {serverSchedule?.is_active && (
                 <> &middot; <Calendar className="inline h-3 w-3 text-violet-400" />{" "}
                   <span className="text-violet-300">Server scheduler active</span>
