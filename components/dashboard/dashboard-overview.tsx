@@ -313,13 +313,15 @@ function KpiTile({
   label,
   value,
   sub,
-  variant = "neutral"
+  variant = "neutral",
+  onClick
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   sub?: string;
   variant?: "neutral" | "healthy" | "warning" | "critical";
+  onClick?: () => void;
 }) {
   const variantMap = {
     neutral:  { bg: "bg-slate-400/5  border-slate-400/15",  text: "text-slate-200",    icon: "text-slate-400"   },
@@ -328,16 +330,36 @@ function KpiTile({
     critical: { bg: "bg-red-500/5    border-red-400/20",    text: "text-red-300",      icon: "text-red-400"     }
   };
   const s = variantMap[variant];
-  return (
-    <div className={`flex items-center gap-3 rounded-xl border p-4 ${s.bg}`}>
+  const content = (
+    <>
       <div className={`rounded-lg border border-current/20 bg-current/10 p-1.5 ${s.icon}`}>
         <Icon className="h-4 w-4" />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
         <p className={`text-2xl font-bold tabular-nums leading-tight ${s.text}`}>{value}</p>
         {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
       </div>
+      {onClick && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-current/30 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:ring-offset-2 focus:ring-offset-background ${s.bg}`}
+        aria-label={`Go to ${label}`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={`flex items-center gap-3 rounded-xl border p-4 ${s.bg}`}>
+      {content}
     </div>
   );
 }
@@ -625,6 +647,13 @@ export function DashboardOverview() {
     }
   }, [runAction, selectedDb, loadHistory]);
 
+  const scrollToSection = useCallback((sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
+
   // ── Derived values ──────────────────────────────────────────────────────
 
   const m           = metrics;
@@ -883,6 +912,7 @@ export function DashboardOverview() {
               value={tablespacesOver90}
               sub="Capacity threshold breached"
               variant={tablespacesOver90 > 0 ? "critical" : "healthy"}
+              onClick={() => scrollToSection("tablespace-utilization")}
             />
             <KpiTile
               icon={Users}
@@ -890,6 +920,7 @@ export function DashboardOverview() {
               value={usersExpiringCount}
               sub="Open users within 15 days"
               variant={usersExpiringCount > 0 ? "warning" : "healthy"}
+              onClick={() => scrollToSection("password-expiry")}
             />
           </div>
 
@@ -1070,7 +1101,7 @@ export function DashboardOverview() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card id="password-expiry" className="scroll-mt-24">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-sm">
                       <Shield className="h-4 w-4 text-amber-300" />
@@ -1140,7 +1171,7 @@ export function DashboardOverview() {
           {/* ── SECTION 4: STORAGE ─────────────────────────────────────── */}
           <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
             {/* Tablespace Chart */}
-            <Card>
+            <Card id="tablespace-utilization" className="scroll-mt-24">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-cyan-300" />
