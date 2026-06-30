@@ -756,3 +756,145 @@ export interface UserMgmtResult {
   confirmation_rows?: Array<Record<string, unknown>>;
   ddl_executed?: string;
 }
+
+// ============================================================
+// DBA Console — Shift Management, Daily Checklist, Shift Report
+// ============================================================
+
+export interface ShiftSession {
+  session_id: number;
+  user_id: number;
+  username: string;
+  email: string;
+  role: AppUserRole;
+  shift_number: 1 | 2 | 3 | 4;
+  shift_date: string;
+  login_at: string;
+  logout_at?: string;
+  status: "ACTIVE" | "CLOSED";
+  is_active: boolean;
+  handover_status?: "PENDING" | "ACKNOWLEDGED" | "NONE";
+  handover_id?: number;
+  handover_text?: string;
+  ack_username?: string;
+  ack_at?: string;
+}
+
+export interface ActiveDba {
+  session_id: number;
+  user_id: number;
+  username: string;
+  shift_number: 1 | 2 | 3 | 4;
+  login_at: string;
+}
+
+export interface CurrentShiftState {
+  active_shifts: number[];
+  shift_label: string;
+  overlap: boolean;
+  server_time: string;
+  active_dbas: ActiveDba[];
+  sessions: ShiftSession[];
+  taken_shifts: number[];
+  selectable_shifts: number[];
+  disabled_shifts: number[];
+  preferred_shift: number;
+}
+
+export interface Handover {
+  handover_id: number;
+  session_id: number;
+  author_user_id: number;
+  author_username: string;
+  shift_number: 1 | 2 | 3 | 4;
+  shift_date: string;
+  handover_text: string;
+  status: "PENDING" | "ACKNOWLEDGED";
+  ack_user_id?: number;
+  ack_username?: string;
+  ack_at?: string;
+  override_reason?: string;
+  is_override: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DbStatusValue = "UP" | "DOWN" | "PARTIAL" | "MAINTENANCE";
+export type BackupStatusValue = "SUCCESS" | "FAILED" | "RUNNING" | "NOT_STARTED" | "UNKNOWN";
+
+export interface DbStatusCheck {
+  check_id: number;
+  database_id: number;
+  database_name: string;
+  shift_number: 1 | 2 | 3 | 4;
+  shift_date: string;
+  status: DbStatusValue;
+  checked_by: number;
+  checked_username: string;
+  checked_at: string;
+  comment_text?: string;
+}
+
+export interface BackupTemplate {
+  backup_id: number;
+  database_id: number;
+  database_name: string;
+  backup_name: string;
+  scheduled_time?: string;
+  backup_type?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface BackupStatusCheck {
+  check_id: number;
+  backup_id: number;
+  database_id: number;
+  database_name: string;
+  backup_name: string;
+  shift_number: 1 | 2 | 3 | 4;
+  shift_date: string;
+  status: BackupStatusValue;
+  checked_by: number;
+  checked_username: string;
+  checked_at: string;
+  comment_text?: string;
+}
+
+export interface ChecklistCompletion {
+  total: number;
+  completed: number;
+  completion_pct: number;
+}
+
+export interface ShiftReportFilters {
+  fromDate?: string;
+  toDate?: string;
+  dbaUserId?: number;
+  shiftNumber?: number;
+}
+
+export interface ShiftReportData {
+  activeDbas: ActiveDba[];
+  dailyAttendance: Array<{ attendance_date: string; unique_dbas: number; total_logins: number }>;
+  monthlyAttendance: Array<{ month: string; unique_dbas: number; total_logins: number }>;
+  avgLoginDurationMin: number;
+  lateLogins: Array<{ session_id: number; username: string; shift_number: number; shift_date: string; login_at: string; minutes_late: number }>;
+  pendingHandovers: Handover[];
+  unacknowledgedHandovers: Handover[];
+  dbStatusCompletion: ChecklistCompletion;
+  backupCompletion: ChecklistCompletion;
+  checklistCompletion: ChecklistCompletion;
+  mostActiveDba?: { username: string; total_logins: number };
+  activityTimeline: Array<{
+    event: string;
+    username: string;
+    shift_number: number;
+    timestamp: string;
+    detail?: string;
+  }>;
+  loginTrend: Array<{ shift_date: string; shift_number: number; logins: number }>;
+}

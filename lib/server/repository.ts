@@ -5,6 +5,7 @@ import type { BindParameters, Connection } from "oracledb";
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
+import { getActiveShifts, getSelectableShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
 import type {
   AlertNotification,
   AlertNotificationSeverity,
@@ -13,6 +14,11 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  BackupStatusCheck,
+  BackupStatusValue,
+  BackupTemplate,
+  ChecklistCompletion,
+  CurrentShiftState,
   DatabaseInventoryInput,
   DatabaseInventoryItem,
   DatabaseTarget,
@@ -25,7 +31,13 @@ import type {
   DbaResponse,
   DashboardHistoryRow,
   DashboardMetrics,
+  DbStatusCheck,
+  DbStatusValue,
+  Handover,
   RequestHistoryItem,
+  ShiftReportData,
+  ShiftReportFilters,
+  ShiftSession,
   UserSession
 } from "@/types/dba";
 
@@ -2609,5 +2621,1192 @@ export async function getLatestPerformanceRunAll(
       created_at: toIstIsoString(row.CREATED_AT ?? row.created_at)
     };
   });
+}
+
+// ============================================================
+// DBA Console — Shift Management
+// ============================================================
+
+interface ShiftSessionRow extends DbRow {
+  SESSION_ID: number;
+  USER_ID: number;
+  USERNAME: string;
+  EMAIL: string;
+  ROLE: string;
+  SHIFT_NUMBER: number;
+  SHIFT_DATE: Date;
+  LOGIN_AT: Date;
+  LOGOUT_AT?: Date;
+  STATUS: string;
+  IS_ACTIVE: string;
+  HANDOVER_ID?: number;
+  HANDOVER_TEXT?: string;
+  HANDOVER_STATUS?: string;
+  ACK_USERNAME?: string;
+  ACK_AT?: Date;
+}
+
+function mapShiftSession(row: ShiftSessionRow): ShiftSession {
+  return {
+    session_id: Number(row.SESSION_ID),
+    user_id: Number(row.USER_ID),
+    username: String(row.USERNAME),
+    email: String(row.EMAIL || ""),
+    role: mapUserRole(row.ROLE),
+    shift_number: Number(row.SHIFT_NUMBER) as 1 | 2 | 3 | 4,
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    login_at: toIstIsoString(row.LOGIN_AT),
+    logout_at: row.LOGOUT_AT ? toIstIsoString(row.LOGOUT_AT) : undefined,
+    status: String(row.STATUS) as "ACTIVE" | "CLOSED",
+    is_active: String(row.IS_ACTIVE || "N") === "Y",
+    handover_status: row.HANDOVER_STATUS
+      ? (String(row.HANDOVER_STATUS) as "PENDING" | "ACKNOWLEDGED")
+      : "NONE",
+    handover_id: row.HANDOVER_ID ? Number(row.HANDOVER_ID) : undefined,
+    handover_text: row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : undefined,
+    ack_username: row.ACK_USERNAME ? String(row.ACK_USERNAME) : undefined,
+    ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined
+  };
+}
+
+const SHIFT_SESSION_COLUMNS = `
+  s.session_id, s.user_id, s.username, s.email, u.role,
+  s.shift_number, s.shift_date, s.login_at, s.logout_at,
+  s.status, s.is_active,
+  h.handover_id, h.handover_text, h.status AS handover_status,
+  h.ack_username, h.ack_at
+`;
+
+const SHIFT_SESSION_JOIN = `
+  FROM app_shift_sessions s
+  JOIN app_users u ON u.user_id = s.user_id
+  LEFT JOIN app_handovers h ON h.session_id = s.session_id
+`;
+
+export async function createShiftLogin(input: {
+  userId: number;
+  username: string;
+  shiftNumber: number;
+  actor: string;
+}): Promise<ShiftSession> {
+  const now = new Date();
+  const shiftDate = getShiftStartDate(now, input.shiftNumber);
+
+  return executeOne(async (connection) => {
+    try {
+      const userResult = await connection.execute<DbRow>(
+        `SELECT email FROM app_users WHERE user_id = :userId FETCH FIRST 1 ROWS ONLY`,
+        { userId: input.userId }
+      );
+      const email = userResult.rows?.[0]?.EMAIL ? String(userResult.rows[0].EMAIL) : input.username;
+
+      await connection.execute(
+        `INSERT INTO app_shift_sessions (
+           user_id, username, email, shift_number, shift_date,
+           login_at, status, is_active, created_by, updated_by
+         ) VALUES (
+           :userId, :username, :email, :shiftNumber, TO_DATE(:shiftDate, 'YYYY-MM-DD'),
+           SYSTIMESTAMP, 'ACTIVE', 'Y', :actor, :actor
+         )`,
+        {
+          userId: input.userId,
+          username: input.username,
+          email,
+          shiftNumber: input.shiftNumber,
+          shiftDate: toOracleDateString(shiftDate),
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  }).then(() => getActiveShiftSessionForUser(input.userId)) as Promise<ShiftSession>;
+}
+
+export async function getActiveShiftSessionForUser(userId: number): Promise<ShiftSession> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<ShiftSessionRow>(
+      `SELECT ${SHIFT_SESSION_COLUMNS}
+       ${SHIFT_SESSION_JOIN}
+       WHERE s.user_id = :userId AND s.is_active = 'Y'
+       FETCH FIRST 1 ROWS ONLY`,
+      { userId }
+    );
+    const row = result.rows?.[0] as ShiftSessionRow | undefined;
+    if (!row) throw new Error("No active shift session found for user.");
+    return mapShiftSession(row);
+  });
+}
+
+export async function listActiveShiftSessions(): Promise<ShiftSession[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<ShiftSessionRow>(
+      `SELECT ${SHIFT_SESSION_COLUMNS}
+       ${SHIFT_SESSION_JOIN}
+       WHERE s.is_active = 'Y'
+       ORDER BY s.login_at`
+    );
+    return (result.rows || []).map((row) => mapShiftSession(row as ShiftSessionRow));
+  });
+}
+
+/**
+ * Returns the set of time-based shift numbers (1,2,3) that already have an
+ * active DBA logged in. Used by the login API to block duplicate shift logins.
+ * General Shift (4) is excluded — multiple DBAs can be on general shift.
+ */
+export async function getTakenShifts(): Promise<number[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT DISTINCT shift_number
+       FROM app_shift_sessions
+       WHERE is_active = 'Y' AND shift_number IN (1,2,3)`
+    );
+    return (result.rows || []).map((row) => Number(row.SHIFT_NUMBER));
+  });
+}
+
+export async function getShiftSessionById(sessionId: number): Promise<ShiftSession | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<ShiftSessionRow>(
+      `SELECT ${SHIFT_SESSION_COLUMNS}
+       ${SHIFT_SESSION_JOIN}
+       WHERE s.session_id = :sessionId
+       FETCH FIRST 1 ROWS ONLY`,
+      { sessionId }
+    );
+    const row = result.rows?.[0] as ShiftSessionRow | undefined;
+    return row ? mapShiftSession(row) : null;
+  });
+}
+
+export async function closeShiftSession(input: {
+  sessionId: number;
+  actor: string;
+}): Promise<ShiftSession> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute(
+        `UPDATE app_shift_sessions
+         SET logout_at = SYSTIMESTAMP,
+             status = 'CLOSED',
+             is_active = 'N',
+             updated_by = :actor
+         WHERE session_id = :sessionId AND is_active = 'Y'`,
+        { sessionId: input.sessionId, actor: input.actor }
+      );
+
+      const affected = result.rowsAffected ?? 0;
+      if (affected === 0) {
+        throw new Error("Shift session is not active or has already been closed.");
+      }
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  }).then(() => getShiftSessionById(input.sessionId)) as Promise<ShiftSession>;
+}
+
+export async function getCurrentShiftState(): Promise<CurrentShiftState> {
+  const now = new Date();
+  const activeShifts = getActiveShifts(now);
+  const overlap = activeShifts.length > 1;
+  const label = activeShifts.length ? activeShifts.map((n) => `Shift ${n}`).join(" + ") : "No active shift";
+
+  const sessions = await listActiveShiftSessions();
+  const takenShifts = await getTakenShifts();
+  const selectable = getSelectableShifts(now);
+  const activeDbas = sessions.map((s) => ({
+    session_id: s.session_id,
+    user_id: s.user_id,
+    username: s.username,
+    shift_number: s.shift_number,
+    login_at: s.login_at
+  }));
+
+  return {
+    active_shifts: activeShifts,
+    shift_label: label,
+    overlap,
+    server_time: toIstIsoString(now),
+    active_dbas: activeDbas,
+    sessions,
+    taken_shifts: takenShifts,
+    selectable_shifts: selectable.enabledShifts,
+    disabled_shifts: selectable.disabledShifts,
+    preferred_shift: selectable.preferredShift
+  };
+}
+
+// ============================================================
+// DBA Console — Handovers
+// ============================================================
+
+interface HandoverRow extends DbRow {
+  HANDOVER_ID: number;
+  SESSION_ID: number;
+  AUTHOR_USER_ID: number;
+  AUTHOR_USERNAME: string;
+  SHIFT_NUMBER: number;
+  SHIFT_DATE: Date;
+  HANDOVER_TEXT: string;
+  STATUS: string;
+  ACK_USER_ID?: number;
+  ACK_USERNAME?: string;
+  ACK_AT?: Date;
+  OVERRIDE_REASON?: string;
+  IS_OVERRIDE: string;
+  CREATED_AT: Date;
+  UPDATED_AT: Date;
+}
+
+function mapHandover(row: HandoverRow): Handover {
+  return {
+    handover_id: Number(row.HANDOVER_ID),
+    session_id: Number(row.SESSION_ID),
+    author_user_id: Number(row.AUTHOR_USER_ID),
+    author_username: String(row.AUTHOR_USERNAME),
+    shift_number: Number(row.SHIFT_NUMBER) as 1 | 2 | 3 | 4,
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    handover_text: String(row.HANDOVER_TEXT || ""),
+    status: String(row.STATUS) as "PENDING" | "ACKNOWLEDGED",
+    ack_user_id: row.ACK_USER_ID ? Number(row.ACK_USER_ID) : undefined,
+    ack_username: row.ACK_USERNAME ? String(row.ACK_USERNAME) : undefined,
+    ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined,
+    override_reason: row.OVERRIDE_REASON ? String(row.OVERRIDE_REASON) : undefined,
+    is_override: String(row.IS_OVERRIDE || "N") === "Y",
+    created_at: toIstIsoString(row.CREATED_AT),
+    updated_at: toIstIsoString(row.UPDATED_AT)
+  };
+}
+
+export async function createHandover(input: {
+  sessionId: number;
+  authorUserId: number;
+  authorUsername: string;
+  shiftNumber: number;
+  handoverText: string;
+  actor: string;
+}): Promise<Handover> {
+  return executeOne(async (connection) => {
+    try {
+      const sessionResult = await connection.execute<DbRow>(
+        `SELECT shift_date FROM app_shift_sessions WHERE session_id = :sessionId FETCH FIRST 1 ROWS ONLY`,
+        { sessionId: input.sessionId }
+      );
+      const sessionRow = sessionResult.rows?.[0];
+      if (!sessionRow) throw new Error("Shift session not found.");
+      const shiftDate = asDate(sessionRow.SHIFT_DATE) || new Date();
+
+      await connection.execute(
+        `INSERT INTO app_handovers (
+           session_id, author_user_id, author_username, shift_number, shift_date,
+           handover_text, status, is_override, created_by, updated_by
+         ) VALUES (
+           :sessionId, :authorUserId, :authorUsername, :shiftNumber, :shiftDate,
+           :handoverText, 'PENDING', 'N', :actor, :actor
+         )`,
+        {
+          sessionId: input.sessionId,
+          authorUserId: input.authorUserId,
+          authorUsername: input.authorUsername,
+          shiftNumber: input.shiftNumber,
+          shiftDate,
+          handoverText: input.handoverText,
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+      const handover = await getHandoverById(connection, input.sessionId, true);
+      if (!handover) throw new Error("Handover was not created.");
+      return handover;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+async function getHandoverById(connection: Connection, key: number, bySession = false): Promise<Handover | null> {
+  const whereClause = bySession
+    ? `WHERE session_id = :key`
+    : `WHERE handover_id = :key`;
+  const orderBy = bySession ? `ORDER BY handover_id DESC` : "";
+  const fetchFirst = bySession ? `FETCH FIRST 1 ROWS ONLY` : `FETCH FIRST 1 ROWS ONLY`;
+  const result = await connection.execute<HandoverRow>(
+    `SELECT handover_id, session_id, author_user_id, author_username,
+            shift_number, shift_date, handover_text, status,
+            ack_user_id, ack_username, ack_at, override_reason, is_override,
+            created_at, updated_at
+     FROM app_handovers
+     ${whereClause}
+     ${orderBy}
+     ${fetchFirst}`,
+    { key }
+  );
+  const row = result.rows?.[0] as HandoverRow | undefined;
+  return row ? mapHandover(row) : null;
+}
+
+export async function getHandoverForSession(sessionId: number): Promise<Handover | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<HandoverRow>(
+      `SELECT handover_id, session_id, author_user_id, author_username,
+              shift_number, shift_date, handover_text, status,
+              ack_user_id, ack_username, ack_at, override_reason, is_override,
+              created_at, updated_at
+       FROM app_handovers
+       WHERE session_id = :sessionId
+       ORDER BY handover_id DESC
+       FETCH FIRST 1 ROWS ONLY`,
+      { sessionId }
+    );
+    const row = result.rows?.[0] as HandoverRow | undefined;
+    return row ? mapHandover(row) : null;
+  });
+}
+
+export async function acknowledgeHandover(input: {
+  handoverId: number;
+  ackUserId: number;
+  ackUsername: string;
+  actor: string;
+}): Promise<Handover> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await getHandoverById(connection, input.handoverId);
+      if (!existing) throw new Error("Handover not found.");
+      if (existing.status === "ACKNOWLEDGED") throw new Error("Handover is already acknowledged.");
+      if (existing.author_user_id === input.ackUserId) {
+        throw new Error("You cannot acknowledge your own handover.");
+      }
+
+      await connection.execute(
+        `UPDATE app_handovers
+         SET status = 'ACKNOWLEDGED',
+             ack_user_id = :ackUserId,
+             ack_username = :ackUsername,
+             ack_at = SYSTIMESTAMP,
+             is_override = 'N',
+             updated_by = :actor
+         WHERE handover_id = :handoverId`,
+        {
+          handoverId: input.handoverId,
+          ackUserId: input.ackUserId,
+          ackUsername: input.ackUsername,
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+      const handover = await getHandoverById(connection, input.handoverId);
+      if (!handover) throw new Error("Handover was not updated.");
+      return handover;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function overrideHandover(input: {
+  handoverId: number;
+  adminUserId: number;
+  adminUsername: string;
+  reason: string;
+  actor: string;
+}): Promise<Handover> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await getHandoverById(connection, input.handoverId);
+      if (!existing) throw new Error("Handover not found.");
+      if (existing.status === "ACKNOWLEDGED") throw new Error("Handover is already acknowledged.");
+
+      await connection.execute(
+        `UPDATE app_handovers
+         SET status = 'ACKNOWLEDGED',
+             ack_user_id = :ackUserId,
+             ack_username = :ackUsername,
+             ack_at = SYSTIMESTAMP,
+             is_override = 'Y',
+             override_reason = :reason,
+             updated_by = :actor
+         WHERE handover_id = :handoverId`,
+        {
+          handoverId: input.handoverId,
+          ackUserId: input.adminUserId,
+          ackUsername: input.adminUsername,
+          reason: input.reason,
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+      const handover = await getHandoverById(connection, input.handoverId);
+      if (!handover) throw new Error("Handover was not updated.");
+      return handover;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function listPendingHandovers(): Promise<Handover[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<HandoverRow>(
+      `SELECT handover_id, session_id, author_user_id, author_username,
+              shift_number, shift_date, handover_text, status,
+              ack_user_id, ack_username, ack_at, override_reason, is_override,
+              created_at, updated_at
+       FROM app_handovers
+       WHERE status = 'PENDING'
+       ORDER BY created_at DESC`
+    );
+    return (result.rows || []).map((row) => mapHandover(row as HandoverRow));
+  });
+}
+
+// ============================================================
+// DBA Console — Backup Template (app_admin maintained)
+// ============================================================
+
+interface BackupTemplateRow extends DbRow {
+  BACKUP_ID: number;
+  DATABASE_ID: number;
+  DATABASE_NAME: string;
+  BACKUP_NAME: string;
+  SCHEDULED_TIME?: string;
+  BACKUP_TYPE?: string;
+  IS_ACTIVE: string;
+  CREATED_AT: Date;
+  UPDATED_AT: Date;
+  CREATED_BY?: string;
+  UPDATED_BY?: string;
+}
+
+function mapBackupTemplate(row: BackupTemplateRow): BackupTemplate {
+  return {
+    backup_id: Number(row.BACKUP_ID),
+    database_id: Number(row.DATABASE_ID),
+    database_name: String(row.DATABASE_NAME),
+    backup_name: String(row.BACKUP_NAME),
+    scheduled_time: row.SCHEDULED_TIME ? String(row.SCHEDULED_TIME) : undefined,
+    backup_type: row.BACKUP_TYPE ? String(row.BACKUP_TYPE) : undefined,
+    is_active: String(row.IS_ACTIVE || "Y") === "Y",
+    created_at: toIstIsoString(row.CREATED_AT),
+    updated_at: toIstIsoString(row.UPDATED_AT),
+    created_by: row.CREATED_BY ? String(row.CREATED_BY) : undefined,
+    updated_by: row.UPDATED_BY ? String(row.UPDATED_BY) : undefined
+  };
+}
+
+export async function listBackupTemplates(activeOnly = false): Promise<BackupTemplate[]> {
+  return executeOne(async (connection) => {
+    const filter = activeOnly ? `WHERE t.is_active = 'Y'` : "";
+    const result = await connection.execute<BackupTemplateRow>(
+      `SELECT t.backup_id, t.database_id, d.database_name, t.backup_name,
+              t.scheduled_time, t.backup_type, t.is_active,
+              t.created_at, t.updated_at, t.created_by, t.updated_by
+       FROM app_backup_template t
+       JOIN database_inventory d ON d.id = t.database_id
+       ${filter}
+       ORDER BY UPPER(d.database_name), UPPER(t.backup_name)`,
+      {}
+    );
+    return (result.rows || []).map((row) => mapBackupTemplate(row as BackupTemplateRow));
+  });
+}
+
+export async function createBackupTemplate(input: {
+  databaseId: number;
+  backupName: string;
+  scheduledTime?: string;
+  backupType?: string;
+  actor: string;
+}): Promise<BackupTemplate> {
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `INSERT INTO app_backup_template (
+           database_id, backup_name, scheduled_time, backup_type, is_active,
+           created_by, updated_by
+         ) VALUES (
+           :databaseId, :backupName, :scheduledTime, :backupType, 'Y',
+           :actor, :actor
+         )`,
+        {
+          databaseId: input.databaseId,
+          backupName: input.backupName,
+          scheduledTime: input.scheduledTime || null,
+          backupType: input.backupType || null,
+          actor: input.actor
+        }
+      );
+      await connection.commit();
+      const templates = await listBackupTemplates();
+      return templates.find(
+        (t) => t.database_id === input.databaseId && t.backup_name.toUpperCase() === input.backupName.toUpperCase()
+      ) as BackupTemplate;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function updateBackupTemplate(input: {
+  backupId: number;
+  databaseId: number;
+  backupName: string;
+  scheduledTime?: string;
+  backupType?: string;
+  isActive: boolean;
+  actor: string;
+}): Promise<BackupTemplate> {
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `UPDATE app_backup_template
+         SET database_id = :databaseId,
+             backup_name = :backupName,
+             scheduled_time = :scheduledTime,
+             backup_type = :backupType,
+             is_active = :isActive,
+             updated_by = :actor
+         WHERE backup_id = :backupId`,
+        {
+          backupId: input.backupId,
+          databaseId: input.databaseId,
+          backupName: input.backupName,
+          scheduledTime: input.scheduledTime || null,
+          backupType: input.backupType || null,
+          isActive: input.isActive ? "Y" : "N",
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+      const templates = await listBackupTemplates();
+      return templates.find((t) => t.backup_id === input.backupId) as BackupTemplate;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+export async function deleteBackupTemplate(backupId: number): Promise<void> {
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `DELETE FROM app_backup_template WHERE backup_id = :backupId`,
+        { backupId }
+      );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+// ============================================================
+// DBA Console — Daily Checklist (DB status + Backup status)
+// ============================================================
+
+interface DbStatusRow extends DbRow {
+  CHECK_ID: number;
+  DATABASE_ID: number;
+  DATABASE_NAME: string;
+  SHIFT_NUMBER: number;
+  SHIFT_DATE: Date;
+  STATUS: string;
+  CHECKED_BY: number;
+  CHECKED_USERNAME: string;
+  CHECKED_AT: Date;
+  COMMENT_TEXT?: string;
+}
+
+function mapDbStatusCheck(row: DbStatusRow): DbStatusCheck {
+  return {
+    check_id: Number(row.CHECK_ID),
+    database_id: Number(row.DATABASE_ID),
+    database_name: String(row.DATABASE_NAME),
+    shift_number: Number(row.SHIFT_NUMBER) as 1 | 2 | 3 | 4,
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    status: String(row.STATUS) as DbStatusValue,
+    checked_by: Number(row.CHECKED_BY),
+    checked_username: String(row.CHECKED_USERNAME),
+    checked_at: toIstIsoString(row.CHECKED_AT),
+    comment_text: row.COMMENT_TEXT ? String(row.COMMENT_TEXT) : undefined
+  };
+}
+
+export async function listDbStatusChecks(shiftNumber: number, shiftDate: string): Promise<DbStatusCheck[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbStatusRow>(
+      `SELECT c.check_id, c.database_id, d.database_name, c.shift_number,
+              c.shift_date, c.status, c.checked_by, c.checked_username,
+              c.checked_at, c.comment_text
+       FROM app_db_status_checks c
+       JOIN database_inventory d ON d.id = c.database_id
+       WHERE c.shift_number = :shiftNumber
+         AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+       ORDER BY UPPER(d.database_name)`,
+      { shiftNumber, shiftDate }
+    );
+    return (result.rows || []).map((row) => mapDbStatusCheck(row as DbStatusRow));
+  });
+}
+
+export async function upsertDbStatusCheck(input: {
+  databaseId: number;
+  shiftNumber: number;
+  shiftDate: string;
+  status: DbStatusValue;
+  checkedBy: number;
+  checkedUsername: string;
+  commentText?: string;
+  actor: string;
+}): Promise<DbStatusCheck> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await connection.execute<DbRow>(
+        `SELECT check_id FROM app_db_status_checks
+         WHERE database_id = :databaseId
+           AND shift_number = :shiftNumber
+           AND TRUNC(shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+         FETCH FIRST 1 ROWS ONLY`,
+        {
+          databaseId: input.databaseId,
+          shiftNumber: input.shiftNumber,
+          shiftDate: input.shiftDate
+        }
+      );
+
+      const existingRow = existing.rows?.[0];
+
+      if (existingRow) {
+        await connection.execute(
+          `UPDATE app_db_status_checks
+           SET status = :status,
+               checked_by = :checkedBy,
+               checked_username = :checkedUsername,
+               checked_at = SYSTIMESTAMP,
+               comment_text = :commentText,
+               updated_by = :actor
+           WHERE check_id = :checkId`,
+          {
+            checkId: Number(existingRow.CHECK_ID),
+            status: input.status,
+            checkedBy: input.checkedBy,
+            checkedUsername: input.checkedUsername,
+            commentText: input.commentText || null,
+            actor: input.actor
+          }
+        );
+        await connection.commit();
+        const checks = await listDbStatusChecks(input.shiftNumber, input.shiftDate);
+        return checks.find((c) => c.check_id === Number(existingRow.CHECK_ID)) as DbStatusCheck;
+      }
+
+      await connection.execute(
+        `INSERT INTO app_db_status_checks (
+           database_id, shift_number, shift_date, status,
+           checked_by, checked_username, checked_at, comment_text,
+           created_by, updated_by
+         ) VALUES (
+           :databaseId, :shiftNumber, TO_DATE(:shiftDate, 'YYYY-MM-DD'), :status,
+           :checkedBy, :checkedUsername, SYSTIMESTAMP, :commentText,
+           :actor, :actor
+         )`,
+        {
+          databaseId: input.databaseId,
+          shiftNumber: input.shiftNumber,
+          shiftDate: input.shiftDate,
+          status: input.status,
+          checkedBy: input.checkedBy,
+          checkedUsername: input.checkedUsername,
+          commentText: input.commentText || null,
+          actor: input.actor
+        }
+      );
+      await connection.commit();
+      const checks = await listDbStatusChecks(input.shiftNumber, input.shiftDate);
+      return checks.find((c) => c.database_id === input.databaseId) as DbStatusCheck;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+interface BackupStatusRow extends DbRow {
+  CHECK_ID: number;
+  BACKUP_ID: number;
+  DATABASE_ID: number;
+  DATABASE_NAME: string;
+  BACKUP_NAME: string;
+  SHIFT_NUMBER: number;
+  SHIFT_DATE: Date;
+  STATUS: string;
+  CHECKED_BY: number;
+  CHECKED_USERNAME: string;
+  CHECKED_AT: Date;
+  COMMENT_TEXT?: string;
+}
+
+function mapBackupStatusCheck(row: BackupStatusRow): BackupStatusCheck {
+  return {
+    check_id: Number(row.CHECK_ID),
+    backup_id: Number(row.BACKUP_ID),
+    database_id: Number(row.DATABASE_ID),
+    database_name: String(row.DATABASE_NAME),
+    backup_name: String(row.BACKUP_NAME),
+    shift_number: Number(row.SHIFT_NUMBER) as 1 | 2 | 3 | 4,
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    status: String(row.STATUS) as BackupStatusValue,
+    checked_by: Number(row.CHECKED_BY),
+    checked_username: String(row.CHECKED_USERNAME),
+    checked_at: toIstIsoString(row.CHECKED_AT),
+    comment_text: row.COMMENT_TEXT ? String(row.COMMENT_TEXT) : undefined
+  };
+}
+
+export async function listBackupStatusChecks(shiftNumber: number, shiftDate: string): Promise<BackupStatusCheck[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<BackupStatusRow>(
+      `SELECT c.check_id, c.backup_id, c.database_id, d.database_name,
+              t.backup_name, c.shift_number, c.shift_date, c.status,
+              c.checked_by, c.checked_username, c.checked_at, c.comment_text
+       FROM app_backup_status_checks c
+       JOIN database_inventory d ON d.id = c.database_id
+       JOIN app_backup_template t ON t.backup_id = c.backup_id
+       WHERE c.shift_number = :shiftNumber
+         AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+       ORDER BY UPPER(d.database_name), UPPER(t.backup_name)`,
+      { shiftNumber, shiftDate }
+    );
+    return (result.rows || []).map((row) => mapBackupStatusCheck(row as BackupStatusRow));
+  });
+}
+
+export async function upsertBackupStatusCheck(input: {
+  backupId: number;
+  databaseId: number;
+  shiftNumber: number;
+  shiftDate: string;
+  status: BackupStatusValue;
+  checkedBy: number;
+  checkedUsername: string;
+  commentText?: string;
+  actor: string;
+}): Promise<BackupStatusCheck> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await connection.execute<DbRow>(
+        `SELECT check_id FROM app_backup_status_checks
+         WHERE backup_id = :backupId
+           AND shift_number = :shiftNumber
+           AND TRUNC(shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+         FETCH FIRST 1 ROWS ONLY`,
+        {
+          backupId: input.backupId,
+          shiftNumber: input.shiftNumber,
+          shiftDate: input.shiftDate
+        }
+      );
+
+      const existingRow = existing.rows?.[0];
+
+      if (existingRow) {
+        await connection.execute(
+          `UPDATE app_backup_status_checks
+           SET status = :status,
+               checked_by = :checkedBy,
+               checked_username = :checkedUsername,
+               checked_at = SYSTIMESTAMP,
+               comment_text = :commentText,
+               updated_by = :actor
+           WHERE check_id = :checkId`,
+          {
+            checkId: Number(existingRow.CHECK_ID),
+            status: input.status,
+            checkedBy: input.checkedBy,
+            checkedUsername: input.checkedUsername,
+            commentText: input.commentText || null,
+            actor: input.actor
+          }
+        );
+        await connection.commit();
+        const checks = await listBackupStatusChecks(input.shiftNumber, input.shiftDate);
+        return checks.find((c) => c.check_id === Number(existingRow.CHECK_ID)) as BackupStatusCheck;
+      }
+
+      await connection.execute(
+        `INSERT INTO app_backup_status_checks (
+           backup_id, database_id, shift_number, shift_date, status,
+           checked_by, checked_username, checked_at, comment_text,
+           created_by, updated_by
+         ) VALUES (
+           :backupId, :databaseId, :shiftNumber, TO_DATE(:shiftDate, 'YYYY-MM-DD'), :status,
+           :checkedBy, :checkedUsername, SYSTIMESTAMP, :commentText,
+           :actor, :actor
+         )`,
+        {
+          backupId: input.backupId,
+          databaseId: input.databaseId,
+          shiftNumber: input.shiftNumber,
+          shiftDate: input.shiftDate,
+          status: input.status,
+          checkedBy: input.checkedBy,
+          checkedUsername: input.checkedUsername,
+          commentText: input.commentText || null,
+          actor: input.actor
+        }
+      );
+      await connection.commit();
+      const checks = await listBackupStatusChecks(input.shiftNumber, input.shiftDate);
+      return checks.find((c) => c.backup_id === input.backupId) as BackupStatusCheck;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
+// ============================================================
+// DBA Console — Shift Report (app_admin only)
+// ============================================================
+
+export async function getShiftReport(filters: ShiftReportFilters): Promise<ShiftReportData> {
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+
+  if (filters.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(s.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.dbaUserId) {
+    binds.dbaUserId = filters.dbaUserId;
+    conditions.push("s.user_id = :dbaUserId");
+  }
+  if (filters.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("s.shift_number = :shiftNumber");
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  return executeOne(async (connection) => {
+    const [activeDbas, dailyAttendance, monthlyAttendance, lateLogins, pendingHandovers, avgResult, mostActiveResult, activityTimeline, loginTrend, dbCompletion, backupCompletion] = await Promise.all([
+      listActiveShiftSessionsForReport(connection),
+      fetchDailyAttendance(connection, binds, whereClause),
+      fetchMonthlyAttendance(connection, binds, whereClause),
+      fetchLateLogins(connection, binds, whereClause),
+      listPendingHandovers(),
+      fetchAvgLoginDuration(connection, binds, whereClause),
+      fetchMostActiveDba(connection, binds, whereClause),
+      fetchActivityTimeline(connection, binds, whereClause),
+      fetchLoginTrend(connection, binds, whereClause),
+      fetchChecklistCompletion(connection, filters, "db"),
+      fetchChecklistCompletion(connection, filters, "backup")
+    ]);
+
+    const unacknowledgedHandovers = pendingHandovers;
+    const checklistCompletion = combineCompletion(dbCompletion, backupCompletion);
+
+    return {
+      activeDbas,
+      dailyAttendance,
+      monthlyAttendance,
+      avgLoginDurationMin: avgResult,
+      lateLogins,
+      pendingHandovers,
+      unacknowledgedHandovers,
+      dbStatusCompletion: dbCompletion,
+      backupCompletion,
+      checklistCompletion,
+      mostActiveDba: mostActiveResult,
+      activityTimeline,
+      loginTrend
+    };
+  });
+}
+
+async function listActiveShiftSessionsForReport(connection: Connection): Promise<ShiftReportData["activeDbas"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT session_id, user_id, username, shift_number, login_at
+     FROM app_shift_sessions
+     WHERE is_active = 'Y'
+     ORDER BY login_at`
+  );
+  return (result.rows || []).map((row) => ({
+    session_id: Number(row.SESSION_ID),
+    user_id: Number(row.USER_ID),
+    username: String(row.USERNAME),
+    shift_number: Number(row.SHIFT_NUMBER) as 1 | 2 | 3 | 4,
+    login_at: toIstIsoString(row.LOGIN_AT)
+  }));
+}
+
+async function fetchDailyAttendance(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["dailyAttendance"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT TRUNC(s.shift_date) AS attendance_date,
+            COUNT(DISTINCT s.user_id) AS unique_dbas,
+            COUNT(*) AS total_logins
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY TRUNC(s.shift_date)
+     ORDER BY TRUNC(s.shift_date) DESC`,
+    binds
+  );
+  return (result.rows || []).map((row) => ({
+    attendance_date: toOracleDateString(asDate(row.ATTENDANCE_DATE) || new Date()),
+    unique_dbas: Number(row.UNIQUE_DBAS),
+    total_logins: Number(row.TOTAL_LOGINS)
+  }));
+}
+
+async function fetchMonthlyAttendance(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["monthlyAttendance"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT TO_CHAR(s.shift_date, 'YYYY-MM') AS month,
+            COUNT(DISTINCT s.user_id) AS unique_dbas,
+            COUNT(*) AS total_logins
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY TO_CHAR(s.shift_date, 'YYYY-MM')
+     ORDER BY month DESC`,
+    binds
+  );
+  return (result.rows || []).map((row) => ({
+    month: String(row.MONTH),
+    unique_dbas: Number(row.UNIQUE_DBAS),
+    total_logins: Number(row.TOTAL_LOGINS)
+  }));
+}
+
+async function fetchAvgLoginDuration(connection: Connection, binds: BindParameters, whereClause: string): Promise<number> {
+  const closedClause = whereClause
+    ? whereClause.replace("WHERE", "WHERE s.status = 'CLOSED' AND s.logout_at IS NOT NULL AND")
+    : "WHERE s.status = 'CLOSED' AND s.logout_at IS NOT NULL";
+  const result = await connection.execute<DbRow>(
+    `SELECT AVG((CAST(s.logout_at AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) AS avg_min
+     FROM app_shift_sessions s
+     ${closedClause}`,
+    binds
+  );
+  const row = result.rows?.[0];
+  return row && row.AVG_MIN != null ? Math.round(Number(row.AVG_MIN)) : 0;
+}
+
+async function fetchMostActiveDba(connection: Connection, binds: BindParameters, whereClause: string): Promise<{ username: string; total_logins: number } | undefined> {
+  const result = await connection.execute<DbRow>(
+    `SELECT s.username, COUNT(*) AS total_logins
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY s.username
+     ORDER BY total_logins DESC
+     FETCH FIRST 1 ROWS ONLY`,
+    binds
+  );
+  const row = result.rows?.[0];
+  return row ? { username: String(row.USERNAME), total_logins: Number(row.TOTAL_LOGINS) } : undefined;
+}
+
+async function fetchActivityTimeline(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["activityTimeline"]> {
+  const loginResult = await connection.execute<DbRow>(
+    `SELECT 'login' AS event, s.username, s.shift_number, s.login_at AS ts, NULL AS detail
+     FROM app_shift_sessions s
+     ${whereClause}
+     ORDER BY s.login_at DESC
+     FETCH FIRST 50 ROWS ONLY`,
+    binds
+  );
+  const logoutResult = await connection.execute<DbRow>(
+    `SELECT 'logout' AS event, s.username, s.shift_number, s.logout_at AS ts, NULL AS detail
+     FROM app_shift_sessions s
+     ${whereClause ? whereClause + " AND s.logout_at IS NOT NULL" : "WHERE s.logout_at IS NOT NULL"}
+     ORDER BY s.logout_at DESC
+     FETCH FIRST 50 ROWS ONLY`,
+    binds
+  );
+  const ackResult = await connection.execute<DbRow>(
+    `SELECT 'acknowledge' AS event, h.ack_username AS username, h.shift_number, h.ack_at AS ts,
+            SUBSTR('Acknowledged ' || h.author_username || '''s handover', 1, 200) AS detail
+     FROM app_handovers h
+     WHERE h.status = 'ACKNOWLEDGED' AND h.ack_at IS NOT NULL
+     ORDER BY h.ack_at DESC
+     FETCH FIRST 50 ROWS ONLY`
+  );
+
+  const timeline: ShiftReportData["activityTimeline"] = [];
+  for (const row of loginResult.rows || []) {
+    timeline.push({
+      event: "login",
+      username: String(row.USERNAME),
+      shift_number: Number(row.SHIFT_NUMBER),
+      timestamp: toIstIsoString(row.TS),
+      detail: row.DETAIL ? String(row.DETAIL) : undefined
+    });
+  }
+  for (const row of logoutResult.rows || []) {
+    timeline.push({
+      event: "logout",
+      username: String(row.USERNAME),
+      shift_number: Number(row.SHIFT_NUMBER),
+      timestamp: toIstIsoString(row.TS),
+      detail: row.DETAIL ? String(row.DETAIL) : undefined
+    });
+  }
+  for (const row of ackResult.rows || []) {
+    timeline.push({
+      event: "acknowledge",
+      username: String(row.USERNAME),
+      shift_number: Number(row.SHIFT_NUMBER),
+      timestamp: toIstIsoString(row.TS),
+      detail: row.DETAIL ? String(row.DETAIL) : undefined
+    });
+  }
+  return timeline.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 100);
+}
+
+async function fetchLoginTrend(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["loginTrend"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT TRUNC(s.shift_date) AS shift_date, s.shift_number, COUNT(*) AS logins
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY TRUNC(s.shift_date), s.shift_number
+     ORDER BY TRUNC(s.shift_date) DESC, s.shift_number`,
+    binds
+  );
+  return (result.rows || []).map((row) => ({
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    shift_number: Number(row.SHIFT_NUMBER),
+    logins: Number(row.LOGINS)
+  }));
+}
+
+async function fetchLateLogins(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["lateLogins"]> {
+  const shiftStartMinute: Record<number, number> = { 1: 420, 2: 870, 3: 1350 };
+  const allLate: ShiftReportData["lateLogins"] = [];
+
+  for (const shiftNumber of [1, 2, 3] as const) {
+    const startMinute = shiftStartMinute[shiftNumber];
+    const shiftBinds = { ...binds, shiftNumber };
+    const shiftCondition = whereClause
+      ? whereClause + ` AND s.shift_number = :shiftNumber`
+      : `WHERE s.shift_number = :shiftNumber`;
+    const result = await connection.execute<DbRow>(
+      `SELECT s.session_id, s.username, s.shift_number, s.shift_date, s.login_at,
+              (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
+               + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0))) - :startMinute) AS minutes_late
+       FROM app_shift_sessions s
+       ${shiftCondition}
+       ORDER BY s.login_at DESC
+       FETCH FIRST 100 ROWS ONLY`,
+      { ...shiftBinds, startMinute }
+    );
+    for (const row of result.rows || []) {
+      const minutesLate = Number(row.MINUTES_LATE ?? 0);
+      if (minutesLate > 10) {
+        allLate.push({
+          session_id: Number(row.SESSION_ID),
+          username: String(row.USERNAME),
+          shift_number: Number(row.SHIFT_NUMBER),
+          shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+          login_at: toIstIsoString(row.LOGIN_AT),
+          minutes_late: minutesLate
+        });
+      }
+    }
+  }
+
+  return allLate.sort((a, b) => (a.login_at < b.login_at ? 1 : -1)).slice(0, 50);
+}
+
+async function fetchChecklistCompletion(
+  connection: Connection,
+  filters: ShiftReportFilters,
+  type: "db" | "backup"
+): Promise<ChecklistCompletion> {
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+
+  if (filters.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("shift_number = :shiftNumber");
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  if (type === "db") {
+    const totalResult = await connection.execute<DbRow>(
+      `SELECT COUNT(*) AS total FROM database_inventory WHERE status = 'active'`,
+      {}
+    );
+    const totalDb = Number(totalResult.rows?.[0]?.TOTAL ?? 0);
+
+    const doneResult = await connection.execute<DbRow>(
+      `SELECT COUNT(DISTINCT database_id || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
+       FROM app_db_status_checks
+       ${whereClause}`,
+      binds
+    );
+    const completed = Number(doneResult.rows?.[0]?.COMPLETED ?? 0);
+    return {
+      total: totalDb,
+      completed,
+      completion_pct: totalDb > 0 ? Math.round((completed / totalDb) * 100) : 0
+    };
+  }
+
+  const totalResult = await connection.execute<DbRow>(
+    `SELECT COUNT(*) AS total FROM app_backup_template WHERE is_active = 'Y'`,
+    {}
+  );
+  const totalBk = Number(totalResult.rows?.[0]?.TOTAL ?? 0);
+
+  const doneResult = await connection.execute<DbRow>(
+    `SELECT COUNT(DISTINCT backup_id || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
+     FROM app_backup_status_checks
+     ${whereClause}`,
+    binds
+  );
+  const completed = Number(doneResult.rows?.[0]?.COMPLETED ?? 0);
+  return {
+    total: totalBk,
+    completed,
+    completion_pct: totalBk > 0 ? Math.round((completed / totalBk) * 100) : 0
+  };
+}
+
+function combineCompletion(db: ChecklistCompletion, backup: ChecklistCompletion): ChecklistCompletion {
+  const total = db.total + backup.total;
+  const completed = db.completed + backup.completed;
+  return {
+    total,
+    completed,
+    completion_pct: total > 0 ? Math.round((completed / total) * 100) : 0
+  };
 }
 

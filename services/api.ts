@@ -5,14 +5,24 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  BackupStatusCheck,
+  BackupStatusValue,
+  BackupTemplate,
+  CurrentShiftState,
   DatabaseInventoryInput,
   DatabaseInventoryItem,
   DashboardMetrics,
+  DbStatusCheck,
+  DbStatusValue,
   DbaAction,
   DbaAlertLogRow,
   DbaAlertLogStatus,
   DbaResponse,
   DiagAlertExtRow,
+  Handover,
+  ShiftReportData,
+  ShiftReportFilters,
+  ShiftSession,
   TablespaceRow,
   UserSession
 } from "@/types/dba";
@@ -442,4 +452,152 @@ export async function fetchPerformanceRunAllHistory(
   return requestJson<PerformanceRunAllHistoryResponse>(
     `/api/performance/history${qs}`
   );
+}
+
+// ============================================================
+// DBA Console — Shift Management, Daily Checklist, Shift Report
+// ============================================================
+
+export async function fetchCurrentShift(): Promise<CurrentShiftState> {
+  return requestJson<CurrentShiftState>("/api/shift/current");
+}
+
+export async function fetchActiveDbas(): Promise<{
+  active_shifts: number[];
+  shift_label: string;
+  overlap: boolean;
+  active_dbas: Array<{ session_id: number; username: string; shift_number: 1 | 2 | 3 }>;
+}> {
+  return requestJson<{
+    active_shifts: number[];
+    shift_label: string;
+    overlap: boolean;
+    active_dbas: Array<{ session_id: number; username: string; shift_number: 1 | 2 | 3 }>;
+  }>("/api/shift-active");
+}
+
+export async function shiftLogin(shiftNumber?: number): Promise<{ session: ShiftSession }> {
+  return requestJson<{ session: ShiftSession }>("/api/shift/login", {
+    method: "POST",
+    body: JSON.stringify({ shiftNumber })
+  });
+}
+
+export async function shiftLogout(sessionId?: number, force = false): Promise<{ session: ShiftSession }> {
+  return requestJson<{ session: ShiftSession }>("/api/shift/logout", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, force })
+  });
+}
+
+export async function submitHandover(handoverText: string, sessionId?: number): Promise<{ handover: Handover }> {
+  return requestJson<{ handover: Handover }>("/api/shift/handover", {
+    method: "POST",
+    body: JSON.stringify({ handoverText, sessionId })
+  });
+}
+
+export async function acknowledgeHandover(handoverId: number): Promise<{ handover: Handover }> {
+  return requestJson<{ handover: Handover }>("/api/shift/acknowledge", {
+    method: "POST",
+    body: JSON.stringify({ handoverId })
+  });
+}
+
+export async function overrideHandoverApi(
+  handoverId: number,
+  reason: string,
+  closeSession = false,
+  sessionId?: number
+): Promise<{ handover: Handover; session: ShiftSession | null }> {
+  return requestJson<{ handover: Handover; session: ShiftSession | null }>("/api/shift/override", {
+    method: "POST",
+    body: JSON.stringify({ handoverId, reason, closeSession, sessionId })
+  });
+}
+
+export async function fetchDbStatusChecks(shiftNumber: number, shiftDate: string): Promise<{ checks: DbStatusCheck[] }> {
+  const qs = `?shiftNumber=${shiftNumber}&shiftDate=${encodeURIComponent(shiftDate)}`;
+  return requestJson<{ checks: DbStatusCheck[] }>(`/api/checklist/database-status${qs}`);
+}
+
+export async function saveDbStatusCheck(input: {
+  databaseId: number;
+  shiftNumber?: number;
+  shiftDate?: string;
+  status: DbStatusValue;
+  commentText?: string;
+}): Promise<{ check: DbStatusCheck }> {
+  return requestJson<{ check: DbStatusCheck }>("/api/checklist/database-status", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function fetchBackupStatusChecks(shiftNumber: number, shiftDate: string): Promise<{ checks: BackupStatusCheck[] }> {
+  const qs = `?shiftNumber=${shiftNumber}&shiftDate=${encodeURIComponent(shiftDate)}`;
+  return requestJson<{ checks: BackupStatusCheck[] }>(`/api/checklist/backup-status${qs}`);
+}
+
+export async function saveBackupStatusCheck(input: {
+  backupId: number;
+  databaseId: number;
+  shiftNumber?: number;
+  shiftDate?: string;
+  status: BackupStatusValue;
+  commentText?: string;
+}): Promise<{ check: BackupStatusCheck }> {
+  return requestJson<{ check: BackupStatusCheck }>("/api/checklist/backup-status", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function fetchBackupTemplates(activeOnly = false): Promise<{ templates: BackupTemplate[] }> {
+  const qs = activeOnly ? "?activeOnly=true" : "";
+  return requestJson<{ templates: BackupTemplate[] }>(`/api/backup-template${qs}`);
+}
+
+export async function createBackupTemplateApi(input: {
+  databaseId: number;
+  backupName: string;
+  scheduledTime?: string;
+  backupType?: string;
+}): Promise<{ template: BackupTemplate }> {
+  return requestJson<{ template: BackupTemplate }>("/api/backup-template", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateBackupTemplateApi(
+  id: number,
+  input: {
+    databaseId: number;
+    backupName: string;
+    scheduledTime?: string;
+    backupType?: string;
+    isActive?: boolean;
+  }
+): Promise<{ template: BackupTemplate }> {
+  return requestJson<{ template: BackupTemplate }>(`/api/backup-template/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteBackupTemplateApi(id: number): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/api/backup-template/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchShiftReport(filters: ShiftReportFilters): Promise<{ report: ShiftReportData }> {
+  const params = new URLSearchParams();
+  if (filters.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters.toDate) params.set("toDate", filters.toDate);
+  if (filters.dbaUserId) params.set("dbaUserId", String(filters.dbaUserId));
+  if (filters.shiftNumber) params.set("shiftNumber", String(filters.shiftNumber));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return requestJson<{ report: ShiftReportData }>(`/api/reports${qs}`);
 }

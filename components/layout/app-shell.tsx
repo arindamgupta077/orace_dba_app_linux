@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   Bot,
   ClipboardList,
+  ClipboardCheck,
   Database,
   DatabaseZap,
   FileWarning,
@@ -22,6 +23,7 @@ import {
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ActiveDbaPill } from "@/components/layout/active-dba-pill";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { DatabaseSelector } from "@/components/visual/database-selector";
 import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
@@ -126,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authChecking, setAuthChecking] = useState(true);
   const [showDatabase, setShowDatabase] = useState(true);
 
-  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/db-inventory") || pathname.startsWith("/audit");
+  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/db-inventory") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
   const isClient = user?.role === "client";
   const isSidebarVisible = !!user && !isClient && showDatabase && !isNonDbRoute;
   const isDbSelectorVisible = !!user && showDatabase && !isNonDbRoute;
@@ -238,6 +240,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="hidden sm:inline">Database</span>
               </Button>
 
+              {/* DBA Console button — visible to app_admin and dba_admin */}
+              {(user?.role === "app_admin" || user?.role === "dba_admin") && (
+                <Button
+                  asChild
+                  variant={pathname.startsWith("/dba-console") ? "secondary" : "outline"}
+                  size="sm"
+                  className={cn(
+                    "transition-all",
+                    pathname.startsWith("/dba-console") && "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
+                  )}
+                >
+                  <Link href="/dba-console/shift-management">
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span className="hidden sm:inline">DBA Console</span>
+                  </Link>
+                </Button>
+              )}
+
               {/* Admin-only buttons */}
               {user?.role === "app_admin" && (
                 <>
@@ -290,6 +310,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-2">
               <RmanRunningBadge />
+              {/* Active DBA on-shift indicator — shown on right side when db selector row is hidden */}
+              {!isDbSelectorVisible && <ActiveDbaPill />}
               {user && (
                 <div className="hidden rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm text-muted-foreground md:block">
                   {user.username} / {user.role}
@@ -304,6 +326,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {isDbSelectorVisible && (
             <div className="px-4 py-3 lg:px-6 border-t border-border/70 bg-background/40 flex items-center gap-3">
               <DatabaseSelector />
+              {/* Active DBA on-shift indicator — shown in db selector row when database view is active */}
+              <div className="ml-auto">
+                <ActiveDbaPill />
+              </div>
             </div>
           )}
         </header>

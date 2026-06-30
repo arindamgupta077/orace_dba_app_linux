@@ -52,6 +52,7 @@ The script is here:
 - `db/oracle_app_setup.sql`
 - `db/oracle_check_data_tables.sql` (run this if you already created base auth/history tables earlier and only need separate per-check data tables)
 - `db/oracle_alert_notifications.sql` (run this against an existing schema to add only the inbound n8n alert table)
+- `db/oracle_dba_console.sql` (DBA Console module — shift management, daily checklist, shift report; run after `oracle_db_inventory.sql`)
 
 It creates:
 - `APP_USERS`
