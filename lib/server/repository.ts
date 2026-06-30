@@ -3531,7 +3531,7 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   return executeOne(async (connection) => {
-    const [activeDbas, dailyAttendance, monthlyAttendance, lateLogins, pendingHandovers, avgResult, mostActiveResult, activityTimeline, loginTrend, dbCompletion, backupCompletion] = await Promise.all([
+    const [activeDbas, dailyAttendance, monthlyAttendance, lateLogins, pendingHandovers, avgResult, mostActiveResult, timelineResult, loginTrend, dbCompletion, backupCompletion, dbStatusChecks, backupStatusChecks, handovers, sessions, coverage] = await Promise.all([
       listActiveShiftSessionsForReport(connection),
       fetchDailyAttendance(connection, binds, whereClause),
       fetchMonthlyAttendance(connection, binds, whereClause),
@@ -3539,10 +3539,15 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       listPendingHandovers(),
       fetchAvgLoginDuration(connection, binds, whereClause),
       fetchMostActiveDba(connection, binds, whereClause),
-      fetchActivityTimeline(connection, binds, whereClause),
+      fetchActivityTimeline(connection, binds, whereClause, filters),
       fetchLoginTrend(connection, binds, whereClause),
       fetchChecklistCompletion(connection, filters, "db"),
-      fetchChecklistCompletion(connection, filters, "backup")
+      fetchChecklistCompletion(connection, filters, "backup"),
+      fetchDbStatusChecksForReport(connection, filters),
+      fetchBackupStatusChecksForReport(connection, filters),
+      fetchHandoversForReport(connection, filters),
+      fetchSessionsForReport(connection, binds, whereClause),
+      fetchShiftCoverage(connection, binds, whereClause)
     ]);
 
     const unacknowledgedHandovers = pendingHandovers;
@@ -3560,8 +3565,14 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       backupCompletion,
       checklistCompletion,
       mostActiveDba: mostActiveResult,
-      activityTimeline,
-      loginTrend
+      activityTimeline: timelineResult.rows,
+      timelineTotal: timelineResult.total,
+      loginTrend,
+      dbStatusChecks,
+      backupStatusChecks,
+      handovers,
+      sessions,
+      coverage
     };
   });
 }
@@ -3646,61 +3657,72 @@ async function fetchMostActiveDba(connection: Connection, binds: BindParameters,
   return row ? { username: String(row.USERNAME), total_logins: Number(row.TOTAL_LOGINS) } : undefined;
 }
 
-async function fetchActivityTimeline(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["activityTimeline"]> {
-  const loginResult = await connection.execute<DbRow>(
-    `SELECT 'login' AS event, s.username, s.shift_number, s.login_at AS ts, NULL AS detail
-     FROM app_shift_sessions s
-     ${whereClause}
-     ORDER BY s.login_at DESC
-     FETCH FIRST 50 ROWS ONLY`,
-    binds
+async function fetchActivityTimeline(
+  connection: Connection,
+  binds: BindParameters,
+  whereClause: string,
+  filters: ShiftReportFilters
+): Promise<{ rows: ShiftReportData["activityTimeline"]; total: number }> {
+  // Apply optional event-type + free-text filters.
+  const eventConditions: string[] = [];
+  const timelineBinds: Record<string, unknown> = { ...(binds as Record<string, unknown>) };
+
+  if (filters.timelineEvent && filters.timelineEvent !== "all") {
+    const evt = filters.timelineEvent;
+    if (evt === "login") {
+      eventConditions.push("evt.event = 'login'");
+    } else if (evt === "logout") {
+      eventConditions.push("evt.event = 'logout'");
+    } else if (evt === "acknowledge") {
+      eventConditions.push("evt.event = 'acknowledge'");
+    }
+  }
+  if (filters.timelineSearch && filters.timelineSearch.trim()) {
+    timelineBinds.timelineSearch = `%${filters.timelineSearch.trim().toUpperCase()}%`;
+    eventConditions.push("UPPER(evt.username) LIKE :timelineSearch");
+  }
+
+  const eventWhere = eventConditions.length ? `WHERE ${eventConditions.join(" AND ")}` : "";
+
+  const unionSql = `
+    SELECT 'login' AS event, s.username, s.shift_number, s.login_at AS ts, NULL AS detail
+    FROM app_shift_sessions s
+    ${whereClause}
+    UNION ALL
+    SELECT 'logout' AS event, s.username, s.shift_number, s.logout_at AS ts, NULL AS detail
+    FROM app_shift_sessions s
+    ${whereClause ? whereClause + " AND s.logout_at IS NOT NULL" : "WHERE s.logout_at IS NOT NULL"}
+    UNION ALL
+    SELECT 'acknowledge' AS event, h.ack_username AS username, h.shift_number, h.ack_at AS ts,
+           SUBSTR('Acknowledged ' || h.author_username || '''s handover', 1, 200) AS detail
+    FROM app_handovers h
+    WHERE h.status = 'ACKNOWLEDGED' AND h.ack_at IS NOT NULL
+  `;
+
+  const countResult = await connection.execute<DbRow>(
+    `SELECT COUNT(*) AS total FROM (${unionSql}) evt ${eventWhere}`,
+    timelineBinds as BindParameters
   );
-  const logoutResult = await connection.execute<DbRow>(
-    `SELECT 'logout' AS event, s.username, s.shift_number, s.logout_at AS ts, NULL AS detail
-     FROM app_shift_sessions s
-     ${whereClause ? whereClause + " AND s.logout_at IS NOT NULL" : "WHERE s.logout_at IS NOT NULL"}
-     ORDER BY s.logout_at DESC
-     FETCH FIRST 50 ROWS ONLY`,
-    binds
-  );
-  const ackResult = await connection.execute<DbRow>(
-    `SELECT 'acknowledge' AS event, h.ack_username AS username, h.shift_number, h.ack_at AS ts,
-            SUBSTR('Acknowledged ' || h.author_username || '''s handover', 1, 200) AS detail
-     FROM app_handovers h
-     WHERE h.status = 'ACKNOWLEDGED' AND h.ack_at IS NOT NULL
-     ORDER BY h.ack_at DESC
-     FETCH FIRST 50 ROWS ONLY`
+  const total = Number(countResult.rows?.[0]?.TOTAL ?? 0);
+
+  const page = Math.max(1, filters.timelinePage || 1);
+  const pageSize = Math.min(100, Math.max(1, filters.timelinePageSize || 20));
+  const offset = (page - 1) * pageSize;
+
+  const pageResult = await connection.execute<DbRow>(
+    `SELECT * FROM (${unionSql}) evt ${eventWhere} ORDER BY evt.ts DESC OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`,
+    timelineBinds as BindParameters
   );
 
-  const timeline: ShiftReportData["activityTimeline"] = [];
-  for (const row of loginResult.rows || []) {
-    timeline.push({
-      event: "login",
-      username: String(row.USERNAME),
-      shift_number: Number(row.SHIFT_NUMBER),
-      timestamp: toIstIsoString(row.TS),
-      detail: row.DETAIL ? String(row.DETAIL) : undefined
-    });
-  }
-  for (const row of logoutResult.rows || []) {
-    timeline.push({
-      event: "logout",
-      username: String(row.USERNAME),
-      shift_number: Number(row.SHIFT_NUMBER),
-      timestamp: toIstIsoString(row.TS),
-      detail: row.DETAIL ? String(row.DETAIL) : undefined
-    });
-  }
-  for (const row of ackResult.rows || []) {
-    timeline.push({
-      event: "acknowledge",
-      username: String(row.USERNAME),
-      shift_number: Number(row.SHIFT_NUMBER),
-      timestamp: toIstIsoString(row.TS),
-      detail: row.DETAIL ? String(row.DETAIL) : undefined
-    });
-  }
-  return timeline.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 100);
+  const rows: ShiftReportData["activityTimeline"] = (pageResult.rows || []).map((row) => ({
+    event: String(row.EVENT),
+    username: String(row.USERNAME || ""),
+    shift_number: Number(row.SHIFT_NUMBER || 0),
+    timestamp: toIstIsoString(row.TS),
+    detail: row.DETAIL ? String(row.DETAIL) : undefined
+  }));
+
+  return { rows, total };
 }
 
 async function fetchLoginTrend(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["loginTrend"]> {
@@ -3741,7 +3763,7 @@ async function fetchLateLogins(connection: Connection, binds: BindParameters, wh
     );
     for (const row of result.rows || []) {
       const minutesLate = Number(row.MINUTES_LATE ?? 0);
-      if (minutesLate > 10) {
+      if (minutesLate > 60) {
         allLate.push({
           session_id: Number(row.SESSION_ID),
           username: String(row.USERNAME),
@@ -3829,5 +3851,180 @@ function combineCompletion(db: ChecklistCompletion, backup: ChecklistCompletion)
     completed,
     completion_pct: total > 0 ? Math.round((completed / total) * 100) : 0
   };
+}
+
+// ============================================================
+// Shift Report — detailed audit datasets (for PDF/Excel export)
+// Each row carries the DBA username + timestamp for audit purposes.
+// ============================================================
+
+function reportChecklistBinds(filters: ShiftReportFilters): { binds: BindParameters; whereClause: string } {
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+  if (filters.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(c.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(c.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("c.shift_number = :shiftNumber");
+  }
+  if (filters.dbaUserId) {
+    binds.dbaUserId = filters.dbaUserId;
+    conditions.push("c.checked_by = :dbaUserId");
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return { binds, whereClause };
+}
+
+async function fetchDbStatusChecksForReport(
+  connection: Connection,
+  filters: ShiftReportFilters
+): Promise<ShiftReportData["dbStatusChecks"]> {
+  const { binds, whereClause } = reportChecklistBinds(filters);
+  const result = await connection.execute<DbStatusRow>(
+    `SELECT c.check_id, c.database_id, d.database_name, c.shift_number,
+            c.shift_date, c.status, c.checked_by, c.checked_username,
+            c.checked_at, c.comment_text
+     FROM app_db_status_checks c
+     JOIN database_inventory d ON d.id = c.database_id
+     ${whereClause}
+     ORDER BY c.shift_date DESC, UPPER(d.database_name)`,
+    binds
+  );
+  return (result.rows || []).map((row) => mapDbStatusCheck(row as DbStatusRow));
+}
+
+async function fetchBackupStatusChecksForReport(
+  connection: Connection,
+  filters: ShiftReportFilters
+): Promise<ShiftReportData["backupStatusChecks"]> {
+  const { binds, whereClause } = reportChecklistBinds(filters);
+  const result = await connection.execute<BackupStatusRow>(
+    `SELECT c.check_id, c.backup_id, c.database_id, d.database_name,
+            b.backup_name, c.shift_number, c.shift_date, c.status,
+            c.checked_by, c.checked_username, c.checked_at, c.comment_text
+     FROM app_backup_status_checks c
+     JOIN database_inventory d ON d.id = c.database_id
+     JOIN app_backup_template b ON b.backup_id = c.backup_id
+     ${whereClause}
+     ORDER BY c.shift_date DESC, UPPER(d.database_name), UPPER(b.backup_name)`,
+    binds
+  );
+  return (result.rows || []).map((row) => mapBackupStatusCheck(row as BackupStatusRow));
+}
+
+function reportHandoverBinds(filters: ShiftReportFilters): { binds: BindParameters; whereClause: string } {
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+  if (filters.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(h.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(h.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("h.shift_number = :shiftNumber");
+  }
+  if (filters.dbaUserId) {
+    binds.dbaUserId = filters.dbaUserId;
+    conditions.push("(h.author_user_id = :dbaUserId OR h.ack_user_id = :dbaUserId)");
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return { binds, whereClause };
+}
+
+async function fetchHandoversForReport(
+  connection: Connection,
+  filters: ShiftReportFilters
+): Promise<ShiftReportData["handovers"]> {
+  const { binds, whereClause } = reportHandoverBinds(filters);
+  const result = await connection.execute<HandoverRow>(
+    `SELECT handover_id, session_id, author_user_id, author_username,
+            shift_number, shift_date, handover_text, status,
+            ack_user_id, ack_username, ack_at, override_reason, is_override,
+            created_at, updated_at
+     FROM app_handovers h
+     ${whereClause}
+     ORDER BY h.created_at DESC
+     FETCH FIRST 500 ROWS ONLY`,
+    binds
+  );
+  return (result.rows || []).map((row) => mapHandover(row as HandoverRow));
+}
+
+async function fetchSessionsForReport(
+  connection: Connection,
+  binds: BindParameters,
+  whereClause: string
+): Promise<ShiftReportData["sessions"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT s.session_id, s.user_id, s.username, s.shift_number, s.shift_date,
+            s.login_at, s.logout_at, s.status, s.is_active,
+            CASE WHEN s.logout_at IS NOT NULL
+              THEN ROUND((CAST(s.logout_at AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60)
+              ELSE NULL END AS duration_min
+     FROM app_shift_sessions s
+     ${whereClause}
+     ORDER BY s.login_at DESC
+     FETCH FIRST 500 ROWS ONLY`,
+    binds
+  );
+  return (result.rows || []).map((row) => ({
+    session_id: Number(row.SESSION_ID),
+    user_id: Number(row.USER_ID),
+    username: String(row.USERNAME),
+    shift_number: Number(row.SHIFT_NUMBER),
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    login_at: toIstIsoString(row.LOGIN_AT),
+    logout_at: row.LOGOUT_AT ? toIstIsoString(row.LOGOUT_AT) : undefined,
+    status: String(row.STATUS || ""),
+    is_active: String(row.IS_ACTIVE || "N") === "Y",
+    duration_min: row.DURATION_MIN != null ? Math.round(Number(row.DURATION_MIN)) : undefined
+  }));
+}
+
+async function fetchShiftCoverage(
+  connection: Connection,
+  binds: BindParameters,
+  whereClause: string
+): Promise<ShiftReportData["coverage"]> {
+  // Per shift-per-day coverage. Expected DBAs is derived from distinct
+  // DBAs who have ever logged into that shift (rolling baseline). When no
+  // baseline exists, fall back to 1 so coverage is non-zero once a DBA logs in.
+  const result = await connection.execute<DbRow>(
+    `SELECT TRUNC(s.shift_date) AS shift_date,
+            s.shift_number,
+            COUNT(DISTINCT s.user_id) AS actual_dbas,
+            COUNT(DISTINCT s.user_id) AS baseline,
+            SUM(CASE WHEN (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
+                        + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0)))
+                        - CASE s.shift_number WHEN 1 THEN 420 WHEN 2 THEN 870 WHEN 3 THEN 1350 ELSE 0 END) > 60
+                     THEN 1 ELSE 0 END) AS late_logins
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY TRUNC(s.shift_date), s.shift_number
+     ORDER BY TRUNC(s.shift_date) DESC, s.shift_number`,
+    binds
+  );
+  return (result.rows || []).map((row) => {
+    const actual = Number(row.ACTUAL_DBAS ?? 0);
+    const expected = Math.max(1, Number(row.BASELINE ?? 0));
+    return {
+      shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+      shift_number: Number(row.SHIFT_NUMBER),
+      expected_dbas: expected,
+      actual_dbas: actual,
+      coverage_pct: expected > 0 ? Math.min(100, Math.round((actual / expected) * 100)) : 0,
+      late_logins: Number(row.LATE_LOGINS ?? 0)
+    };
+  });
 }
 

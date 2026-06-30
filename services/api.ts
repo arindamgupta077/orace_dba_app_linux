@@ -603,6 +603,10 @@ export async function fetchShiftReport(filters: ShiftReportFilters): Promise<{ r
   if (filters.toDate) params.set("toDate", filters.toDate);
   if (filters.dbaUserId) params.set("dbaUserId", String(filters.dbaUserId));
   if (filters.shiftNumber) params.set("shiftNumber", String(filters.shiftNumber));
+  if (filters.timelinePage) params.set("timelinePage", String(filters.timelinePage));
+  if (filters.timelinePageSize) params.set("timelinePageSize", String(filters.timelinePageSize));
+  if (filters.timelineEvent) params.set("timelineEvent", filters.timelineEvent);
+  if (filters.timelineSearch) params.set("timelineSearch", filters.timelineSearch);
   const qs = params.toString() ? `?${params.toString()}` : "";
   return requestJson<{ report: ShiftReportData }>(`/api/reports${qs}`);
 }

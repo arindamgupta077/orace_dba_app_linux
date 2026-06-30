@@ -875,6 +875,40 @@ export interface ShiftReportFilters {
   toDate?: string;
   dbaUserId?: number;
   shiftNumber?: number;
+  timelinePage?: number;
+  timelinePageSize?: number;
+  timelineEvent?: string;
+  timelineSearch?: string;
+}
+
+export interface ShiftReportTimelineEntry {
+  event: string;
+  username: string;
+  shift_number: number;
+  timestamp: string;
+  detail?: string;
+}
+
+export interface ShiftReportSessionRow {
+  session_id: number;
+  username: string;
+  user_id: number;
+  shift_number: number;
+  shift_date: string;
+  login_at: string;
+  logout_at?: string;
+  status: string;
+  is_active: boolean;
+  duration_min?: number;
+}
+
+export interface ShiftReportCoverageRow {
+  shift_date: string;
+  shift_number: number;
+  expected_dbas: number;
+  actual_dbas: number;
+  coverage_pct: number;
+  late_logins: number;
 }
 
 export interface ShiftReportData {
@@ -889,12 +923,12 @@ export interface ShiftReportData {
   backupCompletion: ChecklistCompletion;
   checklistCompletion: ChecklistCompletion;
   mostActiveDba?: { username: string; total_logins: number };
-  activityTimeline: Array<{
-    event: string;
-    username: string;
-    shift_number: number;
-    timestamp: string;
-    detail?: string;
-  }>;
+  activityTimeline: ShiftReportTimelineEntry[];
+  timelineTotal: number;
   loginTrend: Array<{ shift_date: string; shift_number: number; logins: number }>;
+  dbStatusChecks: DbStatusCheck[];
+  backupStatusChecks: BackupStatusCheck[];
+  handovers: Handover[];
+  sessions: ShiftReportSessionRow[];
+  coverage: ShiftReportCoverageRow[];
 }

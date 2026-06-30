@@ -17,7 +17,7 @@ export default async function ShiftReportPage() {
     <>
       <PageHeader
         title="Shift Report"
-        description="Operational dashboard with attendance, login trends, handover status, and checklist completion metrics. Export data as CSV."
+        description="Manager-grade operational dashboard: shift coverage, checklist compliance, exceptions, and audit-ready PDF/Excel exports (login/logout, checklists, handovers)."
         icon={BarChart3}
       />
       <ShiftReportSection />

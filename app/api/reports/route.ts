@@ -27,7 +27,11 @@ export async function GET(request: Request) {
       fromDate: searchParams.get("fromDate") || undefined,
       toDate: searchParams.get("toDate") || undefined,
       dbaUserId: searchParams.get("dbaUserId") ? Number(searchParams.get("dbaUserId")) : undefined,
-      shiftNumber: searchParams.get("shiftNumber") ? Number(searchParams.get("shiftNumber")) : undefined
+      shiftNumber: searchParams.get("shiftNumber") ? Number(searchParams.get("shiftNumber")) : undefined,
+      timelinePage: searchParams.get("timelinePage") ? Number(searchParams.get("timelinePage")) : undefined,
+      timelinePageSize: searchParams.get("timelinePageSize") ? Number(searchParams.get("timelinePageSize")) : undefined,
+      timelineEvent: searchParams.get("timelineEvent") || undefined,
+      timelineSearch: searchParams.get("timelineSearch") || undefined
     };
 
     const report = await getShiftReport(filters);
