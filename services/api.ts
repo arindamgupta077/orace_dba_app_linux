@@ -516,6 +516,11 @@ export async function overrideHandoverApi(
   });
 }
 
+export async function fetchHandoverHistory(limit = 20): Promise<{ handovers: Handover[] }> {
+  const qs = `?limit=${limit}`;
+  return requestJson<{ handovers: Handover[] }>(`/api/shift/handovers${qs}`);
+}
+
 export async function fetchDbStatusChecks(shiftNumber: number, shiftDate: string): Promise<{ checks: DbStatusCheck[] }> {
   const qs = `?shiftNumber=${shiftNumber}&shiftDate=${encodeURIComponent(shiftDate)}`;
   return requestJson<{ checks: DbStatusCheck[] }>(`/api/checklist/database-status${qs}`);

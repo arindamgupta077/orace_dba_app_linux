@@ -27,7 +27,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -221,14 +223,33 @@ export function DailyChecklistSection() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <Skeleton className="h-10 w-32 rounded-md" />
+              <Skeleton className="h-10 w-44 rounded-md" />
+              <Skeleton className="h-10 flex-1 max-w-xs rounded-md" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-6 w-36 rounded-md" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="dba-skeleton h-12 w-full rounded-md" />
+            ))}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="dba-fade-in space-y-6">
       {/* Filters */}
       <Card>
         <CardContent className="py-4">
@@ -303,14 +324,31 @@ export function DailyChecklistSection() {
                 <Database className="h-5 w-5 text-cyan-400" />
                 Database Availability Check
               </CardTitle>
-              <Badge className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-                {dbCompletion.completed}/{dbCompletion.total} checked ({dbCompletion.pct}%)
-              </Badge>
+              <div className="flex items-center gap-3">
+                <div className="hidden w-32 sm:block">
+                  <Progress
+                    value={dbCompletion.pct}
+                    className={cn("h-2 bg-secondary", dbCompletion.pct === 100 && "dba-progress-cyan")}
+                  />
+                </div>
+                <Badge className={cn(
+                  "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+                  dbCompletion.pct === 100 && "border-green-500/30 bg-green-500/10 text-green-300"
+                )}>
+                  {dbCompletion.completed}/{dbCompletion.total} ({dbCompletion.pct}%)
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent>
               {filteredDatabases.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">
-                  No active databases found in inventory.
+                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                    <Database className="h-6 w-6 text-muted-foreground/50" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">No active databases found</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground/70">Add databases to the inventory to begin tracking.</p>
+                  </div>
                 </div>
               ) : (
                 <Table>
@@ -354,8 +392,17 @@ export function DailyChecklistSection() {
                 Backup Status Check
               </CardTitle>
               <div className="flex items-center gap-3">
-                <Badge className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-                  {backupCompletion.completed}/{backupCompletion.total} checked ({backupCompletion.pct}%)
+                <div className="hidden w-32 sm:block">
+                  <Progress
+                    value={backupCompletion.pct}
+                    className={cn("h-2 bg-secondary", backupCompletion.pct === 100 && "dba-progress-cyan")}
+                  />
+                </div>
+                <Badge className={cn(
+                  "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+                  backupCompletion.pct === 100 && "border-green-500/30 bg-green-500/10 text-green-300"
+                )}>
+                  {backupCompletion.completed}/{backupCompletion.total} ({backupCompletion.pct}%)
                 </Badge>
                 {isAdmin && (
                   <Button
@@ -373,9 +420,16 @@ export function DailyChecklistSection() {
             </CardHeader>
             <CardContent>
               {filteredTemplates.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">
-                  No backup templates defined.
-                  {isAdmin && " Use \"Manage Templates\" to add backup definitions."}
+                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                    <Archive className="h-6 w-6 text-muted-foreground/50" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">No backup templates defined</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground/70">
+                      {isAdmin ? "Use \"Manage Templates\" to add backup definitions." : "Ask an admin to define backup templates."}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <Table>
@@ -463,8 +517,17 @@ function DbStatusRow({
   }, [check]);
 
   return (
-    <TableRow>
-      <TableCell className="font-medium">{database.database_name}</TableCell>
+    <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+      <TableCell className="font-medium">
+        <div className="flex items-center gap-2.5">
+          {check ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400/70" />
+          ) : (
+            <div className="h-4 w-4 shrink-0 rounded-full border border-border/60" />
+          )}
+          {database.database_name}
+        </div>
+      </TableCell>
       <TableCell>{check ? dbStatusBadge(check.status) : <Badge variant="outline" className="text-muted-foreground">Not checked</Badge>}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.checked_username || "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check ? new Date(check.checked_at).toLocaleTimeString() : "—"}</TableCell>
@@ -526,8 +589,17 @@ function BackupStatusRow({
   }, [check]);
 
   return (
-    <TableRow>
-      <TableCell className="font-medium">{template.backup_name}</TableCell>
+    <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+      <TableCell className="font-medium">
+        <div className="flex items-center gap-2.5">
+          {check ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400/70" />
+          ) : (
+            <div className="h-4 w-4 shrink-0 rounded-full border border-border/60" />
+          )}
+          {template.backup_name}
+        </div>
+      </TableCell>
       <TableCell className="text-sm">{template.database_name}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{template.scheduled_time || "—"}</TableCell>
       <TableCell>{check ? backupStatusBadge(check.status) : <Badge variant="outline" className="text-muted-foreground">Not checked</Badge>}</TableCell>
@@ -707,8 +779,9 @@ function BackupTemplateManager({
           <TableBody>
             {templates.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
-                  No templates defined yet.
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                  <Archive className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+                  No templates defined yet. Use the form above to add one.
                 </TableCell>
               </TableRow>
             ) : (

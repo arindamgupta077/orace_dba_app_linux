@@ -31,11 +31,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchAppUsers, fetchShiftReport } from "@/services/api";
 import { cn } from "@/lib/utils";
 import type { AppUser, ShiftReportData, ShiftReportFilters } from "@/types/dba";
+
+const AVATAR_COLORS = [
+  "border-cyan-500/30 bg-cyan-500/15 text-cyan-300",
+  "border-amber-500/30 bg-amber-500/15 text-amber-300",
+  "border-green-500/30 bg-green-500/15 text-green-300",
+  "border-red-500/30 bg-red-500/15 text-red-300",
+  "border-blue-500/30 bg-blue-500/15 text-blue-300",
+  "border-purple-500/30 bg-purple-500/15 text-purple-300"
+];
+
+function avatarFromName(name: string): { initials: string; color: string } {
+  const initials = name.slice(0, 2).toUpperCase();
+  const hash = name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const color = AVATAR_COLORS[hash % AVATAR_COLORS.length];
+  return { initials, color };
+}
 
 function defaultFromDate(): string {
   const d = new Date();
@@ -101,7 +119,7 @@ function MetricCard({
     red: "border-red-500/30 bg-red-500/10 text-red-300"
   };
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:border-border/90 hover:shadow-glass">
       <CardContent className="py-4">
         <div className="flex items-center justify-between">
           <div>
@@ -109,7 +127,7 @@ function MetricCard({
             <p className="mt-1 text-2xl font-bold">{value}</p>
             {sublabel && <p className="mt-0.5 text-xs text-muted-foreground">{sublabel}</p>}
           </div>
-          <div className={cn("rounded-lg border p-2", colors[accent])}>
+          <div className={cn("rounded-lg border p-2 transition-transform duration-200 hover:scale-110", colors[accent])}>
             <Icon className="h-5 w-5" />
           </div>
         </div>
@@ -215,8 +233,35 @@ export function ShiftReportSection() {
 
   if (loading && !report) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <Skeleton className="h-10 w-40 rounded-md" />
+              <Skeleton className="h-10 w-40 rounded-md" />
+              <Skeleton className="h-10 w-44 rounded-md" />
+              <Skeleton className="h-10 w-32 rounded-md" />
+              <Skeleton className="h-10 w-24 rounded-md" />
+            </div>
+          </CardContent>
+        </Card>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="py-4">
+                <Skeleton className="dba-skeleton h-16 w-full rounded-md" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-48" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="dba-skeleton h-64 w-full rounded-md" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -232,7 +277,7 @@ export function ShiftReportSection() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="dba-fade-in space-y-6">
       {/* Filters */}
       <Card>
         <CardContent className="py-4">
@@ -329,47 +374,97 @@ export function ShiftReportSection() {
 
       {/* Completion cards */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card>
+        <Card className="transition-all duration-200 hover:border-border/90">
           <CardContent className="py-4">
             <p className="text-xs text-muted-foreground">Database Status Completion</p>
-            <p className="mt-1 text-2xl font-bold text-cyan-300">{report.dbStatusCompletion.completion_pct}%</p>
-            <p className="text-xs text-muted-foreground">
-              {report.dbStatusCompletion.completed} / {report.dbStatusCompletion.total} checks
-            </p>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className={cn(
+                "text-2xl font-bold",
+                report.dbStatusCompletion.completion_pct === 100 ? "text-green-300" : "text-cyan-300"
+              )}>
+                {report.dbStatusCompletion.completion_pct}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {report.dbStatusCompletion.completed} / {report.dbStatusCompletion.total} checks
+              </p>
+            </div>
+            <Progress
+              value={report.dbStatusCompletion.completion_pct}
+              className={cn(
+                "mt-2 h-1.5",
+                report.dbStatusCompletion.completion_pct === 100 && "dba-progress-cyan"
+              )}
+            />
           </CardContent>
         </Card>
-        <Card>
+        <Card className="transition-all duration-200 hover:border-border/90">
           <CardContent className="py-4">
             <p className="text-xs text-muted-foreground">Backup Completion</p>
-            <p className="mt-1 text-2xl font-bold text-cyan-300">{report.backupCompletion.completion_pct}%</p>
-            <p className="text-xs text-muted-foreground">
-              {report.backupCompletion.completed} / {report.backupCompletion.total} checks
-            </p>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className={cn(
+                "text-2xl font-bold",
+                report.backupCompletion.completion_pct === 100 ? "text-green-300" : "text-cyan-300"
+              )}>
+                {report.backupCompletion.completion_pct}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {report.backupCompletion.completed} / {report.backupCompletion.total} checks
+              </p>
+            </div>
+            <Progress
+              value={report.backupCompletion.completion_pct}
+              className={cn(
+                "mt-2 h-1.5",
+                report.backupCompletion.completion_pct === 100 && "dba-progress-cyan"
+              )}
+            />
           </CardContent>
         </Card>
-        <Card>
+        <Card className="transition-all duration-200 hover:border-border/90">
           <CardContent className="py-4">
             <p className="text-xs text-muted-foreground">Overall Checklist Completion</p>
-            <p className="mt-1 text-2xl font-bold text-cyan-300">{report.checklistCompletion.completion_pct}%</p>
-            <p className="text-xs text-muted-foreground">
-              {report.checklistCompletion.completed} / {report.checklistCompletion.total} checks
-            </p>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className={cn(
+                "text-2xl font-bold",
+                report.checklistCompletion.completion_pct === 100 ? "text-green-300" : "text-cyan-300"
+              )}>
+                {report.checklistCompletion.completion_pct}%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {report.checklistCompletion.completed} / {report.checklistCompletion.total} checks
+              </p>
+            </div>
+            <Progress
+              value={report.checklistCompletion.completion_pct}
+              className={cn(
+                "mt-2 h-1.5",
+                report.checklistCompletion.completion_pct === 100 && "dba-progress-cyan"
+              )}
+            />
           </CardContent>
         </Card>
       </div>
 
       {/* Most active DBA */}
       {report.mostActiveDba && (
-        <Card>
+        <Card className="border-amber-500/20 transition-all duration-200 hover:border-amber-500/40">
           <CardContent className="py-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-300">
-                <UserCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Most Active DBA</p>
-                <p className="text-lg font-bold">{report.mostActiveDba.username}</p>
-                <p className="text-xs text-muted-foreground">{report.mostActiveDba.total_logins} total logins</p>
+              <span className={cn("dba-avatar h-12 w-12 border text-sm", avatarFromName(report.mostActiveDba.username).color)}>
+                {avatarFromName(report.mostActiveDba.username).initials}
+              </span>
+              <div className="flex flex-1 items-center justify-between">
+                <div>
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <UserCheck className="h-3.5 w-3.5 text-amber-400" />
+                    Most Active DBA
+                  </p>
+                  <p className="text-lg font-bold">{report.mostActiveDba.username}</p>
+                  <p className="text-xs text-muted-foreground">{report.mostActiveDba.total_logins} total logins</p>
+                </div>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-amber-300">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
               </div>
             </div>
           </CardContent>
@@ -386,7 +481,12 @@ export function ShiftReportSection() {
         </CardHeader>
         <CardContent>
           {loginTrendData.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No login data for the selected period.</p>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                <BarChart3 className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm text-muted-foreground">No login data for the selected period.</p>
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={loginTrendData}>
@@ -394,17 +494,20 @@ export function ShiftReportSection() {
                 <XAxis dataKey="date" tick={{ fill: "#8ea3b8", fontSize: 11 }} />
                 <YAxis tick={{ fill: "#8ea3b8", fontSize: 11 }} allowDecimals={false} />
                 <Tooltip
+                  cursor={{ fill: "rgba(35,211,238,0.06)" }}
                   contentStyle={{
-                    background: "#101722",
-                    border: "1px solid rgba(142,163,184,0.25)",
+                    background: "linear-gradient(180deg, rgba(18,23,34,0.96), rgba(12,16,24,0.92))",
+                    border: "1px solid rgba(35,211,238,0.25)",
                     borderRadius: 10,
-                    fontSize: 12
+                    fontSize: 12,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
                   }}
+                  labelStyle={{ color: "#8ea3b8", fontWeight: 600 }}
                 />
-                <Legend />
-                <Bar dataKey="Shift1" stackId="a" fill="#18c37e" name="Shift 1" />
-                <Bar dataKey="Shift2" stackId="a" fill="#ffb020" name="Shift 2" />
-                <Bar dataKey="Shift3" stackId="a" fill="#3b82f6" name="Shift 3" />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Shift1" stackId="a" fill="#18c37e" name="Shift 1" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="Shift2" stackId="a" fill="#ffb020" name="Shift 2" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="Shift3" stackId="a" fill="#3b82f6" name="Shift 3" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -422,7 +525,7 @@ export function ShiftReportSection() {
           </CardHeader>
           <CardContent>
             {report.dailyAttendance.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">No data.</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No attendance data for the selected period.</p>
             ) : (
               <div className="max-h-[240px] overflow-y-auto">
                 <Table>
@@ -456,7 +559,7 @@ export function ShiftReportSection() {
           </CardHeader>
           <CardContent>
             {report.monthlyAttendance.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">No data.</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No attendance data for the selected period.</p>
             ) : (
               <div className="max-h-[240px] overflow-y-auto">
                 <Table>
@@ -493,7 +596,12 @@ export function ShiftReportSection() {
         </CardHeader>
         <CardContent>
           {report.activityTimeline.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No activity recorded.</p>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                <Activity className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm text-muted-foreground">No activity recorded for the selected period.</p>
+            </div>
           ) : (
             <div className="max-h-[400px] overflow-y-auto">
               <Table>
@@ -514,9 +622,13 @@ export function ShiftReportSection() {
                           className={cn(
                             event.event === "login" && "border-green-500/30 bg-green-500/10 text-green-300",
                             event.event === "logout" && "border-red-500/30 bg-red-500/10 text-red-300",
-                            event.event === "acknowledge" && "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+                            event.event === "acknowledge" && "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+                            (event.event !== "login" && event.event !== "logout" && event.event !== "acknowledge") && "border-muted-foreground/30 bg-muted/20 text-muted-foreground"
                           )}
                         >
+                          {event.event === "login" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-green-400" />}
+                          {event.event === "logout" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-400" />}
+                          {event.event === "acknowledge" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-cyan-400" />}
                           {event.event}
                         </Badge>
                       </TableCell>

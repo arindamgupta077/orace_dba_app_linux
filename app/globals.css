@@ -152,3 +152,205 @@ body::selection {
 .recharts-tooltip-wrapper {
   outline: none;
 }
+
+/* ---- DBA Console enhancements ---- */
+
+.dba-tab-active {
+  background: linear-gradient(135deg, rgba(35, 211, 238, 0.12), rgba(35, 211, 238, 0.04));
+  border-color: rgba(35, 211, 238, 0.35) !important;
+  color: hsl(189 86% 54%);
+  box-shadow: 0 0 18px rgba(35, 211, 238, 0.1);
+}
+
+.dba-hero-gradient {
+  background:
+    radial-gradient(circle at top right, rgba(35, 211, 238, 0.1), transparent 55%),
+    linear-gradient(135deg, rgba(18, 23, 34, 0.6), rgba(12, 16, 24, 0.4));
+}
+
+.dba-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.dba-row-checked {
+  border-left: 2px solid rgba(24, 195, 126, 0.5);
+}
+
+.dba-row-unchecked {
+  border-left: 2px solid transparent;
+}
+
+.dba-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(142, 163, 184, 0.06) 25%,
+    rgba(142, 163, 184, 0.14) 50%,
+    rgba(142, 163, 184, 0.06) 75%
+  );
+  background-size: 200% 100%;
+  animation: dba-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes dba-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.dba-progress-cyan > div {
+  background: linear-gradient(90deg, #23d3ee, #18c37e) !important;
+}
+
+.dba-fade-in {
+  animation: dba-fade-in 0.35s ease-out;
+}
+
+@keyframes dba-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   TipTap Rich Text Editor — dark theme styles
+   ============================================================ */
+
+.tiptap-content {
+  color: hsl(var(--foreground));
+  line-height: 1.6;
+}
+
+.tiptap-content:empty::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.tiptap-content p {
+  margin: 0.4em 0;
+}
+
+.tiptap-content h1 {
+  font-size: 1.4em;
+  font-weight: 700;
+  margin: 0.6em 0 0.3em;
+  color: hsl(var(--foreground));
+}
+
+.tiptap-content h2 {
+  font-size: 1.2em;
+  font-weight: 700;
+  margin: 0.5em 0 0.25em;
+  color: hsl(var(--foreground));
+}
+
+.tiptap-content h3 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+  color: hsl(var(--foreground));
+}
+
+.tiptap-content ul,
+.tiptap-content ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.tiptap-content ul {
+  list-style-type: disc;
+}
+
+.tiptap-content ol {
+  list-style-type: decimal;
+}
+
+.tiptap-content li {
+  margin: 0.15em 0;
+}
+
+.tiptap-content li p {
+  margin: 0;
+}
+
+.tiptap-content code {
+  background: hsl(var(--secondary));
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  font-size: 0.9em;
+  font-family: monospace;
+}
+
+.tiptap-content pre {
+  background: hsl(var(--secondary));
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.tiptap-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.tiptap-content blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.tiptap-content mark {
+  border-radius: 3px;
+  padding: 0.05em 0.15em;
+}
+
+.tiptap-content hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 0.75em 0;
+}
+
+.tiptap-content a {
+  color: hsl(var(--accent));
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.tiptap-content strong {
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.tiptap:focus {
+  outline: none;
+}
+
+.tiptap-content .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+  float: left;
+}

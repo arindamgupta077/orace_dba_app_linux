@@ -1,17 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardList, ClipboardCheck, BarChart3 } from "lucide-react";
+import { Terminal } from "lucide-react";
 
 import { requireAuthenticatedSession } from "@/lib/server/session";
-import { cn } from "@/lib/utils";
+import { DbaConsoleTabs } from "@/components/admin/dba-console/dba-console-tabs";
 
 export const dynamic = "force-dynamic";
-
-const tabs = [
-  { href: "/dba-console/shift-management", label: "Shift Management", icon: ClipboardCheck },
-  { href: "/dba-console/daily-checklist", label: "Daily Checklist", icon: ClipboardList },
-  { href: "/dba-console/shift-report", label: "Shift Report", icon: BarChart3 }
-];
 
 export default async function DbaConsoleLayout({ children }: { children: React.ReactNode }) {
   const session = await requireAuthenticatedSession();
@@ -20,23 +13,20 @@ export default async function DbaConsoleLayout({ children }: { children: React.R
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 border-b border-border/70 pb-3">
-        <h1 className="text-xl font-bold">DBA Console</h1>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((tab) => (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={cn(
-              "flex items-center gap-2 rounded-md border border-border/70 px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            )}
-          >
-            <tab.icon className="h-4 w-4" />
-            {tab.label}
-          </Link>
-        ))}
+    <div className="space-y-6">
+      <div className="dba-hero-gradient flex flex-col gap-4 rounded-xl border border-border/70 p-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2.5 text-cyan-200 shadow-[0_0_18px_rgba(35,211,238,0.12)]">
+            <Terminal className="h-6 w-6" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">DBA Console</h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Shift management, daily operational checklists, and reporting for DBA teams.
+            </p>
+          </div>
+        </div>
+        <DbaConsoleTabs />
       </div>
       {children}
     </div>

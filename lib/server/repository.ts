@@ -3073,6 +3073,27 @@ export async function listPendingHandovers(): Promise<Handover[]> {
   });
 }
 
+/**
+ * Returns historical handovers (both acknowledged and pending) ordered by
+ * most recent first. Used by the Shift Management page to show recent
+ * handover texts and full history to dba_admin/app_admin.
+ */
+export async function listHandoverHistory(limit = 20): Promise<Handover[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  return executeOne(async (connection) => {
+    const result = await connection.execute<HandoverRow>(
+      `SELECT handover_id, session_id, author_user_id, author_username,
+              shift_number, shift_date, handover_text, status,
+              ack_user_id, ack_username, ack_at, override_reason, is_override,
+              created_at, updated_at
+       FROM app_handovers
+       ORDER BY created_at DESC
+       FETCH FIRST ${safeLimit} ROWS ONLY`
+    );
+    return (result.rows || []).map((row) => mapHandover(row as HandoverRow));
+  });
+}
+
 // ============================================================
 // DBA Console — Backup Template (app_admin maintained)
 // ============================================================
