@@ -515,6 +515,26 @@ export interface DashboardBackupRow {
   duration_min: number;
 }
 
+export interface DashboardArchiveLogMonthRow {
+  month: string;
+  archive_log_count: number;
+  archive_gb: number;
+}
+
+export interface DashboardDatapumpExportRow {
+  owner_name: string;
+  job_name: string;
+  operation: string;
+  job_mode: string;
+  state: string;
+}
+
+export interface DashboardPasswordExpiryUserRow {
+  username: string;
+  account_status: string;
+  expiry_date: string;
+}
+
 export interface BlockingSessionRow {
   waiter_sid: number;
   waiter_serial: number;
@@ -552,6 +572,12 @@ export interface DashboardMetrics {
   blocking_sessions: BlockingSessionRow[];
   failed_jobs: number;
   invalid_objects: number;
+  users_expiring_in_15_days?: number;
+  archive_log_generation?: DashboardArchiveLogMonthRow[];
+  tablespaces_over_90?: number;
+  datapump_exports?: DashboardDatapumpExportRow[];
+  password_expiring_users?: DashboardPasswordExpiryUserRow[];
+  failed_login_count?: number;
   fra: FraMetrics;
   ora_errors: OraErrorRow[];
   captured_at?: string;

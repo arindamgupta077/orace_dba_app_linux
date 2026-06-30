@@ -45,6 +45,7 @@ import { downloadText, formatAppDateTime, toCsv } from "@/lib/utils";
 import { fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type {
+  DashboardArchiveLogMonthRow,
   DashboardMetrics,
   DashboardTablespaceRow
 } from "@/types/dba";
@@ -103,6 +104,19 @@ function field<T = unknown>(row: Record<string, unknown>, key: string): T {
 
 function safeStr(v: unknown, fallback = ""): string {
   return v != null ? String(v) : fallback;
+}
+
+function rawArray(row: Record<string, unknown>, key: string): unknown[] {
+  const value = row[key] ?? row[key.toUpperCase()] ?? row[key.toLowerCase()];
+  return Array.isArray(value) ? value : [];
+}
+
+function fmtDateOnly(value: unknown): string {
+  const raw = safeStr(value);
+  if (!raw) return "-";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 // Normalise a raw metrics object from any source (n8n response or Oracle CLOB).
@@ -167,6 +181,35 @@ function normalizeMetrics(raw: unknown): DashboardMetrics | null {
     return {
       originating_timestamp: safeStr(field(row, "originating_timestamp")),
       message_text:          safeStr(field(row, "message_text")),
+    };
+  });
+
+  const archiveLogGeneration = rawArray(r, "archive_log_generation").map((a: unknown) => {
+    const row = (a ?? {}) as Record<string, unknown>;
+    return {
+      month:             safeStr(field(row, "month")),
+      archive_log_count: safeNum(field(row, "archive_log_count")),
+      archive_gb:        safeNum(field(row, "archive_gb")),
+    };
+  });
+
+  const datapumpExports = rawArray(r, "datapump_exports").map((d: unknown) => {
+    const row = (d ?? {}) as Record<string, unknown>;
+    return {
+      owner_name: safeStr(field(row, "owner_name")),
+      job_name:   safeStr(field(row, "job_name")),
+      operation:  safeStr(field(row, "operation")),
+      job_mode:   safeStr(field(row, "job_mode")),
+      state:      safeStr(field(row, "state")),
+    };
+  });
+
+  const passwordExpiringUsers = rawArray(r, "password_expiring_users").map((u: unknown) => {
+    const row = (u ?? {}) as Record<string, unknown>;
+    return {
+      username:       safeStr(field(row, "username")),
+      account_status: safeStr(field(row, "account_status")),
+      expiry_date:    safeStr(field(row, "expiry_date")),
     };
   });
 
@@ -242,6 +285,12 @@ function normalizeMetrics(raw: unknown): DashboardMetrics | null {
     blocking_sessions: blockingSessions,
     failed_jobs:       safeNum(r.failed_jobs   ?? r.FAILED_JOBS),
     invalid_objects:   safeNum(r.invalid_objects ?? r.INVALID_OBJECTS),
+    users_expiring_in_15_days: safeNum(r.users_expiring_in_15_days ?? r.USERS_EXPIRING_IN_15_DAYS ?? passwordExpiringUsers.length),
+    archive_log_generation:    archiveLogGeneration,
+    tablespaces_over_90:       safeNum(r.tablespaces_over_90 ?? r.TABLESPACES_OVER_90),
+    datapump_exports:          datapumpExports,
+    password_expiring_users:   passwordExpiringUsers,
+    failed_login_count:        safeNum(r.failed_login_count ?? r.FAILED_LOGIN_COUNT),
     fra:               fra ?? { name: "", fra_size_gb: 0, used_gb: 0, reclaimable_gb: 0, pct_used: 0 },
     ora_errors:        oraErrors,
     captured_at:       r.captured_at ? safeStr(r.captured_at) : undefined,
@@ -280,9 +329,9 @@ function KpiTile({
   };
   const s = variantMap[variant];
   return (
-    <div className={`flex items-center gap-4 rounded-xl border p-4 ${s.bg}`}>
-      <div className={`rounded-lg border border-current/20 bg-current/10 p-2.5 ${s.icon}`}>
-        <Icon className="h-5 w-5" />
+    <div className={`flex items-center gap-3 rounded-xl border p-4 ${s.bg}`}>
+      <div className={`rounded-lg border border-current/20 bg-current/10 p-1.5 ${s.icon}`}>
+        <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
@@ -362,6 +411,48 @@ function TablespaceBarChart({ rows }: { rows: DashboardTablespaceRow[] }) {
   );
 }
 
+function ArchiveLogTooltip({
+  active,
+  payload,
+  label
+}: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload?: DashboardArchiveLogMonthRow }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border/60 bg-[#101722] px-3 py-2 text-xs shadow-lg">
+      <p className="font-medium text-slate-200">{label}</p>
+      <p className="text-cyan-300">{safeNum(payload[0].value).toFixed(2)} GB</p>
+      <p className="text-muted-foreground">{safeNum(row?.archive_log_count)} logs</p>
+    </div>
+  );
+}
+
+function ArchiveLogChart({ rows }: { rows: DashboardArchiveLogMonthRow[] }) {
+  const data = rows.map((r) => ({
+    month: r.month,
+    archive_gb: safeNum(r.archive_gb),
+    archive_log_count: safeNum(r.archive_log_count)
+  }));
+
+  return (
+    <div className="h-[190px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(142,163,184,0.12)" />
+          <XAxis dataKey="month" stroke="#8ea3b8" fontSize={10} tickLine={false} axisLine={false} />
+          <YAxis stroke="#8ea3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${v}G`} />
+          <Tooltip content={<ArchiveLogTooltip />} cursor={{ fill: "rgba(142,163,184,0.06)" }} />
+          <Bar dataKey="archive_gb" name="Archive GB" fill="#06b6d4" radius={[4, 4, 0, 0]} maxBarSize={28} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function FraDonut({ pct, usedGb, sizeGb }: { pct: number; usedGb: number; sizeGb: number }) {
   const safePct  = safeNum(pct);
   const safeUsed = safeNum(usedGb);
@@ -417,7 +508,7 @@ function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: bo
       </div>
       <h3 className="text-lg font-semibold text-slate-200">No Dashboard Snapshot</h3>
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-        No data found for this database. Click Refresh to execute all 12 monitoring queries via n8n and capture the first snapshot.
+        No data found for this database. Click Refresh to execute the monitoring queries via n8n and capture the first snapshot.
       </p>
       <Button className="mt-6 gap-2" onClick={onRefresh} disabled={loading}>
         <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -543,6 +634,12 @@ export function DashboardOverview() {
   const tablespaces = m?.tablespaces ?? [];
   const backups     = m?.rman_backups ?? [];
   const blocking    = m?.blocking_sessions ?? [];
+  const archiveLogs = m?.archive_log_generation ?? [];
+  const datapumpExports = m?.datapump_exports ?? [];
+  const passwordExpiringUsers = m?.password_expiring_users ?? [];
+  const usersExpiringCount = safeNum(m?.users_expiring_in_15_days ?? passwordExpiringUsers.length);
+  const tablespacesOver90 = safeNum(m?.tablespaces_over_90 ?? tablespaces.filter((t) => safeNum(t.pct_used) >= 90).length);
+  const failedLoginCount = safeNum(m?.failed_login_count);
   // fra_size_gb === 0 means FRA is not configured for this DB
   const fraRaw      = m?.fra;
   const fra         = fraRaw && safeNum(fraRaw.fra_size_gb) > 0 ? fraRaw : null;
@@ -558,8 +655,10 @@ export function DashboardOverview() {
     : memPctDirect;
   const memPctOnly    = memTotalGb === 0 && memPctDirect > 0; // flag: only % is available
 
-  const isHealthy  = !m || (blocking.length === 0 && safeNum(fra?.pct_used) < 85 && Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used))) < 90);
-  const isWarning  = m && !isHealthy && blocking.length === 0;
+  const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
+  const hasCriticalCapacity = safeNum(fra?.pct_used) >= 85 || maxTablespacePct >= 90 || tablespacesOver90 > 0;
+  const isHealthy  = !m || (blocking.length === 0 && !hasCriticalCapacity && usersExpiringCount === 0 && failedLoginCount === 0);
+  const isWarning  = m && !isHealthy && blocking.length === 0 && !hasCriticalCapacity;
 
   const overallBadge = !m ? null : isHealthy ? "HEALTHY" : isWarning ? "WARNING" : "CRITICAL";
   const overallColor = !m ? "" : isHealthy ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : isWarning ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-red-400/30 bg-red-500/10 text-red-300";
@@ -775,29 +874,22 @@ export function DashboardOverview() {
           </div>
 
           {/* ── SECTION 2: OPERATIONS KPIs ─────────────────────────────── */}
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <KpiTile icon={Users}         label="Active Sessions"    value={m.active_sessions}   sub="USER type, ACTIVE status" variant="healthy" />
             <KpiTile icon={Activity}      label="Inactive Sessions"  value={m.inactive_sessions}  sub="SQL*Net wait or idle"    variant="neutral" />
             <KpiTile
-              icon={Shield}
-              label="Blocking Sessions"
-              value={blocking.length}
-              sub={blocking.length > 0 ? "TX lock contention" : "No blockers"}
-              variant={blocking.length > 0 ? "critical" : "healthy"}
+              icon={Database}
+              label="Tablespaces >90%"
+              value={tablespacesOver90}
+              sub="Capacity threshold breached"
+              variant={tablespacesOver90 > 0 ? "critical" : "healthy"}
             />
             <KpiTile
-              icon={AlertTriangle}
-              label="Failed Jobs"
-              value={m.failed_jobs}
-              sub="Scheduler job failures"
-              variant={m.failed_jobs > 0 ? "warning" : "healthy"}
-            />
-            <KpiTile
-              icon={Layers}
-              label="Invalid Objects"
-              value={m.invalid_objects}
-              sub="PL/SQL, views, triggers"
-              variant={m.invalid_objects > 10 ? "warning" : m.invalid_objects > 0 ? "neutral" : "healthy"}
+              icon={Users}
+              label="Password Expiring"
+              value={usersExpiringCount}
+              sub="Open users within 15 days"
+              variant={usersExpiringCount > 0 ? "warning" : "healthy"}
             />
           </div>
 
@@ -867,7 +959,6 @@ export function DashboardOverview() {
                     <div className={`rounded-lg border px-3 py-2 text-center text-xs font-medium ${pctColor(memPct)} border-current/20 bg-current/5`}>
                       {memPct < 70 ? "Memory pressure normal" : memPct < 85 ? "Memory under moderate pressure" : "High memory pressure"}
                     </div>
-                    <p className="text-center text-[10px] text-muted-foreground">GB breakdown unavailable — configure n8n memory branch to return TotalMemory/FreeMemory fields</p>
                   </div>
                 ) : (
                   /* Full GB breakdown available */
@@ -922,6 +1013,124 @@ export function DashboardOverview() {
                     </div>
                   )) : (
                     <p className="py-6 text-center text-sm text-muted-foreground">No backup history found.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-3">
+            <div className="space-y-5 xl:col-span-2">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile
+                  icon={AlertTriangle}
+                  label="Failed Jobs"
+                  value={m.failed_jobs}
+                  sub="Scheduler job failures"
+                  variant={m.failed_jobs > 0 ? "warning" : "healthy"}
+                />
+                <KpiTile
+                  icon={Layers}
+                  label="Invalid Objects"
+                  value={m.invalid_objects}
+                  sub="PL/SQL, views, triggers"
+                  variant={m.invalid_objects > 10 ? "warning" : m.invalid_objects > 0 ? "neutral" : "healthy"}
+                />
+                <KpiTile
+                  icon={Shield}
+                  label="Failed Logins"
+                  value={failedLoginCount}
+                  sub="Last 24 hours"
+                  variant={failedLoginCount > 0 ? "warning" : "healthy"}
+                />
+                <KpiTile
+                  icon={Shield}
+                  label="Blocking Sessions"
+                  value={blocking.length}
+                  sub={blocking.length > 0 ? "TX lock contention" : "No blockers"}
+                  variant={blocking.length > 0 ? "critical" : "healthy"}
+                />
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <ArchiveRestore className="h-4 w-4 text-cyan-300" />
+                      Monthly Archive Log Generation
+                      <span className="ml-auto text-xs font-normal text-muted-foreground">6 months</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {archiveLogs.length > 0 ? (
+                      <ArchiveLogChart rows={archiveLogs} />
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted-foreground">No archive log generation data.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <Shield className="h-4 w-4 text-amber-300" />
+                      Password Expiry
+                      <span className="ml-auto text-xs font-normal text-muted-foreground">Next 15 days</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="max-h-[210px] space-y-2 overflow-y-auto pr-1">
+                      {passwordExpiringUsers.length > 0 ? passwordExpiringUsers.map((userRow, i) => (
+                        <div key={`${userRow.username}-${i}`} className="flex items-center justify-between gap-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-200">{userRow.username || "UNKNOWN"}</p>
+                            <p className="text-xs text-muted-foreground">{userRow.account_status || "OPEN"}</p>
+                          </div>
+                          <span className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                            {fmtDateOnly(userRow.expiry_date)}
+                          </span>
+                        </div>
+                      )) : (
+                        <div className="flex flex-col items-center gap-2 py-10">
+                          <CheckCircle2 className="h-8 w-8 text-emerald-400/60" />
+                          <p className="text-sm font-medium text-emerald-300">No passwords expiring soon</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <Card className="xl:col-start-3">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <ArchiveRestore className="h-4 w-4 text-emerald-300" />
+                  Data Pump Exports
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">Latest 5</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-[430px] space-y-2 overflow-y-auto pr-1">
+                  {datapumpExports.length > 0 ? datapumpExports.map((job, i) => (
+                    <div key={`${job.owner_name}-${job.job_name}-${i}`} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
+                        {i + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-slate-200">{job.job_name || "Data Pump job"}</span>
+                          <BackupStatusBadge status={job.state} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          <span className="text-slate-400">{job.owner_name || "-"}</span>
+                          {" "}&middot; {job.operation || "-"} &middot; {job.job_mode || "-"}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    </div>
+                  )) : (
+                    <p className="py-6 text-center text-sm text-muted-foreground">No Data Pump export jobs found.</p>
                   )}
                 </div>
               </CardContent>

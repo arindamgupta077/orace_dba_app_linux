@@ -343,11 +343,21 @@ function mapAuthMode(): AuthMode {
 function parseJson<T>(raw: unknown): T | undefined {
   if (raw == null) return undefined;
   if (typeof raw !== "string") return raw as T;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
+
+  let text = raw.trim();
+  if (!text) return undefined;
+
+  for (let depth = 0; depth < 2; depth += 1) {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (typeof parsed !== "string") return parsed as T;
+      text = parsed.trim();
+    } catch {
+      return undefined;
+    }
   }
+
+  return undefined;
 }
 
 function isOracleMissingTableError(error: unknown) {

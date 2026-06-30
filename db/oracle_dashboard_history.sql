@@ -2,7 +2,7 @@
 -- ORACLE DBA PORTAL — Dashboard History Table
 -- =============================================================================
 -- Stores the result of every "refresh_dashboard" n8n workflow execution.
--- Each row holds the full 12-metric JSON snapshot captured by n8n.
+-- Each row holds the full JSON dashboard snapshot captured by n8n.
 -- The frontend queries this table on load to instantly display the last known
 -- state without hitting the database live.
 -- =============================================================================
@@ -20,13 +20,13 @@ CREATE TABLE dashboard_history (
         CONSTRAINT valid_json_dashboard CHECK (metrics_payload IS JSON)
 );
 
-COMMENT ON TABLE  dashboard_history                IS 'Stores full 12-metric dashboard snapshots captured by the n8n refresh_dashboard workflow.';
+COMMENT ON TABLE  dashboard_history                IS 'Stores full dashboard snapshots captured by the n8n refresh_dashboard workflow.';
 COMMENT ON COLUMN dashboard_history.db_name        IS 'Oracle database name (e.g. ORCL, papps).';
 COMMENT ON COLUMN dashboard_history.environment    IS 'DB environment label (PROD, TEST, DR).';
 COMMENT ON COLUMN dashboard_history.os             IS 'Operating system of the DB host (Windows, Linux).';
 COMMENT ON COLUMN dashboard_history.refreshed_by   IS 'Username who triggered the refresh.';
 COMMENT ON COLUMN dashboard_history.refresh_timestamp IS 'Timestamp when n8n wrote the snapshot.';
-COMMENT ON COLUMN dashboard_history.metrics_payload IS 'Full JSON payload with all 12 metrics (must be valid JSON).';
+COMMENT ON COLUMN dashboard_history.metrics_payload IS 'Full JSON dashboard metrics payload (must be valid JSON).';
 
 -- Index for fast retrieval by the frontend — latest row per DB
 CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timestamp DESC);
@@ -81,7 +81,7 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 -- │                                                                           │
 -- │ 2. Existing Router Node (route to correct OS + DB based on payload)       │
 -- │                                                                           │
--- │ 3. 12 Parallel Execute Nodes (Continue On Fail: ON for all)              │
+-- │ 3. Parallel Execute Nodes (Continue On Fail: ON for all)                 │
 -- │    Branch 1  — DB Status & Uptime (SQL via sqlplus)                      │
 -- │    Branch 2  — OS CPU (PowerShell / bash)                                │
 -- │    Branch 3  — OS Memory (PowerShell / bash)                             │
@@ -110,12 +110,12 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 -- NODE 5: Code Node — Payload Builder (n8n JavaScript)
 -- =============================================================================
 -- Paste this into the Code Node that follows the Merge Node.
--- Assumes the 12 branches are connected to the Merge node in order 1–12.
+-- Assumes the monitoring branches are connected to the Merge node in order.
 -- "Continue On Fail" ensures all branches produce output even on error.
 -- =============================================================================
 --
 -- // n8n Code Node: Dashboard Payload Builder
--- // Input: Merged items from all 12 parallel branches
+-- // Input: Merged items from all parallel monitoring branches
 -- const items = $input.all();
 --
 -- function safeGet(item, ...keys) {
@@ -230,7 +230,7 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 --   metrics_payload  → {{ $json._metrics_json }}
 --
 -- =============================================================================
--- SQL QUERIES FOR EACH OF THE 12 BRANCHES
+-- SQL QUERIES FOR EACH MONITORING BRANCH
 -- =============================================================================
 --
 -- BRANCH 1: DB Status, Uptime, Listener (run via sqlplus SSH)

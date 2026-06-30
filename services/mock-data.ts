@@ -372,6 +372,26 @@ const MOCK_DASHBOARD_METRICS = {
   ],
   failed_jobs: 3,
   invalid_objects: 12,
+  users_expiring_in_15_days: 2,
+  archive_log_generation: [
+    { month: "2026-01", archive_log_count: 812, archive_gb: 248.6 },
+    { month: "2026-02", archive_log_count: 774, archive_gb: 231.9 },
+    { month: "2026-03", archive_log_count: 869, archive_gb: 263.4 },
+    { month: "2026-04", archive_log_count: 904, archive_gb: 279.1 },
+    { month: "2026-05", archive_log_count: 945, archive_gb: 301.7 },
+    { month: "2026-06", archive_log_count: 921, archive_gb: 292.5 }
+  ],
+  tablespaces_over_90: 1,
+  datapump_exports: [
+    { owner_name: "SYSTEM", job_name: "SYS_EXPORT_SCHEMA_05", operation: "EXPORT", job_mode: "SCHEMA", state: "COMPLETED" },
+    { owner_name: "SYSTEM", job_name: "SYS_EXPORT_FULL_04", operation: "EXPORT", job_mode: "FULL", state: "COMPLETED" },
+    { owner_name: "HR", job_name: "SYS_EXPORT_SCHEMA_03", operation: "EXPORT", job_mode: "SCHEMA", state: "NOT RUNNING" }
+  ],
+  password_expiring_users: [
+    { username: "REPORTING", account_status: "OPEN", expiry_date: new Date(now + 1000 * 60 * 60 * 24 * 6).toISOString() },
+    { username: "APPS_READ", account_status: "OPEN", expiry_date: new Date(now + 1000 * 60 * 60 * 24 * 13).toISOString() }
+  ],
+  failed_login_count: 4,
   fra: { name: "+FRA", fra_size_gb: 500, used_gb: 231.4, reclaimable_gb: 48.2, pct_used: 46.3 },
   ora_errors: [
     { originating_timestamp: new Date(now - 1000 * 60 * 8).toISOString(),   message_text: "ORA-01652: unable to extend temp segment by 128 in tablespace TEMP" },

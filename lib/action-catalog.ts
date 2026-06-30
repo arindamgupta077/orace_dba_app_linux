@@ -4,7 +4,7 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   {
     action: "refresh_dashboard",
     title: "Refresh Dashboard",
-    description: "Execute all 12 monitoring queries in parallel via n8n and save the snapshot to dashboard_history.",
+    description: "Execute the dashboard monitoring queries in parallel via n8n and save the snapshot to dashboard_history.",
     category: "dashboard",
     icon: "RefreshCw",
     params: []
