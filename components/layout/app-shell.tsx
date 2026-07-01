@@ -313,8 +313,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {/* Active DBA on-shift indicator — shown on right side when db selector row is hidden */}
               {!isDbSelectorVisible && <ActiveDbaPill />}
               {user && (
-                <div className="hidden rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm text-muted-foreground md:block">
-                  {user.username} / {user.role}
+                <div className="hidden md:flex items-center gap-2.5 rounded-lg border border-border/70 bg-background/40 py-1.5 pl-1.5 pr-3 transition-colors hover:border-border">
+                  <span
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-md text-xs font-semibold uppercase",
+                      user.role === "app_admin"
+                        ? "bg-rose-500/15 text-rose-400"
+                        : user.role === "dba_admin"
+                          ? "bg-amber-500/15 text-amber-400"
+                          : "bg-emerald-500/15 text-emerald-400"
+                    )}
+                    title={user.role}
+                  >
+                    {user.username.charAt(0)}
+                  </span>
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-medium text-foreground">{user.username}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {user.role.replace(/_/g, " ")}
+                    </span>
+                  </div>
                 </div>
               )}
               {!isClient && <NotificationBell />}
