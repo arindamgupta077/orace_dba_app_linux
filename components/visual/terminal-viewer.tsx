@@ -37,7 +37,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
   }, [safeOutput, fullscreen]);
 
   return (
-    <div className={fullscreen ? "fixed inset-4 z-[70] rounded-lg border border-border bg-black p-4 shadow-glass" : "rounded-lg border border-border/70 bg-black/70"}>
+    <div className={fullscreen ? "keep-dark fixed inset-4 z-[70] rounded-lg border border-border bg-black p-4 shadow-glass" : "keep-dark rounded-lg border border-border/70 bg-black/70"}>
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <TerminalSquare className="h-4 w-4 text-cyan-300" />

@@ -187,7 +187,7 @@ export function ScheduleModal({ open, onClose, selectedDb }: ScheduleModalProps)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg border-border/60 bg-[#0d1320] text-slate-100 shadow-2xl">
+      <DialogContent className="max-w-lg border-border/60 bg-popover text-popover-foreground shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Calendar className="h-4 w-4 text-cyan-300" />

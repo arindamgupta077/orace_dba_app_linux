@@ -38,6 +38,7 @@ import type {
   ShiftReportData,
   ShiftReportFilters,
   ShiftSession,
+  ThemePreference,
   UserSession
 } from "@/types/dba";
 
@@ -1402,21 +1403,48 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
 
   const tokenHash = hashSessionToken(sessionToken);
   return executeOne(async (connection) => {
-    const result = await connection.execute<DbRow>(
-      `SELECT
-         s.user_id,
-         s.auth_mode,
-         s.expires_at,
-         u.username,
-         u.role
-       FROM app_sessions s
-       JOIN app_users u ON u.user_id = s.user_id
-       WHERE s.session_token_hash = :sessionTokenHash
-         AND s.revoked_at IS NULL
-         AND s.expires_at > SYSTIMESTAMP
-         AND u.is_active = 'Y'`,
-      { sessionTokenHash: tokenHash }
-    );
+    // Try the joined query first (preferences table present).  If the
+    // app_user_preferences table hasn't been created yet (ORA-00942),
+    // fall back to the base session query and default the theme to 'dark'.
+    let result;
+    let preferencesJoined = true;
+    try {
+      result = await connection.execute<DbRow>(
+        `SELECT
+            s.user_id,
+            s.auth_mode,
+            s.expires_at,
+            u.username,
+            u.role,
+            p.theme_preference
+          FROM app_sessions s
+          JOIN app_users u ON u.user_id = s.user_id
+          LEFT JOIN app_user_preferences p ON p.user_id = u.user_id
+          WHERE s.session_token_hash = :sessionTokenHash
+            AND s.revoked_at IS NULL
+            AND s.expires_at > SYSTIMESTAMP
+            AND u.is_active = 'Y'`,
+        { sessionTokenHash: tokenHash }
+      );
+    } catch (error) {
+      if (!isOracleMissingTableError(error)) throw error;
+      preferencesJoined = false;
+      result = await connection.execute<DbRow>(
+        `SELECT
+            s.user_id,
+            s.auth_mode,
+            s.expires_at,
+            u.username,
+            u.role
+          FROM app_sessions s
+          JOIN app_users u ON u.user_id = s.user_id
+          WHERE s.session_token_hash = :sessionTokenHash
+            AND s.revoked_at IS NULL
+            AND s.expires_at > SYSTIMESTAMP
+            AND u.is_active = 'Y'`,
+        { sessionTokenHash: tokenHash }
+      );
+    }
 
     const row = result.rows?.[0];
     if (!row) return null;
@@ -1429,7 +1457,8 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
         username: String(row.USERNAME),
         userId,
         role: mapUserRole(row.ROLE),
-        authMode: mapAuthMode()
+        authMode: mapAuthMode(),
+        themePreference: preferencesJoined ? mapThemePreference(row.THEME_PREFERENCE) : "dark"
       }
     };
   });
@@ -4027,4 +4056,70 @@ async function fetchShiftCoverage(
     };
   });
 }
+
+// ============================================================
+// User Profile / Preferences — theme toggling
+// ============================================================
+//
+// The app_user_preferences table stores per-user UI preferences.  Today the
+// only persisted value is theme_preference ('light' | 'dark'), chosen from
+// the navbar theme toggle.  The functions below are defensive: if the table
+// has not been created yet (ORA-00942) they fall back to 'dark' so the rest
+// of the app keeps working.
+
+function mapThemePreference(value: unknown): ThemePreference {
+  const normalized = String(value || "dark").trim().toLowerCase();
+  if (normalized === "light") return "light";
+  return "dark";
+}
+
+/** Read a user's stored theme preference. Returns 'dark' when no row exists. */
+export async function getUserThemePreference(userId: number): Promise<ThemePreference> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT theme_preference
+         FROM app_user_preferences
+         WHERE user_id = :userId`,
+        { userId }
+      );
+      const row = result.rows?.[0];
+      if (!row) return "dark";
+      return mapThemePreference(row.THEME_PREFERENCE);
+    } catch (error) {
+      // Table missing (schema not migrated yet) — degrade gracefully.
+      if (isOracleMissingTableError(error)) return "dark";
+      throw error;
+    }
+  });
+}
+
+/** Insert or update a user's theme preference (idempotent MERGE). */
+export async function upsertUserThemePreference(
+  userId: number,
+  theme: ThemePreference
+): Promise<void> {
+  const normalized: ThemePreference = theme === "light" ? "light" : "dark";
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `MERGE INTO app_user_preferences dst
+         USING (SELECT :userId AS user_id FROM dual) src
+         ON (dst.user_id = src.user_id)
+         WHEN MATCHED THEN
+           UPDATE SET dst.theme_preference = :theme
+         WHEN NOT MATCHED THEN
+           INSERT (user_id, theme_preference)
+           VALUES (src.user_id, :theme2)`,
+        { userId, theme: normalized, theme2: normalized },
+        { autoCommit: true }
+      );
+    } catch (error) {
+      // Table missing — swallow so the UI toggle still works locally.
+      if (isOracleMissingTableError(error)) return;
+      throw error;
+    }
+  });
+}
+
 

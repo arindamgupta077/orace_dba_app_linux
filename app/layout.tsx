@@ -38,6 +38,31 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   });
 })();`}
         </Script>
+        {/*
+          No-flash theme bootstrap: apply the saved theme class to <html>
+          before React hydrates so the very first paint matches the
+          user's preference (stored in localStorage by ThemeProvider).
+          Defaults to "dark" when no preference exists yet.
+        */}
+        <Script id="apply-theme-pre-hydration" strategy="beforeInteractive">
+          {`(function(){
+  try {
+    var p = window.location.pathname;
+    // Auth pages are always dark — never apply a stored light
+    // preference on login / forgot-password / reset-password /
+    // first-login-reset, and never overwrite the saved value.
+    var isAuthPage = p === "/login" || p === "/forgot-password" || p === "/reset-password" || p === "/first-login-reset";
+    var t = isAuthPage ? "dark" : localStorage.getItem("dba-theme");
+    if (t !== "light" && t !== "dark") t = "dark";
+    var root = document.documentElement;
+    if (t === "dark") root.classList.add("dark"); else root.classList.remove("dark");
+    root.style.colorScheme = t;
+  } catch (e) {
+    document.documentElement.classList.add("dark");
+    document.documentElement.style.colorScheme = "dark";
+  }
+})();`}
+        </Script>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

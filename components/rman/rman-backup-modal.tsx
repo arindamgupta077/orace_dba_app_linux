@@ -307,7 +307,7 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
                     </p>
                     <StatusBadge status="info">→ n8n Webhook</StatusBadge>
                   </div>
-                  <pre className="max-h-72 overflow-auto rounded-xl border border-border/60 bg-black/50 p-4 text-[11px] leading-5 text-cyan-100 font-mono">
+                  <pre className="keep-dark max-h-72 overflow-auto rounded-xl border border-border/60 bg-black/50 p-4 text-[11px] leading-5 text-cyan-100 font-mono">
                     {JSON.stringify(fullPayload, null, 2)}
                   </pre>
                   <p className="text-[11px] text-muted-foreground">
@@ -352,7 +352,7 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
                 }}
                 spellCheck={false}
                 className={cn(
-                  "h-80 w-full resize-none rounded-xl border bg-black/50 p-4 font-mono text-[11px] leading-5 text-cyan-100 outline-none transition-colors focus:ring-1",
+                  "keep-dark h-80 w-full resize-none rounded-xl border bg-black/50 p-4 font-mono text-[11px] leading-5 text-cyan-100 outline-none transition-colors focus:ring-1",
                   jsonError
                     ? "border-red-400/40 focus:ring-red-400/30"
                     : "border-border/60 focus:ring-cyan-400/30"

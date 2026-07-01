@@ -90,7 +90,7 @@ export function QueryPanel() {
       </div>
 
       {/* Editor area */}
-      <div className="rounded-xl overflow-hidden border border-border/60 shadow-lg">
+      <div className="keep-dark rounded-xl overflow-hidden border border-border/60 shadow-lg">
         {/* Editor header */}
         <div className="flex items-center justify-between gap-3 bg-[#161b22] border-b border-[#30363d] px-4 py-2.5">
           <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">

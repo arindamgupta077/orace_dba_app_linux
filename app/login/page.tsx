@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useTheme } from "@/components/providers/theme-provider";
 import { fetchCurrentSession, loginWithPassword } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 
@@ -34,6 +35,7 @@ const FEATURES = [
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAppStore((state) => state.setUser);
+  const { setTheme } = useTheme();
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -41,6 +43,13 @@ export default function LoginPage() {
   // the auto-session-check effect cannot race against the post-login redirect
   // and call clearAuthAndRedirect() (which would log them back out immediately).
   const loginSucceededRef = useRef(false);
+
+  // Login page is ALWAYS dark — apply dark mode without persisting so
+  // the user's saved preference (e.g. "light") survives in localStorage
+  // and is restored by AppShell after they log in.
+  useEffect(() => {
+    setTheme("dark", { persistRemote: false, skipLocal: true });
+  }, [setTheme]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -179,7 +188,7 @@ export default function LoginPage() {
                       autoComplete="email"
                       value={form.email}
                       onChange={(event) => setForm({ ...form, email: event.target.value })}
-                      placeholder="you@company.com"
+                      placeholder="your.name@itc.in"
                       disabled={loading}
                       className="pl-10"
                     />

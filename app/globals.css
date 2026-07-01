@@ -4,7 +4,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   THEME TOKENS
+   - :root       → light theme (default)
+   - .dark       → dark theme  (applied on <html class="dark">)
+   Light values are tuned for strong text contrast (WCAG AA
+   against the light surfaces) and readability across all
+   pages, sections and modals.
+   ============================================================ */
 :root {
+  color-scheme: light;
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 2 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 215 25% 94%;
+  --secondary-foreground: 222 40% 18%;
+  --muted: 215 25% 95%;
+  --muted-foreground: 215 16% 38%;
+  --accent: 192 85% 38%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 20% 88%;
+  --input: 215 20% 90%;
+  --ring: 2 100% 52%;
+  --radius: 0.5rem;
+
+  /* Status token palette — readable on light surfaces */
+  --status-red: 0 72% 40%;
+  --status-red-fg: 0 0% 100%;
+  --status-amber: 36 92% 38%;
+  --status-amber-fg: 0 0% 100%;
+  --status-emerald: 152 60% 32%;
+  --status-emerald-fg: 0 0% 100%;
+  --status-cyan: 192 85% 34%;
+  --status-cyan-fg: 0 0% 100%;
+  --status-rose: 350 75% 42%;
+  --status-rose-fg: 0 0% 100%;
+
+  /* Surface tints used by the decorative gradients */
+  --surface-base: 0 0% 100%;
+  --surface-tint: 210 40% 96%;
+  --grid-line: rgba(15, 23, 42, 0.06);
+  --glow-red: rgba(255, 49, 46, 0.10);
+  --glow-cyan: rgba(35, 211, 238, 0.08);
+}
+
+.dark {
   color-scheme: dark;
   --background: 222 39% 7%;
   --foreground: 210 40% 96%;
@@ -25,7 +76,24 @@
   --border: 215 24% 22%;
   --input: 215 24% 22%;
   --ring: 2 100% 59%;
-  --radius: 0.5rem;
+
+  /* Status token palette — vivid on dark surfaces */
+  --status-red: 0 84% 64%;
+  --status-red-fg: 0 0% 100%;
+  --status-amber: 36 95% 58%;
+  --status-amber-fg: 222 39% 7%;
+  --status-emerald: 152 62% 50%;
+  --status-emerald-fg: 222 39% 7%;
+  --status-cyan: 189 86% 54%;
+  --status-cyan-fg: 222 39% 7%;
+  --status-rose: 350 80% 68%;
+  --status-rose-fg: 222 39% 7%;
+
+  --surface-base: #090d14;
+  --surface-tint: #121722;
+  --grid-line: rgba(255, 255, 255, 0.035);
+  --glow-red: rgba(255, 49, 46, 0.13);
+  --glow-cyan: rgba(35, 211, 238, 0.08);
 }
 
 * {
@@ -33,16 +101,16 @@
 }
 
 html {
-  background: #090d14;
+  background: hsl(var(--surface-base));
 }
 
 body {
   min-height: 100vh;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    radial-gradient(circle at top left, rgba(255, 49, 46, 0.13), transparent 38%),
-    linear-gradient(135deg, #080b11 0%, #121722 48%, #071015 100%);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    radial-gradient(circle at top left, var(--glow-red), transparent 38%),
+    linear-gradient(135deg, hsl(var(--surface-tint)) 0%, hsl(var(--surface-base)) 48%, hsl(var(--background)) 100%);
   background-size: 40px 40px, 40px 40px, auto, auto;
   color: hsl(var(--foreground));
   font-feature-settings: "rlig" 1, "calt" 1;
@@ -53,37 +121,52 @@ body::selection {
   color: #ffffff;
 }
 
+.dark body {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at top left, rgba(255, 49, 46, 0.13), transparent 38%),
+    linear-gradient(135deg, #080b11 0%, #121722 48%, #071015 100%);
+  background-size: 40px 40px, 40px 40px, auto, auto;
+}
+
 .enterprise-grid {
   background:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
 .glass-panel {
-  background: linear-gradient(180deg, rgba(18, 23, 34, 0.92), rgba(12, 16, 24, 0.82));
-  border: 1px solid rgba(142, 163, 184, 0.18);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+  background: linear-gradient(180deg, hsl(var(--card) / 0.96), hsl(var(--card) / 0.86));
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(16px);
 }
 
+.dark .glass-panel {
+  background: linear-gradient(180deg, rgba(18, 23, 34, 0.92), rgba(12, 16, 24, 0.82));
+  border: 1px solid rgba(142, 163, 184, 0.18);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+}
+
 .app-toast[data-sonner-toast] {
-  color: #f8fafc !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .app-toast [data-title] {
-  color: #f8fafc !important;
+  color: hsl(var(--foreground)) !important;
   font-weight: 650;
 }
 
 .app-toast [data-description] {
-  color: #cbd5e1 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .app-toast [data-close-button] {
-  background: rgba(15, 23, 42, 0.95) !important;
-  border-color: rgba(148, 163, 184, 0.38) !important;
-  color: #f8fafc !important;
+  background: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .scan-line {
@@ -156,16 +239,16 @@ body::selection {
 /* ---- DBA Console enhancements ---- */
 
 .dba-tab-active {
-  background: linear-gradient(135deg, rgba(35, 211, 238, 0.12), rgba(35, 211, 238, 0.04));
-  border-color: rgba(35, 211, 238, 0.35) !important;
-  color: hsl(189 86% 54%);
-  box-shadow: 0 0 18px rgba(35, 211, 238, 0.1);
+  background: linear-gradient(135deg, hsl(var(--accent) / 0.12), hsl(var(--accent) / 0.04));
+  border-color: hsl(var(--accent) / 0.35) !important;
+  color: hsl(var(--accent));
+  box-shadow: 0 0 18px hsl(var(--accent) / 0.1);
 }
 
 .dba-hero-gradient {
   background:
-    radial-gradient(circle at top right, rgba(35, 211, 238, 0.1), transparent 55%),
-    linear-gradient(135deg, rgba(18, 23, 34, 0.6), rgba(12, 16, 24, 0.4));
+    radial-gradient(circle at top right, hsl(var(--accent) / 0.1), transparent 55%),
+    linear-gradient(135deg, hsl(var(--card) / 0.6), hsl(var(--background) / 0.4));
 }
 
 .dba-avatar {
@@ -182,7 +265,7 @@ body::selection {
 }
 
 .dba-row-checked {
-  border-left: 2px solid rgba(24, 195, 126, 0.5);
+  border-left: 2px solid hsl(var(--status-emerald) / 0.5);
 }
 
 .dba-row-unchecked {
@@ -192,9 +275,9 @@ body::selection {
 .dba-skeleton {
   background: linear-gradient(
     90deg,
-    rgba(142, 163, 184, 0.06) 25%,
-    rgba(142, 163, 184, 0.14) 50%,
-    rgba(142, 163, 184, 0.06) 75%
+    hsl(var(--muted-foreground) / 0.06) 25%,
+    hsl(var(--muted-foreground) / 0.14) 50%,
+    hsl(var(--muted-foreground) / 0.06) 75%
   );
   background-size: 200% 100%;
   animation: dba-skeleton-shimmer 1.6s ease-in-out infinite;
@@ -229,7 +312,7 @@ body::selection {
 }
 
 /* ============================================================
-   TipTap Rich Text Editor — dark theme styles
+   TipTap Rich Text Editor — theme-aware styles
    ============================================================ */
 
 .tiptap-content {
@@ -354,3 +437,223 @@ body::selection {
   height: 0;
   float: left;
 }
+
+/* ============================================================
+   LIGHT-THEME READABILITY SAFETY NET
+   The codebase was originally dark-only and sprinkles light slate
+   shades (text-slate-100/200/300/…) and vivid status colours
+   (text-red-400, text-cyan-300, …) across page chrome.  On a
+   light surface those become low-contrast and hard to read.
+   Rather than rewriting every utility in ~20 components, we
+   remap the problematic shades to high-contrast equivalents
+   ONLY when the :root is not in dark mode.  Terminal / code
+   panels that intentionally stay dark in both themes opt out
+   by adding the .keep-dark marker class, which re-asserts the
+   original vivid shades so their coloured text stays readable
+   on the dark terminal background.
+   ============================================================ */
+:root:not(.dark) .text-slate-50  { color: hsl(var(--foreground)); }
+:root:not(.dark) .text-slate-100 { color: hsl(var(--foreground)); }
+:root:not(.dark) .text-slate-200 { color: hsl(var(--foreground)); }
+:root:not(.dark) .text-slate-300 { color: hsl(var(--muted-foreground)); }
+:root:not(.dark) .text-slate-400 { color: hsl(var(--muted-foreground)); }
+:root:not(.dark) .text-slate-500 { color: hsl(var(--muted-foreground)); }
+
+/* Progress-bar tracks use bg-slate-800 on page chrome → remap to the
+   muted surface so the unfilled portion blends with a light card.
+   (Dark code/terminal surfaces keep their own dark backgrounds — they
+   are marked .keep-dark and are not affected here.) */
+:root:not(.dark) .bg-slate-800 { background-color: hsl(var(--secondary)); }
+
+/* ── Status text shades → darker, AA-compliant on light surfaces ──
+   Base shades (exact class match) */
+:root:not(.dark) .text-red-100    { color: #b91c1c; }    /* red-700 */
+:root:not(.dark) .text-red-200    { color: #b91c1c; }    /* red-700 */
+:root:not(.dark) .text-red-300    { color: #b91c1c; }    /* red-700 */
+:root:not(.dark) .text-red-400    { color: #dc2626; }    /* red-600 */
+:root:not(.dark) .text-rose-300   { color: #be123c; }    /* rose-700 */
+:root:not(.dark) .text-rose-400   { color: #e11d48; }    /* rose-600 */
+:root:not(.dark) .text-amber-100  { color: #92400e; }    /* amber-800 */
+:root:not(.dark) .text-amber-200  { color: #b45309; }    /* amber-700 */
+:root:not(.dark) .text-amber-300  { color: #b45309; }    /* amber-700 */
+:root:not(.dark) .text-amber-400  { color: #d97706; }    /* amber-600 */
+:root:not(.dark) .text-yellow-400 { color: #a16207; }    /* yellow-700 */
+:root:not(.dark) .text-emerald-100 { color: #166534; }   /* emerald-800 */
+:root:not(.dark) .text-emerald-200 { color: #15803d; }   /* emerald-700 */
+:root:not(.dark) .text-emerald-300 { color: #15803d; }   /* emerald-700 */
+:root:not(.dark) .text-emerald-400 { color: #16a34a; }   /* emerald-600 */
+:root:not(.dark) .text-green-300  { color: #15803d; }    /* green-700 */
+:root:not(.dark) .text-green-400  { color: #16a34a; }    /* green-600 */
+:root:not(.dark) .text-cyan-50    { color: #155e75; }    /* cyan-800 */
+:root:not(.dark) .text-cyan-100   { color: #0e7490; }    /* cyan-700 */
+:root:not(.dark) .text-cyan-200   { color: #0e7490; }    /* cyan-700 */
+:root:not(.dark) .text-cyan-300   { color: #0891b2; }    /* cyan-600 */
+:root:not(.dark) .text-cyan-400   { color: #0891b2; }    /* cyan-600 */
+:root:not(.dark) .text-violet-100 { color: #5b21b6; }    /* violet-800 */
+:root:not(.dark) .text-violet-200 { color: #6d28d9; }    /* violet-700 */
+:root:not(.dark) .text-violet-300 { color: #7c3aed; }    /* violet-600 */
+:root:not(.dark) .text-violet-400 { color: #7c3aed; }    /* violet-600 */
+:root:not(.dark) .text-teal-400   { color: #0f766e; }    /* teal-700 */
+
+/* ── Opacity-variant text colours (e.g. text-amber-300/80) ──
+   Tailwind generates separate class names for each opacity, so
+   we use attribute selectors [class*="text-COLOR/"] to catch
+   ALL opacity levels (/50, /60, /70, /80, etc.) in one rule. */
+:root:not(.dark) [class*="text-red-100/"],
+:root:not(.dark) [class*="text-red-200/"],
+:root:not(.dark) [class*="text-red-300/"]   { color: #b91c1c; }
+:root:not(.dark) [class*="text-red-400/"]   { color: #dc2626; }
+:root:not(.dark) [class*="text-rose-300/"],
+:root:not(.dark) [class*="text-rose-400/"]  { color: #be123c; }
+:root:not(.dark) [class*="text-amber-100/"],
+:root:not(.dark) [class*="text-amber-200/"],
+:root:not(.dark) [class*="text-amber-300/"] { color: #b45309; }
+:root:not(.dark) [class*="text-amber-400/"] { color: #d97706; }
+:root:not(.dark) [class*="text-yellow-400/"]{ color: #a16207; }
+:root:not(.dark) [class*="text-emerald-100/"],
+:root:not(.dark) [class*="text-emerald-200/"],
+:root:not(.dark) [class*="text-emerald-300/"] { color: #15803d; }
+:root:not(.dark) [class*="text-emerald-400/"] { color: #16a34a; }
+:root:not(.dark) [class*="text-green-300/"],
+:root:not(.dark) [class*="text-green-400/"] { color: #15803d; }
+:root:not(.dark) [class*="text-cyan-50/"],
+:root:not(.dark) [class*="text-cyan-100/"],
+:root:not(.dark) [class*="text-cyan-200/"] { color: #0e7490; }
+:root:not(.dark) [class*="text-cyan-300/"],
+:root:not(.dark) [class*="text-cyan-400/"] { color: #0891b2; }
+:root:not(.dark) [class*="text-violet-100/"],
+:root:not(.dark) [class*="text-violet-200/"],
+:root:not(.dark) [class*="text-violet-300/"],
+:root:not(.dark) [class*="text-violet-400/"] { color: #6d28d9; }
+:root:not(.dark) [class*="text-teal-400/"]  { color: #0f766e; }
+:root:not(.dark) [class*="text-slate-50/"],
+:root:not(.dark) [class*="text-slate-100/"],
+:root:not(.dark) [class*="text-slate-200/"] { color: hsl(var(--foreground)); }
+:root:not(.dark) [class*="text-slate-300/"],
+:root:not(.dark) [class*="text-slate-400/"],
+:root:not(.dark) [class*="text-slate-500/"] { color: hsl(var(--muted-foreground)); }
+
+/* ============================================================
+   .keep-dark escape hatch
+   Terminal / code / AI-output panels keep their vivid shades AND
+   dark surfaces so coloured text stays readable on the dark
+   terminal background in both themes.  Below we restore every
+   shade the safety-net overrides, plus solidify the semi-
+   transparent dark backgrounds so they don't wash out on a light
+   page.
+   ============================================================ */
+
+/* ── CSS variable override: scope dark-theme token values to
+   .keep-dark containers when the app is in light mode.  This
+   ensures ALL semantic references — inherited `color`, 
+   `text-foreground`, `text-muted-foreground`, `bg-secondary`,
+   `border-border`, `bg-muted`, `bg-card`, etc. — resolve to
+   dark-theme values inside the dark container, so elements
+   that don't have an explicit Tailwind colour class (table
+   cells, <li> items, inline code, etc.) inherit a LIGHT text
+   colour instead of the light-theme dark foreground. ── */
+:root:not(.dark) .keep-dark {
+  --background: 222 39% 7%;
+  --foreground: 210 40% 96%;
+  --card: 220 35% 10%;
+  --card-foreground: 210 40% 96%;
+  --popover: 220 35% 9%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 2 100% 59%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 215 30% 17%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 215 28% 14%;
+  --muted-foreground: 215 18% 68%;
+  --accent: 189 86% 54%;
+  --accent-foreground: 222 39% 7%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 24% 22%;
+  --input: 215 24% 22%;
+  --ring: 2 100% 59%;
+}
+
+/* ── Text colours: restore original vivid Tailwind values ── */
+:root:not(.dark) .keep-dark .text-slate-50  { color: #f8fafc; }
+:root:not(.dark) .keep-dark .text-slate-100 { color: #f1f5f9; }
+:root:not(.dark) .keep-dark .text-slate-200 { color: #e2e8f0; }
+:root:not(.dark) .keep-dark .text-slate-300 { color: #cbd5e1; }
+:root:not(.dark) .keep-dark .text-slate-400 { color: #94a3b8; }
+:root:not(.dark) .keep-dark .text-slate-500 { color: #64748b; }
+:root:not(.dark) .keep-dark .text-slate-600 { color: #475569; }
+:root:not(.dark) .keep-dark .text-slate-700 { color: #334155; }
+:root:not(.dark) .keep-dark .text-red-100   { color: #fee2e2; }
+:root:not(.dark) .keep-dark .text-red-200   { color: #fecaca; }
+:root:not(.dark) .keep-dark .text-red-300   { color: #fca5a5; }
+:root:not(.dark) .keep-dark .text-red-400   { color: #f87171; }
+:root:not(.dark) .keep-dark .text-rose-300  { color: #fda4af; }
+:root:not(.dark) .keep-dark .text-rose-400  { color: #fb7185; }
+:root:not(.dark) .keep-dark .text-amber-100 { color: #fef3c7; }
+:root:not(.dark) .keep-dark .text-amber-200 { color: #fde68a; }
+:root:not(.dark) .keep-dark .text-amber-300 { color: #fcd34d; }
+:root:not(.dark) .keep-dark .text-amber-400 { color: #fbbf24; }
+:root:not(.dark) .keep-dark .text-yellow-400 { color: #facc15; }
+:root:not(.dark) .keep-dark .text-emerald-100 { color: #d1fae5; }
+:root:not(.dark) .keep-dark .text-emerald-200 { color: #a7f3d0; }
+:root:not(.dark) .keep-dark .text-emerald-300 { color: #6ee7b7; }
+:root:not(.dark) .keep-dark .text-emerald-400 { color: #34d399; }
+:root:not(.dark) .keep-dark .text-green-300  { color: #86efac; }
+:root:not(.dark) .keep-dark .text-green-400  { color: #4ade80; }
+:root:not(.dark) .keep-dark .text-cyan-50    { color: #ecfeff; }
+:root:not(.dark) .keep-dark .text-cyan-100   { color: #cffafe; }
+:root:not(.dark) .keep-dark .text-cyan-200   { color: #a5f3fc; }
+:root:not(.dark) .keep-dark .text-cyan-300   { color: #67e8f9; }
+:root:not(.dark) .keep-dark .text-cyan-400   { color: #22d3ee; }
+:root:not(.dark) .keep-dark .text-violet-100 { color: #ede9fe; }
+:root:not(.dark) .keep-dark .text-violet-200 { color: #ddd6fe; }
+:root:not(.dark) .keep-dark .text-violet-300 { color: #c4b5fd; }
+:root:not(.dark) .keep-dark .text-violet-400 { color: #a78bfa; }
+:root:not(.dark) .keep-dark .text-teal-400   { color: #2dd4bf; }
+:root:not(.dark) .keep-dark .text-blue-100   { color: #dbeafe; }
+
+/* ── Opacity variants inside keep-dark → restore vivid values ── */
+:root:not(.dark) .keep-dark [class*="text-red-100/"],
+:root:not(.dark) .keep-dark [class*="text-red-200/"],
+:root:not(.dark) .keep-dark [class*="text-red-300/"]   { color: #fca5a5; }
+:root:not(.dark) .keep-dark [class*="text-red-400/"]   { color: #f87171; }
+:root:not(.dark) .keep-dark [class*="text-amber-100/"],
+:root:not(.dark) .keep-dark [class*="text-amber-200/"] { color: #fde68a; }
+:root:not(.dark) .keep-dark [class*="text-amber-300/"] { color: #fcd34d; }
+:root:not(.dark) .keep-dark [class*="text-amber-400/"] { color: #fbbf24; }
+:root:not(.dark) .keep-dark [class*="text-emerald-100/"],
+:root:not(.dark) .keep-dark [class*="text-emerald-200/"],
+:root:not(.dark) .keep-dark [class*="text-emerald-300/"] { color: #6ee7b7; }
+:root:not(.dark) .keep-dark [class*="text-emerald-400/"] { color: #34d399; }
+:root:not(.dark) .keep-dark [class*="text-cyan-100/"],
+:root:not(.dark) .keep-dark [class*="text-cyan-200/"] { color: #a5f3fc; }
+:root:not(.dark) .keep-dark [class*="text-cyan-300/"] { color: #67e8f9; }
+:root:not(.dark) .keep-dark [class*="text-cyan-400/"] { color: #22d3ee; }
+:root:not(.dark) .keep-dark [class*="text-violet-100/"],
+:root:not(.dark) .keep-dark [class*="text-violet-200/"],
+:root:not(.dark) .keep-dark [class*="text-violet-300/"] { color: #c4b5fd; }
+:root:not(.dark) .keep-dark [class*="text-violet-400/"] { color: #a78bfa; }
+:root:not(.dark) .keep-dark [class*="text-slate-50/"],
+:root:not(.dark) .keep-dark [class*="text-slate-100/"] { color: #f1f5f9; }
+:root:not(.dark) .keep-dark [class*="text-slate-200/"] { color: #e2e8f0; }
+:root:not(.dark) .keep-dark [class*="text-slate-300/"] { color: #cbd5e1; }
+
+/* ── Backgrounds: solidify semi-transparent dark surfaces so
+   they don't wash out on a light page background.  Using solid
+   slate-900 (#0f172a) ensures the terminal surface stays dark
+   and the vivid text on top remains readable. ── */
+:root:not(.dark) .keep-dark .bg-slate-800     { background-color: #1e293b; }
+:root:not(.dark) .keep-dark .bg-slate-900\/80 { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-slate-900\/60 { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-slate-900\/40 { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-slate-900\/30 { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-slate-950\/40 { background-color: #020617; }
+:root:not(.dark) .keep-dark .bg-slate-950\/30 { background-color: #020617; }
+:root:not(.dark) .keep-dark .bg-slate-950\/20 { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-black\/20     { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-black\/30     { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-black\/40     { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-black\/50     { background-color: #0f172a; }
+:root:not(.dark) .keep-dark .bg-black\/70     { background-color: #000000; }
+
+

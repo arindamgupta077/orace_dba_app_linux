@@ -82,7 +82,7 @@ export default function ForgotPasswordPage() {
                     autoComplete="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    placeholder="user@example.com"
+                    placeholder="your.name@itc.in"
                     disabled={loading}
                   />
                 </div>

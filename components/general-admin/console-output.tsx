@@ -29,7 +29,7 @@ export function ConsoleOutput({ output, status, action, timestamp, className }: 
   if (status === "idle") return null;
 
   return (
-    <div className={cn("mt-5 rounded-xl overflow-hidden border border-border/60 shadow-xl", className)}>
+    <div className={cn("keep-dark mt-5 rounded-xl overflow-hidden border border-border/60 shadow-xl", className)}>
       {/* Console header bar */}
       <div className="flex items-center justify-between gap-3 bg-[#161b22] border-b border-[#30363d] px-4 py-2.5">
         <div className="flex items-center gap-2.5">

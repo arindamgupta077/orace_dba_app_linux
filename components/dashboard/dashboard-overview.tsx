@@ -398,8 +398,8 @@ function BackupStatusBadge({ status }: { status?: string | null }) {
 function CustomBarTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; name: string }> }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-border/60 bg-[#101722] px-3 py-2 text-xs shadow-lg">
-      <p className="font-medium text-slate-200">{payload[0].name}</p>
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 text-xs shadow-lg">
+      <p className="font-medium text-popover-foreground">{payload[0].name}</p>
       <p className="text-muted-foreground">{fmtMb(payload[0].value)}</p>
     </div>
   );
@@ -445,8 +445,8 @@ function ArchiveLogTooltip({
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-lg border border-border/60 bg-[#101722] px-3 py-2 text-xs shadow-lg">
-      <p className="font-medium text-slate-200">{label}</p>
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 text-xs shadow-lg">
+      <p className="font-medium text-popover-foreground">{label}</p>
       <p className="text-cyan-300">{safeNum(payload[0].value).toFixed(2)} GB</p>
       <p className="text-muted-foreground">{safeNum(row?.archive_log_count)} logs</p>
     </div>

@@ -685,7 +685,7 @@ export function ChatWithDb() {
 
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/60 shadow-2xl shadow-black/40 backdrop-blur-xl transition-all duration-300",
+          "keep-dark flex flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/60 shadow-2xl shadow-black/40 backdrop-blur-xl transition-all duration-300",
           isFullscreen
             ? "fixed inset-4 z-50 h-auto"
             : "h-[calc(100vh-9rem)]"

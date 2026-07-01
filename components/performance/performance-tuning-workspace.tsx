@@ -356,7 +356,7 @@ function renderInlineMarkdown(text: string) {
   return parts.map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) {
       return (
-        <strong key={`${part}-${index}`} className="font-semibold text-amber-100">
+        <strong key={`${part}-${index}`} className="font-semibold text-foreground">
           {part.slice(2, -2)}
         </strong>
       );
@@ -364,7 +364,7 @@ function renderInlineMarkdown(text: string) {
 
     if (part.startsWith("__") && part.endsWith("__")) {
       return (
-        <strong key={`${part}-${index}`} className="font-semibold text-amber-100">
+        <strong key={`${part}-${index}`} className="font-semibold text-foreground">
           {part.slice(2, -2)}
         </strong>
       );
@@ -372,7 +372,7 @@ function renderInlineMarkdown(text: string) {
 
     if ((part.startsWith("*") && part.endsWith("*")) || (part.startsWith("_") && part.endsWith("_"))) {
       return (
-        <em key={`${part}-${index}`} className="text-cyan-100">
+        <em key={`${part}-${index}`} className="text-accent">
           {part.slice(1, -1)}
         </em>
       );
@@ -380,7 +380,7 @@ function renderInlineMarkdown(text: string) {
 
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={`${part}-${index}`} className="rounded border border-border/60 bg-black/30 px-1.5 py-0.5 font-mono text-xs text-cyan-100">
+        <code key={`${part}-${index}`} className="rounded border border-border/60 bg-secondary/70 px-1.5 py-0.5 font-mono text-xs text-accent">
           {part.slice(1, -1)}
         </code>
       );
@@ -758,7 +758,7 @@ export function PerformanceTuningWorkspace() {
                       {canExecute(activeDefinition.action) ? "Allowed" : "RBAC Denied"}
                     </StatusBadge>
                   </div>
-                  <pre className="max-h-96 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">{payloadPreview}</pre>
+                  <pre className="keep-dark max-h-96 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">{payloadPreview}</pre>
                 </div>
               </div>
 
@@ -775,7 +775,7 @@ export function PerformanceTuningWorkspace() {
                     </div>
                     <StatusBadge status={secondaryRun.response.status}>{secondaryRun.response.status}</StatusBadge>
                   </div>
-                  <pre className="max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">
+                  <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">
                     {responseMessage(secondaryRun.response)}
                   </pre>
                 </div>
@@ -802,7 +802,7 @@ export function PerformanceTuningWorkspace() {
 
 function PerformanceRunMeta({ auditLog }: { auditLog: AuditLogItem | null }) {
   return (
-    <div className="mt-4 space-y-2 rounded-md border border-border/60 bg-black/20 p-3 text-xs">
+    <div className="mt-4 space-y-2 rounded-md border border-border/60 bg-card/50 p-3 text-xs">
       <div className="flex items-start justify-between gap-3">
         <span className="shrink-0 text-muted-foreground">Last run</span>
         <span className="text-right text-slate-100">
@@ -843,11 +843,11 @@ function RunAllResult({ source, configs }: { source: RunAllSource; configs: Perf
       <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 p-3">
           <div className="flex items-center gap-2">
-            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 p-1.5 text-cyan-100">
+            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 p-1.5 text-accent">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm font-medium text-slate-50">AI performance analysis</p>
+              <p className="text-sm font-medium text-foreground">AI performance analysis</p>
               <p className="text-xs text-muted-foreground">Markdown, lists, tables, code, and emoji rendered for review.</p>
             </div>
           </div>
@@ -865,9 +865,9 @@ function RunAllResult({ source, configs }: { source: RunAllSource; configs: Perf
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {configs.map((config) => (
-          <div key={config.action} className="rounded-md border border-border/60 bg-black/20 p-3">
+          <div key={config.action} className="rounded-md border border-border/60 bg-card/50 p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{getActionDefinition(config.action)?.title || config.action}</p>
-            <p className="mt-2 text-sm font-medium text-slate-100">{summarizeResult(source.response, config)}</p>
+            <p className="mt-2 text-sm font-medium text-foreground">{summarizeResult(source.response, config)}</p>
           </div>
         ))}
       </div>
@@ -875,9 +875,9 @@ function RunAllResult({ source, configs }: { source: RunAllSource; configs: Perf
       {source.response.findings.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {source.response.findings.slice(0, 4).map((finding, index) => (
-            <div key={finding.id || `${finding.title}-${index}`} className="rounded-md border border-border/60 bg-black/20 p-3">
+            <div key={finding.id || `${finding.title}-${index}`} className="rounded-md border border-border/60 bg-card/50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium">{finding.title}</p>
+                <p className="text-sm font-medium text-foreground">{finding.title}</p>
                 <StatusBadge status={finding.severity}>{finding.severity}</StatusBadge>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">{finding.detail}</p>
@@ -917,12 +917,12 @@ function MarkdownSummary({ text }: { text: string }) {
       }
 
       elements.push(
-        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-md border border-cyan-400/25 bg-slate-950/40">
+        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-md border border-cyan-400/25 bg-card/40">
           <Table>
             <TableHeader>
               <TableRow>
                 {headers.map((header, headerIndex) => (
-                  <TableHead key={`${header}-${headerIndex}`} className="whitespace-nowrap bg-cyan-400/10 text-cyan-100">
+                  <TableHead key={`${header}-${headerIndex}`} className="whitespace-nowrap bg-cyan-400/10 text-accent">
                     {renderInlineMarkdown(header)}
                   </TableHead>
                 ))}
@@ -950,8 +950,8 @@ function MarkdownSummary({ text }: { text: string }) {
       const level = heading[1].length;
       const className =
         level <= 2
-          ? "mt-4 rounded-md border-l-4 border-cyan-300 bg-cyan-300/10 px-3 py-2 text-base font-semibold text-slate-50"
-          : "mt-3 rounded-md border-l-4 border-amber-300 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-amber-100";
+          ? "mt-4 rounded-md border-l-4 border-cyan-300 bg-cyan-300/10 px-3 py-2 text-base font-semibold text-foreground"
+          : "mt-3 rounded-md border-l-4 border-amber-300 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-foreground";
       elements.push(
         <p key={`heading-${index}`} className={className}>
           {renderInlineMarkdown(heading[2])}
@@ -968,7 +968,7 @@ function MarkdownSummary({ text }: { text: string }) {
         index += 1;
       }
       elements.push(
-        <ul key={`ul-${index}`} className="my-2 list-disc space-y-1 rounded-md border border-border/50 bg-slate-950/30 py-3 pl-8 pr-3 text-sm leading-6 text-slate-100 marker:text-cyan-300">
+        <ul key={`ul-${index}`} className="my-2 list-disc space-y-1 rounded-md border border-border/50 bg-secondary/30 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:text-cyan-300">
           {items.map((item, itemIndex) => (
             <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -984,7 +984,7 @@ function MarkdownSummary({ text }: { text: string }) {
         index += 1;
       }
       elements.push(
-        <ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 rounded-md border border-border/50 bg-slate-950/30 py-3 pl-8 pr-3 text-sm leading-6 text-slate-100 marker:font-semibold marker:text-amber-300">
+        <ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 rounded-md border border-border/50 bg-secondary/30 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:font-semibold marker:text-amber-300">
           {items.map((item, itemIndex) => (
             <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -994,14 +994,14 @@ function MarkdownSummary({ text }: { text: string }) {
     }
 
     elements.push(
-      <p key={`p-${index}`} className="rounded-md bg-slate-950/20 px-3 py-2 text-sm leading-7 text-slate-100">
+      <p key={`p-${index}`} className="rounded-md bg-secondary/20 px-3 py-2 text-sm leading-7 text-foreground">
         {renderInlineMarkdown(line)}
       </p>
     );
     index += 1;
   }
 
-  return <div className="space-y-2 rounded-md border border-border/60 bg-black/20 p-4">{elements}</div>;
+  return <div className="space-y-2 rounded-md border border-border/60 bg-card/40 p-4">{elements}</div>;
 }
 
 function RunAllTables({ response, configs, createdAt }: { response: DbaResponse; configs: PerformanceActionConfig[]; createdAt?: string | null }) {
@@ -1017,7 +1017,7 @@ function RunAllTables({ response, configs, createdAt }: { response: DbaResponse;
         <p className="mt-1 text-xs text-muted-foreground">Full row output returned by n8n for each performance check.</p>
       </div>
       <Tabs defaultValue={defaultValue}>
-        <TabsList className="h-auto flex-wrap justify-start gap-1 bg-black/20">
+        <TabsList className="h-auto flex-wrap justify-start gap-1 bg-secondary/50">
           {tableConfigs.map(({ config, rows }) => (
             <TabsTrigger key={config.action} value={config.action} className="text-xs">
               {getActionDefinition(config.action)?.title || config.action}
@@ -1056,7 +1056,7 @@ function PerformanceResult({ response, rows, config }: { response: DbaResponse; 
 
       <PerformanceRowsTable rows={rows} config={config} />
 
-      {response.raw_output ? <pre className="max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">{response.raw_output}</pre> : null}
+      {response.raw_output ? <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">{response.raw_output}</pre> : null}
     </div>
   );
 }

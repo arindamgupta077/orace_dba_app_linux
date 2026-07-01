@@ -553,7 +553,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
               <TabsContent value="json" className="mt-4">
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Payload → n8n Webhook</p>
-                  <pre className="max-h-96 overflow-auto rounded-xl border border-border/60 bg-black/50 p-4 text-[11px] leading-5 text-cyan-100 font-mono">
+                  <pre className="keep-dark max-h-96 overflow-auto rounded-xl border border-border/60 bg-black/50 p-4 text-[11px] leading-5 text-cyan-100 font-mono">
                     {JSON.stringify(fullPayload, null, 2)}
                   </pre>
                 </div>

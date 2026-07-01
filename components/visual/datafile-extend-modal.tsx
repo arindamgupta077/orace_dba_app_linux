@@ -819,7 +819,7 @@ export function DatafileExtendModal({
             </div>
             <div className="space-y-2">
               <Label>Request Payload</Label>
-              <pre className="rounded-md border border-border/70 bg-black/40 p-4 text-xs leading-relaxed text-cyan-100">
+              <pre className="keep-dark rounded-md border border-border/70 bg-black/40 p-4 text-xs leading-relaxed text-cyan-100">
                 {JSON.stringify(
                   {
                     action: "datafile_extend",
@@ -1032,7 +1032,7 @@ export function DatafileExtendModal({
             {executionResult?.sql_command && (
               <div className="space-y-2">
                 <Label>Executed SQL</Label>
-                <pre className="max-h-44 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-cyan-50">
+                <pre className="keep-dark max-h-44 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-cyan-50">
                   {executionResult.sql_command}
                 </pre>
               </div>
@@ -1043,7 +1043,7 @@ export function DatafileExtendModal({
                   <SquareTerminal className="h-4 w-4" />
                   Database Result
                 </Label>
-                <pre className="max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
+                <pre className="keep-dark max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
                   {dbResult}
                 </pre>
               </div>
@@ -1051,7 +1051,7 @@ export function DatafileExtendModal({
             {typeof executionResult?.sql_output === "string" && executionResult.sql_output && (
               <div className="space-y-2">
                 <Label>SQL Output</Label>
-                <pre className="max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
+                <pre className="keep-dark max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
                   {executionResult.sql_output}
                 </pre>
               </div>
@@ -1075,7 +1075,7 @@ export function DatafileExtendModal({
             {executionResult?.sql_command && (
               <div className="space-y-2">
                 <Label>Attempted SQL</Label>
-                <pre className="max-h-44 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-cyan-50">
+                <pre className="keep-dark max-h-44 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-cyan-50">
                   {executionResult.sql_command}
                 </pre>
               </div>

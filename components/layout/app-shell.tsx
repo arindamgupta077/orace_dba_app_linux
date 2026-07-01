@@ -25,7 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ActiveDbaPill } from "@/components/layout/active-dba-pill";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DatabaseSelector } from "@/components/visual/database-selector";
+import { useTheme } from "@/components/providers/theme-provider";
 import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
@@ -124,6 +126,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
   const setDatabases = useAppStore((state) => state.setDatabases);
+  const { setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [showDatabase, setShowDatabase] = useState(true);
@@ -158,6 +161,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then((session) => {
         if (!active) return;
         setUser(session.user);
+        // Restore the user's saved theme preference from the DB.
+        // This runs on every AppShell mount (post-login navigation,
+        // page refresh while authenticated) so the theme always
+        // reflects the server-side value — even after the login
+        // page forced dark mode without persisting it.
+        if (session.user.themePreference) {
+          setTheme(session.user.themePreference, { persistRemote: false });
+        }
         fetchDatabases()
           .then((response) => {
             if (active) setDatabases(response.databases);
@@ -174,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
     };
-  }, [setDatabases, setUser]);
+  }, [setDatabases, setUser, setTheme]);
 
   const logout = async () => {
     try {
@@ -336,6 +347,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               )}
               {!isClient && <NotificationBell />}
+              <ThemeToggle />
               <Button variant="ghost" size="icon" onClick={logout} title="Logout">
                 <LogOut className="h-4 w-4" />
               </Button>

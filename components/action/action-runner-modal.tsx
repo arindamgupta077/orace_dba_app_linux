@@ -355,7 +355,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
                     {canExecute(definition.action) ? "Allowed" : "RBAC Denied"}
                   </StatusBadge>
                 </div>
-                <pre className="max-h-80 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">
+                <pre className="keep-dark max-h-80 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">
                   {payloadPreview}
                 </pre>
               </div>

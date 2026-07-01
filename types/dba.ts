@@ -451,7 +451,10 @@ export interface UserSession {
   jwt?: string;
   authMode: "jwt";
   role: "app_admin" | "dba_admin" | "client" | "auditor";
+  themePreference?: ThemePreference;
 }
+
+export type ThemePreference = "light" | "dark";
 
 export type AppUserRole = UserSession["role"];
 

@@ -64,7 +64,7 @@ export function SQLGrid({ rows }: { rows: SqlMetricRow[] }) {
           <DialogHeader>
             <DialogTitle>SQL Text {selected?.sql_id}</DialogTitle>
           </DialogHeader>
-          <pre className="max-h-96 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-sm text-cyan-100">
+          <pre className="keep-dark max-h-96 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-sm text-cyan-100">
             {selected?.sql_text}
           </pre>
         </DialogContent>

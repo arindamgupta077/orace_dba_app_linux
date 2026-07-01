@@ -487,7 +487,7 @@ function AiMarkdown({ content }: { content: string }) {
             const codeStr = String(children).replace(/\n$/, "");
             if (match) {
               return (
-                <pre className="my-2 overflow-x-auto rounded-lg border border-violet-500/20 bg-slate-900/60 p-3">
+                <pre className="keep-dark my-2 overflow-x-auto rounded-lg border border-violet-500/20 bg-slate-900/60 p-3">
                   <code className="text-[11px] font-mono text-violet-100 leading-relaxed">
                     {codeStr}
                   </code>
@@ -1398,7 +1398,7 @@ function Section3() {
 
       {/* Terminal output */}
       {!loading && displayLines.length > 0 && (
-        <div className="relative rounded-xl border border-border/60 bg-[#0a0d13] overflow-hidden">
+        <div className="keep-dark relative rounded-xl border border-border/60 bg-[#0a0d13] overflow-hidden">
           {/* Terminal header */}
           <div className="flex items-center gap-2 border-b border-border/40 bg-secondary/30 px-4 py-2">
             <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
