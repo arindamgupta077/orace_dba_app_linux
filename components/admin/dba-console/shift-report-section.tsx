@@ -52,7 +52,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchAppUsers, fetchShiftReport } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime, formatTime, toIstDateString, toIstDateStringOffset } from "@/lib/utils";
 import { exportDataset, ExportColumn, ExportMeta } from "@/lib/export";
 import type {
   AppUser,
@@ -82,16 +82,11 @@ function avatarFromName(name: string): { initials: string; color: string } {
 }
 
 function defaultFromDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return toIstDateStringOffset(new Date(), -30);
 }
 
 function todayStr(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return toIstDateString();
 }
 
 function shiftLabel(n: number): string {
@@ -201,16 +196,16 @@ export function ShiftReportSection() {
       .reverse()
       .map((t) => ({
         date: t.shift_date.slice(5),
-        Shift1: t.shift_number === 1 ? t.logins : 0,
-        Shift2: t.shift_number === 2 ? t.logins : 0,
-        Shift3: t.shift_number === 3 ? t.logins : 0
+        Shift1: t.shift_number === 1 ? t.hours : 0,
+        Shift2: t.shift_number === 2 ? t.hours : 0,
+        Shift3: t.shift_number === 3 ? t.hours : 0
       }))
       .reduce((acc, curr) => {
         const existing = acc.find((a) => a.date === curr.date);
         if (existing) {
-          existing.Shift1 += curr.Shift1;
-          existing.Shift2 += curr.Shift2;
-          existing.Shift3 += curr.Shift3;
+          existing.Shift1 = Math.round((existing.Shift1 + curr.Shift1) * 10) / 10;
+          existing.Shift2 = Math.round((existing.Shift2 + curr.Shift2) * 10) / 10;
+          existing.Shift3 = Math.round((existing.Shift3 + curr.Shift3) * 10) / 10;
         } else {
           acc.push(curr);
         }
@@ -236,7 +231,8 @@ export function ShiftReportSection() {
         const cols: ExportColumn<ShiftReportData["loginTrend"][number]>[] = [
           { header: "Shift Date", value: (r) => r.shift_date },
           { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Logins", value: (r) => r.logins }
+          { header: "Logins", value: (r) => r.logins },
+          { header: "Login Hours", value: (r) => r.hours }
         ];
         exportDataset(format, cols, report.loginTrend, baseMeta("Shift Login Trend"));
         break;
@@ -469,7 +465,7 @@ export function ShiftReportSection() {
         <MetricCard
           icon={Clock}
           label="Avg Login Duration"
-          value={`${report.avgLoginDurationMin}m`}
+          value={`${(report.avgLoginDurationMin / 60).toFixed(1)}h`}
           sublabel="per closed session"
           accent="cyan"
         />
@@ -597,7 +593,11 @@ export function ShiftReportSection() {
                 <BarChart data={loginTrendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(142,163,184,0.15)" />
                   <XAxis dataKey="date" tick={{ fill: "#8ea3b8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#8ea3b8", fontSize: 11 }} allowDecimals={false} />
+                  <YAxis
+                    tick={{ fill: "#8ea3b8", fontSize: 11 }}
+                    tickFormatter={(v: number) => `${v}h`}
+                    allowDecimals
+                  />
                   <Tooltip
                     cursor={{ fill: "rgba(35,211,238,0.06)" }}
                     contentStyle={{
@@ -608,6 +608,10 @@ export function ShiftReportSection() {
                       boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
                     }}
                     labelStyle={{ color: "#8ea3b8", fontWeight: 600 }}
+                    formatter={(value: number | string, name: string) => [
+                      `${Number(value).toFixed(1)} hrs`,
+                      name
+                    ]}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="Shift1" stackId="a" fill="#18c37e" name="Shift 1" radius={[0, 0, 0, 0]} />
@@ -711,7 +715,7 @@ export function ShiftReportSection() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">{d.username}</p>
                       <p className="text-xs text-muted-foreground">
-                        {shiftLabel(d.shift_number)} • {new Date(d.login_at).toLocaleTimeString()}
+                        {shiftLabel(d.shift_number)} • {formatTime(d.login_at)}
                       </p>
                     </div>
                     <Badge className="border-green-500/30 bg-green-500/10 text-green-300">
@@ -879,7 +883,7 @@ export function ShiftReportSection() {
                       <TableCell className="font-medium">{event.username}</TableCell>
                       <TableCell>Shift {event.shift_number}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(event.timestamp).toLocaleString()}
+                        {formatDateTime(event.timestamp)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{event.detail || "—"}</TableCell>
                     </TableRow>
@@ -945,7 +949,7 @@ export function ShiftReportSection() {
                       <TableCell>Shift {l.shift_number}</TableCell>
                       <TableCell>{l.shift_date}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(l.login_at).toLocaleString()}
+                        {formatDateTime(l.login_at)}
                       </TableCell>
                       <TableCell>
                         <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-300">

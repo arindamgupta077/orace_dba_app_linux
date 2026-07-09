@@ -162,14 +162,15 @@ function toIsoString(value: unknown) {
 function toIstIsoString(value: unknown) {
   const date = asDate(value);
   if (!date) return new Date().toISOString();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const yyyy = date.getUTCFullYear();
-  const mm = pad(date.getUTCMonth() + 1);
-  const dd = pad(date.getUTCDate());
-  const hh = pad(date.getUTCHours());
-  const min = pad(date.getUTCMinutes());
-  const ss = pad(date.getUTCSeconds());
-  return `${yyyy}-${mm}-${dd}T${hh}:${min}:${ss}+05:30`;
+  // Oracle TIMESTAMP(6) columns are populated with SYSTIMESTAMP. The DB server
+  // OS runs in IST, so SYSTIMESTAMP's local fields are IST wall-clock; plain
+  // TIMESTAMP strips the +05:30 offset and stores the IST literal. node-oracledb
+  // (SESSIONTIMEZONE=+00:00) reads that literal as UTC, producing a JS Date
+  // whose UTC fields = IST wall-clock (mislabeled as UTC, off by +5:30).
+  //
+  // To emit a TRUE UTC instant, subtract 5:30 here. The client then applies
+  // +5:30 (formatDateTime / Asia/Kolkata) and nets out to the correct IST.
+  return new Date(date.getTime() - 330 * 60 * 1000).toISOString();
 }
 
 function mapUserRole(role: unknown): UserRole {
@@ -2862,7 +2863,7 @@ export async function getCurrentShiftState(): Promise<CurrentShiftState> {
     active_shifts: activeShifts,
     shift_label: label,
     overlap,
-    server_time: toIstIsoString(now),
+    server_time: now.toISOString(),
     active_dbas: activeDbas,
     sessions,
     taken_shifts: takenShifts,
@@ -3756,7 +3757,10 @@ async function fetchActivityTimeline(
 
 async function fetchLoginTrend(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["loginTrend"]> {
   const result = await connection.execute<DbRow>(
-    `SELECT TRUNC(s.shift_date) AS shift_date, s.shift_number, COUNT(*) AS logins
+    `SELECT TRUNC(s.shift_date) AS shift_date, s.shift_number, COUNT(*) AS logins,
+            SUM(CASE WHEN s.status = 'CLOSED' AND s.logout_at IS NOT NULL
+                     THEN (CAST(s.logout_at AS DATE) - CAST(s.login_at AS DATE)) * 24
+                     ELSE 0 END) AS hours
      FROM app_shift_sessions s
      ${whereClause}
      GROUP BY TRUNC(s.shift_date), s.shift_number
@@ -3766,7 +3770,8 @@ async function fetchLoginTrend(connection: Connection, binds: BindParameters, wh
   return (result.rows || []).map((row) => ({
     shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
     shift_number: Number(row.SHIFT_NUMBER),
-    logins: Number(row.LOGINS)
+    logins: Number(row.LOGINS),
+    hours: Math.round(Number(row.HOURS ?? 0) * 10) / 10
   }));
 }
 
@@ -3813,62 +3818,88 @@ async function fetchChecklistCompletion(
   filters: ShiftReportFilters,
   type: "db" | "backup"
 ): Promise<ChecklistCompletion> {
-  const binds: BindParameters = {};
-  const conditions: string[] = [];
-
+  // Filter scope for the CHECKS tables (no table alias — these are un-aliased).
+  const checkBinds: BindParameters = {};
+  const checkConditions: string[] = [];
   if (filters.fromDate) {
-    binds.fromDate = filters.fromDate;
-    conditions.push("TRUNC(shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+    checkBinds.fromDate = filters.fromDate;
+    checkConditions.push("TRUNC(shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
   }
   if (filters.toDate) {
-    binds.toDate = filters.toDate;
-    conditions.push("TRUNC(shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+    checkBinds.toDate = filters.toDate;
+    checkConditions.push("TRUNC(shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
   }
   if (filters.shiftNumber) {
-    binds.shiftNumber = filters.shiftNumber;
-    conditions.push("shift_number = :shiftNumber");
+    checkBinds.shiftNumber = filters.shiftNumber;
+    checkConditions.push("shift_number = :shiftNumber");
   }
+  const checkWhere = checkConditions.length ? `WHERE ${checkConditions.join(" AND ")}` : "";
 
-  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // The same date/shift scope applied to app_shift_sessions (alias s) so we can derive
+  // the number of (day, shift) opportunities that actually ran in the period.
+  const sessBinds: BindParameters = {};
+  const sessConditions: string[] = [];
+  if (filters.fromDate) {
+    sessBinds.fromDate = filters.fromDate;
+    sessConditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    sessBinds.toDate = filters.toDate;
+    sessConditions.push("TRUNC(s.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.shiftNumber) {
+    sessBinds.shiftNumber = filters.shiftNumber;
+    sessConditions.push("s.shift_number = :shiftNumber");
+  }
+  const sessWhere = sessConditions.length ? `WHERE ${sessConditions.join(" AND ")}` : "";
 
-  if (type === "db") {
-    const totalResult = await connection.execute<DbRow>(
-      `SELECT COUNT(*) AS total FROM database_inventory WHERE status = 'active'`,
+  const invTable = type === "db" ? "database_inventory" : "app_backup_template";
+  const invFilter = type === "db" ? "status = 'active'" : "is_active = 'Y'";
+  const checksTable = type === "db" ? "app_db_status_checks" : "app_backup_status_checks";
+  const idCol = type === "db" ? "database_id" : "backup_id";
+
+  // Run the three counting queries in parallel so we don't add latency.
+  const [invResult, slotsResult, doneResult] = await Promise.all([
+    connection.execute<DbRow>(
+      `SELECT COUNT(*) AS total FROM ${invTable} WHERE ${invFilter}`,
       {}
-    );
-    const totalDb = Number(totalResult.rows?.[0]?.TOTAL ?? 0);
+    ),
+    connection.execute<DbRow>(
+      `SELECT COUNT(DISTINCT TRUNC(s.shift_date) || '-' || s.shift_number) AS slots
+       FROM app_shift_sessions s
+       ${sessWhere}`,
+      sessBinds
+    ),
+    connection.execute<DbRow>(
+      `SELECT COUNT(DISTINCT ${idCol} || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
+       FROM ${checksTable}
+       ${checkWhere}`,
+      checkBinds
+    )
+  ]);
 
-    const doneResult = await connection.execute<DbRow>(
-      `SELECT COUNT(DISTINCT database_id || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
-       FROM app_db_status_checks
-       ${whereClause}`,
-      binds
-    );
-    const completed = Number(doneResult.rows?.[0]?.COMPLETED ?? 0);
-    return {
-      total: totalDb,
-      completed,
-      completion_pct: totalDb > 0 ? Math.round((completed / totalDb) * 100) : 0
-    };
-  }
+  // Expected checks = active inventory × (day, shift) opportunities that ran.
+  // A (day, shift) where a DBA logged in but no checks were performed counts toward
+  // expected (and not completed), so neglected shifts reduce the rate instead of being masked.
+  const inventoryCount = Number(invResult.rows?.[0]?.TOTAL ?? 0);
+  const shiftDaySlots = Number(slotsResult.rows?.[0]?.SLOTS ?? 0);
+  const expectedTotal = inventoryCount * shiftDaySlots;
 
-  const totalResult = await connection.execute<DbRow>(
-    `SELECT COUNT(*) AS total FROM app_backup_template WHERE is_active = 'Y'`,
-    {}
-  );
-  const totalBk = Number(totalResult.rows?.[0]?.TOTAL ?? 0);
-
-  const doneResult = await connection.execute<DbRow>(
-    `SELECT COUNT(DISTINCT backup_id || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
-     FROM app_backup_status_checks
-     ${whereClause}`,
-    binds
-  );
+  // Completed checks are de-duplicated per (item, shift, day) so repeat-checking the
+  // same item in the same slot cannot inflate the count.
   const completed = Number(doneResult.rows?.[0]?.COMPLETED ?? 0);
+
+  // Clamp to expected so the rate never exceeds 100% even if checks exist for slots
+  // without a tracked session (data inconsistencies).
+  const effectiveCompleted = Math.min(completed, expectedTotal);
+  const completion_pct = expectedTotal > 0
+    ? Math.round((effectiveCompleted / expectedTotal) * 100)
+    : 0;
+
   return {
-    total: totalBk,
-    completed,
-    completion_pct: totalBk > 0 ? Math.round((completed / totalBk) * 100) : 0
+    total: expectedTotal,
+    completed: effectiveCompleted,
+    completion_pct
   };
 }
 

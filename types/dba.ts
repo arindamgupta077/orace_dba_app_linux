@@ -928,7 +928,7 @@ export interface ShiftReportData {
   mostActiveDba?: { username: string; total_logins: number };
   activityTimeline: ShiftReportTimelineEntry[];
   timelineTotal: number;
-  loginTrend: Array<{ shift_date: string; shift_number: number; logins: number }>;
+  loginTrend: Array<{ shift_date: string; shift_number: number; logins: number; hours: number }>;
   dbStatusChecks: DbStatusCheck[];
   backupStatusChecks: BackupStatusCheck[];
   handovers: Handover[];

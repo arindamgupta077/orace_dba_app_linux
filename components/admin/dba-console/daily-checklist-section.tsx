@@ -44,7 +44,7 @@ import {
   updateBackupTemplateApi
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
-import { cn } from "@/lib/utils";
+import { cn, formatTime, toIstDateString } from "@/lib/utils";
 import type {
   BackupStatusCheck,
   BackupStatusValue,
@@ -80,9 +80,7 @@ function backupStatusBadge(status: BackupStatusValue) {
 }
 
 function todayStr(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return toIstDateString();
 }
 
 export function DailyChecklistSection() {
@@ -747,7 +745,7 @@ function DbStatusRow({
       </TableCell>
       <TableCell>{check ? dbStatusBadge(check.status) : <Badge variant="outline" className="text-muted-foreground">Not checked</Badge>}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.checked_username || "—"}</TableCell>
-      <TableCell className="text-sm text-muted-foreground">{check ? new Date(check.checked_at).toLocaleTimeString() : "—"}</TableCell>
+      <TableCell className="text-sm text-muted-foreground">{check ? formatTime(check.checked_at) : "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.comment_text || "—"}</TableCell>
       {canManage && (
         <TableCell>
@@ -835,7 +833,7 @@ function BackupStatusRow({
       <TableCell className="text-sm text-muted-foreground">{template.scheduled_time || "—"}</TableCell>
       <TableCell>{check ? backupStatusBadge(check.status) : <Badge variant="outline" className="text-muted-foreground">Not checked</Badge>}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.checked_username || "—"}</TableCell>
-      <TableCell className="text-sm text-muted-foreground">{check ? new Date(check.checked_at).toLocaleTimeString() : "—"}</TableCell>
+      <TableCell className="text-sm text-muted-foreground">{check ? formatTime(check.checked_at) : "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.comment_text || "—"}</TableCell>
       {canManage && (
         <TableCell>

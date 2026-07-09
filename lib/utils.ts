@@ -66,6 +66,25 @@ export function formatAppDateTime(value: string | number | Date | null | undefin
   }
 }
 
+/**
+ * Returns the IST calendar date (YYYY-MM-DD) for the given Date (or now).
+ * Works on the client regardless of the browser's local timezone.
+ */
+export function toIstDateString(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const istMs = date.getTime() + 330 * 60 * 1000;
+  const ist = new Date(istMs);
+  return `${ist.getUTCFullYear()}-${pad(ist.getUTCMonth() + 1)}-${pad(ist.getUTCDate())}`;
+}
+
+/**
+ * Returns the IST calendar date (YYYY-MM-DD) for `date` offset by `deltaDays`.
+ */
+export function toIstDateStringOffset(date: Date = new Date(), deltaDays: number): string {
+  const shifted = new Date(date.getTime() + deltaDays * 24 * 60 * 60 * 1000);
+  return toIstDateString(shifted);
+}
+
 export function titleCase(value?: string | null) {
   const text = value || "unknown";
   return text

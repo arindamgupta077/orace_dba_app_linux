@@ -46,7 +46,7 @@ import {
   submitHandover
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime, formatTime } from "@/lib/utils";
 import type { CurrentShiftState, Handover, ShiftSession } from "@/types/dba";
 
 const GENERAL_SHIFT_NUMBER = 4;
@@ -389,7 +389,7 @@ export function ShiftManagementSection() {
                 )}
               </div>
               <span className="text-xs text-muted-foreground">
-                Server time: {new Date(state.server_time).toLocaleString()}
+                Server time: {formatDateTime(state.server_time)}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -453,7 +453,7 @@ export function ShiftManagementSection() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(session.login_at).toLocaleTimeString()}
+                      {formatTime(session.login_at)}
                     </TableCell>
                     <TableCell>
                       <Badge className="border-green-500/30 bg-green-500/10 text-green-300">
@@ -588,7 +588,7 @@ export function ShiftManagementSection() {
                   <div>
                     <p className="font-medium">You are on shift</p>
                     <p className="text-xs text-green-300/70">
-                      {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`} — logged in at {new Date(mySession.login_at).toLocaleTimeString()}
+                      {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`} — logged in at {formatTime(mySession.login_at)}
                     </p>
                   </div>
                 </div>
@@ -607,7 +607,7 @@ export function ShiftManagementSection() {
                     {mySession.ack_username && (
                       <p className="mt-2 text-xs text-green-400">
                         Acknowledged by {mySession.ack_username}
-                        {mySession.ack_at && ` at ${new Date(mySession.ack_at).toLocaleString()}`}
+                        {mySession.ack_at && ` at ${formatDateTime(mySession.ack_at)}`}
                       </p>
                     )}
                   </div>
@@ -780,7 +780,7 @@ export function ShiftManagementSection() {
                         {SHIFT_LABELS[h.shift_number] || `Shift ${h.shift_number}`}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(h.created_at).toLocaleDateString()} {new Date(h.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {formatDateTime(h.created_at)}
                       </span>
                       {handoverBadgeForHistory(h)}
                     </div>
@@ -928,7 +928,7 @@ export function ShiftManagementSection() {
                       <TableCell className="font-medium">{h.author_username}</TableCell>
                       <TableCell>{SHIFT_LABELS[h.shift_number] || `Shift ${h.shift_number}`}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(h.created_at).toLocaleDateString()} {new Date(h.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {formatDateTime(h.created_at)}
                       </TableCell>
                       <TableCell>{handoverBadgeForHistory(h)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
