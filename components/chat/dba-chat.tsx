@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   AlertTriangle,
   Bot,
@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { useTheme } from "@/components/providers/theme-provider";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, DatabaseTarget } from "@/types/dba";
@@ -53,16 +54,16 @@ const POLL_INTERVAL_MS = 1500;
 function TypingIndicator() {
   return (
     <div className="flex items-center gap-1.5 px-1 py-0.5">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:0ms]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:150ms]" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-400 [animation-delay:300ms]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-500 dark:bg-cyan-400 [animation-delay:0ms]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-500 dark:bg-cyan-400 [animation-delay:150ms]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-500 dark:bg-cyan-400 [animation-delay:300ms]" />
     </div>
   );
 }
 
 function MessageTimestamp({ date }: { date: Date }) {
   return (
-    <span className="text-[10px] text-slate-500">
+    <span className="text-[10px] text-muted-foreground">
       {date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
     </span>
   );
@@ -73,8 +74,14 @@ function MessageTimestamp({ date }: { date: Date }) {
 // ---------------------------------------------------------------------------
 
 function MarkdownContent({ content }: { content: string }) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const syntaxStyle = isDark ? oneDark : oneLight;
+  const codeBlockBorder = isDark ? "!border-slate-700/60" : "!border-border";
+  const codeBlockBg = isDark ? "" : "!bg-muted/50";
+
   return (
-    <div className="markdown-body prose prose-invert max-w-none text-sm leading-relaxed">
+    <div className="markdown-body max-w-none text-sm leading-relaxed text-foreground dark:text-slate-100">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -85,10 +92,10 @@ function MarkdownContent({ content }: { content: string }) {
             if (match) {
               return (
                 <SyntaxHighlighter
-                  style={oneDark as Record<string, React.CSSProperties>}
+                  style={syntaxStyle as Record<string, React.CSSProperties>}
                   language={match[1]}
                   PreTag="div"
-                  className="!rounded-lg !text-xs !my-2 !border !border-slate-700/60"
+                  className={cn("!rounded-lg !text-xs !my-2 !border", codeBlockBorder, codeBlockBg)}
                 >
                   {codeStr}
                 </SyntaxHighlighter>
@@ -101,8 +108,8 @@ function MarkdownContent({ content }: { content: string }) {
                 className={cn(
                   "rounded px-1.5 py-0.5 text-[11px] font-mono",
                   isSql
-                    ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/20"
-                    : "bg-slate-700/60 text-amber-300 border border-slate-600/40"
+                    ? "bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300 border border-cyan-500/20"
+                    : "bg-secondary text-foreground dark:bg-slate-700/60 dark:text-amber-300 border border-border dark:border-slate-600/40"
                 )}
                 {...props}
               >
@@ -113,72 +120,72 @@ function MarkdownContent({ content }: { content: string }) {
           // Tables with full styling
           table({ children }) {
             return (
-              <div className="my-3 overflow-x-auto rounded-lg border border-slate-700/60">
-                <table className="min-w-full divide-y divide-slate-700/50 text-xs">
+              <div className="my-3 overflow-x-auto rounded-lg border border-border dark:border-slate-700/60">
+                <table className="min-w-full divide-y divide-border dark:divide-slate-700/50 text-xs">
                   {children}
                 </table>
               </div>
             );
           },
           thead({ children }) {
-            return <thead className="bg-slate-800/70">{children}</thead>;
+            return <thead className="bg-muted dark:bg-slate-800/70">{children}</thead>;
           },
           tbody({ children }) {
             return (
-              <tbody className="divide-y divide-slate-800/60 bg-slate-900/30">
+              <tbody className="divide-y divide-border dark:divide-slate-800/60 bg-card dark:bg-slate-900/30">
                 {children}
               </tbody>
             );
           },
           tr({ children }) {
             return (
-              <tr className="transition-colors hover:bg-slate-700/20">
+              <tr className="transition-colors hover:bg-muted/60 dark:hover:bg-slate-700/20">
                 {children}
               </tr>
             );
           },
           th({ children }) {
             return (
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-cyan-400/80">
+              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-cyan-700 dark:text-cyan-400/80">
                 {children}
               </th>
             );
           },
           td({ children }) {
             return (
-              <td className="px-3 py-2 text-slate-300 font-mono text-[11px]">
+              <td className="px-3 py-2 text-muted-foreground dark:text-slate-300 font-mono text-[11px]">
                 {children}
               </td>
             );
           },
           // Headings
           h1({ children }) {
-            return <h1 className="mb-2 mt-4 text-base font-bold text-cyan-300 border-b border-slate-700/60 pb-1">{children}</h1>;
+            return <h1 className="mb-2 mt-4 text-base font-bold text-cyan-700 dark:text-cyan-300 border-b border-border dark:border-slate-700/60 pb-1">{children}</h1>;
           },
           h2({ children }) {
-            return <h2 className="mb-1.5 mt-3 text-sm font-semibold text-cyan-400">{children}</h2>;
+            return <h2 className="mb-1.5 mt-3 text-sm font-semibold text-cyan-700 dark:text-cyan-400">{children}</h2>;
           },
           h3({ children }) {
-            return <h3 className="mb-1 mt-2 text-xs font-semibold text-slate-300">{children}</h3>;
+            return <h3 className="mb-1 mt-2 text-xs font-semibold text-foreground dark:text-slate-300">{children}</h3>;
           },
           // Paragraphs - handle status badges inline
           p({ children }) {
-            return <p className="mb-2 last:mb-0 whitespace-pre-wrap break-words text-slate-200">{children}</p>;
+            return <p className="mb-2 last:mb-0 whitespace-pre-wrap break-words text-foreground dark:text-slate-200">{children}</p>;
           },
           // Lists
           ul({ children }) {
-            return <ul className="mb-2 ml-4 list-disc space-y-0.5 text-slate-300">{children}</ul>;
+            return <ul className="mb-2 ml-4 list-disc space-y-0.5 text-foreground dark:text-slate-300">{children}</ul>;
           },
           ol({ children }) {
-            return <ol className="mb-2 ml-4 list-decimal space-y-0.5 text-slate-300">{children}</ol>;
+            return <ol className="mb-2 ml-4 list-decimal space-y-0.5 text-foreground dark:text-slate-300">{children}</ol>;
           },
           li({ children }) {
-            return <li className="text-slate-300 text-xs leading-relaxed">{children}</li>;
+            return <li className="text-foreground dark:text-slate-300 text-xs leading-relaxed">{children}</li>;
           },
           // Blockquotes (used for status sections)
           blockquote({ children }) {
             return (
-              <blockquote className="my-2 border-l-2 border-cyan-500/50 bg-cyan-500/5 pl-3 py-1 text-slate-300 text-xs italic">
+              <blockquote className="my-2 border-l-2 border-cyan-500/50 bg-cyan-500/5 pl-3 py-1 text-muted-foreground dark:text-slate-300 text-xs italic">
                 {children}
               </blockquote>
             );
@@ -188,22 +195,22 @@ function MarkdownContent({ content }: { content: string }) {
             const text = String(children);
             // Color-code status keywords
             if (/🔴|error|critical|failed/i.test(text)) {
-              return <strong className="font-semibold text-red-400">{children}</strong>;
+              return <strong className="font-semibold text-red-600 dark:text-red-400">{children}</strong>;
             }
             if (/🟠|warning/i.test(text)) {
-              return <strong className="font-semibold text-amber-400">{children}</strong>;
+              return <strong className="font-semibold text-amber-600 dark:text-amber-400">{children}</strong>;
             }
             if (/🟢|success|healthy|ok\b/i.test(text)) {
-              return <strong className="font-semibold text-emerald-400">{children}</strong>;
+              return <strong className="font-semibold text-emerald-600 dark:text-emerald-400">{children}</strong>;
             }
             if (/🔵|info/i.test(text)) {
-              return <strong className="font-semibold text-blue-400">{children}</strong>;
+              return <strong className="font-semibold text-blue-600 dark:text-blue-400">{children}</strong>;
             }
-            return <strong className="font-semibold text-slate-100">{children}</strong>;
+            return <strong className="font-semibold text-foreground dark:text-slate-100">{children}</strong>;
           },
           // Horizontal rules as section dividers
           hr() {
-            return <hr className="my-3 border-slate-700/60" />;
+            return <hr className="my-3 border-border dark:border-slate-700/60" />;
           },
         }}
       >
@@ -231,21 +238,21 @@ function SqlApprovalPanel({ sessionId, initialSql, onDecision, isSubmitting }: S
   };
 
   return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/5 shadow-[0_0_24px_rgba(245,158,11,0.08)]">
+    <div className="mt-3 overflow-hidden rounded-xl border border-amber-500/40 bg-amber-500/5 dark:border-amber-500/30 dark:bg-amber-500/5 shadow-[0_0_24px_rgba(245,158,11,0.08)]">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5">
-        <AlertTriangle className="h-4 w-4 text-amber-400" />
-        <span className="text-sm font-semibold text-amber-300">Unsafe Query — Requires Approval</span>
-        <span className="ml-auto text-[10px] text-amber-500/70">Session: {sessionId.slice(-8)}</span>
+      <div className="flex items-center gap-2 border-b border-amber-500/30 dark:border-amber-500/20 bg-amber-500/10 px-4 py-2.5">
+        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Unsafe Query — Requires Approval</span>
+        <span className="ml-auto text-[10px] text-amber-600/70 dark:text-amber-500/70">Session: {sessionId.slice(-8)}</span>
       </div>
 
       {/* SQL editor */}
       <div className="p-4">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs text-slate-400">Generated SQL <span className="text-amber-400/70">(editable)</span></span>
+          <span className="text-xs text-muted-foreground">Generated SQL <span className="text-amber-600/70 dark:text-amber-400/70">(editable)</span></span>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-foreground/5 dark:hover:bg-white/5 hover:text-foreground dark:hover:text-slate-200"
           >
             <Copy className="h-3 w-3" />
             {copied ? "Copied!" : "Copy"}
@@ -255,16 +262,16 @@ function SqlApprovalPanel({ sessionId, initialSql, onDecision, isSubmitting }: S
           value={sql}
           onChange={(e) => setSql(e.target.value)}
           rows={5}
-          className="font-mono text-xs text-cyan-100 bg-black/40 border-amber-500/20 focus-visible:ring-amber-500/40 resize-y"
+          className="font-mono text-xs text-cyan-700 dark:text-cyan-100 bg-muted/60 dark:bg-black/40 border-amber-500/30 dark:border-amber-500/20 focus-visible:ring-amber-500/40 resize-y"
           spellCheck={false}
         />
-        <p className="mt-1.5 text-[10px] text-slate-500">
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
           ✏ You can edit the SQL above before approving. The modified query will be executed.
         </p>
       </div>
 
       {/* Action buttons */}
-      <div className="flex items-center gap-3 border-t border-amber-500/20 bg-black/20 px-4 py-3">
+      <div className="flex items-center gap-3 border-t border-amber-500/30 dark:border-amber-500/20 bg-muted/40 dark:bg-black/20 px-4 py-3">
         <Button
           size="sm"
           disabled={isSubmitting || !sql.trim()}
@@ -279,7 +286,7 @@ function SqlApprovalPanel({ sessionId, initialSql, onDecision, isSubmitting }: S
           variant="outline"
           disabled={isSubmitting}
           onClick={() => onDecision("rejected", sql)}
-          className="gap-1.5 border-red-500/40 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+          className="gap-1.5 border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300"
         >
           <XCircle className="h-3.5 w-3.5" />
           Reject
@@ -309,8 +316,8 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
     >
       {/* Avatar — assistant side */}
       {!isUser && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 border border-cyan-500/25 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
-          <Bot className="h-4 w-4 text-cyan-400" />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-600/10 border border-cyan-500/30 shadow-[0_0_14px_rgba(6,182,212,0.25)] dark:shadow-[0_0_14px_rgba(6,182,212,0.25)]">
+          <Bot className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
         </div>
       )}
 
@@ -320,8 +327,8 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
           className={cn(
             "rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-md",
             isUser
-              ? "rounded-tr-sm bg-primary/20 border border-primary/30 text-slate-100"
-              : "rounded-tl-sm bg-slate-800/60 border border-slate-700/60 text-slate-100 backdrop-blur-sm"
+              ? "rounded-tr-sm bg-primary/15 border border-primary/30 text-foreground dark:text-slate-100"
+              : "rounded-tl-sm bg-secondary border border-border text-foreground dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100 backdrop-blur-sm"
           )}
         >
           {isStreaming ? (
@@ -348,19 +355,19 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
         <div className="flex items-center gap-2 px-1">
           <MessageTimestamp date={message.timestamp} />
           {isWaitingApproval && (
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
               Awaiting approval
             </span>
           )}
           {message.status === "error" && (
-            <span className="text-[10px] text-red-400">Failed to get response</span>
+            <span className="text-[10px] text-red-600 dark:text-red-400">Failed to get response</span>
           )}
         </div>
       </div>
 
       {/* Avatar — user side */}
       {isUser && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 border border-primary/25">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 border border-primary/30 shadow-[0_0_12px_rgba(255,49,46,0.2)]">
           <UserRound className="h-4 w-4 text-primary" />
         </div>
       )}
@@ -375,7 +382,7 @@ function buildWelcomeMessage(selectedDb: string, dbTarget?: DatabaseTarget): Cha
   return {
     id: "welcome",
     role: "assistant",
-    content: `Connected to **${selectedDb}** (${dbTarget?.env_label ?? "PROD"} · ${dbTarget?.db_type ?? "Standalone"} · ${dbTarget?.os ?? "Windows"})\n\nAsk me anything about your database in plain English — I'll query it and explain the results.`,
+    content: `👋 Hi! I'm connected to **${selectedDb}** (${dbTarget?.env_label ?? "PROD"} · ${dbTarget?.db_type ?? "Standalone"} · ${dbTarget?.os ?? "Windows"}).\n\nAsk me anything about your database in plain English — I'll write the SQL, run it, and explain the results. Pick a suggestion below or type your own question.`,
     timestamp: new Date(),
     status: "done"
   };
@@ -678,77 +685,94 @@ export function ChatWithDb() {
       {/* Fix #4: Fullscreen backdrop overlay */}
       {isFullscreen && (
         <div
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-40 bg-black/40 dark:bg-black/70 backdrop-blur-sm"
           onClick={() => setIsFullscreen(false)}
         />
       )}
 
       <div
         className={cn(
-          "keep-dark flex flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/60 shadow-2xl shadow-black/40 backdrop-blur-xl transition-all duration-300",
+          "flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl dark:border-slate-700/50 dark:bg-slate-900/60 dark:shadow-2xl dark:shadow-black/40 dark:backdrop-blur-xl transition-all duration-300",
           isFullscreen
             ? "fixed inset-4 z-50 h-auto"
-            : "h-[calc(100vh-9rem)]"
+            : "h-[calc(100vh-10rem)]"
         )}
       >
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between border-b border-slate-700/50 bg-slate-900/80 px-5 py-3.5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/10 border border-cyan-500/25 shadow-[0_0_16px_rgba(6,182,212,0.2)]">
-              <Terminal className="h-4.5 w-4.5 text-cyan-400" />
+        <div className="relative border-b border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 px-5 py-3.5">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 dark:via-cyan-400/50 to-transparent" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/10 border border-cyan-500/30 shadow-[0_0_18px_rgba(6,182,212,0.15)] dark:shadow-[0_0_18px_rgba(6,182,212,0.25)]">
+                <Terminal className="h-4.5 w-4.5 text-cyan-600 dark:text-cyan-300" />
+                <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 dark:bg-emerald-400 border border-card dark:border-slate-900" />
+                </span>
+              </div>
+              <div className="leading-tight">
+                <h2 className="text-sm font-semibold bg-gradient-to-r from-cyan-600 to-foreground dark:from-cyan-200 dark:to-slate-100 bg-clip-text text-transparent">
+                  Chat with DB
+                </h2>
+                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="inline-block h-1 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+                  AI online · Ask in plain English
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100">Chat with DB</h2>
-              <p className="text-[11px] text-slate-500">Ask in plain English · AI converts to SQL</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {pollingSessionId && (
-              <span className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                Waiting for unsafe query review…
-              </span>
-            )}
-            <div className="flex items-center gap-1.5 rounded-full border border-slate-700/60 bg-slate-800/60 px-3 py-1.5 text-[11px] text-slate-400">
-              <Database className="h-3 w-3 text-cyan-400" />
-              <span className="font-medium text-slate-200">{selectedDb}</span>
-              <span className="text-slate-600">·</span>
-              <span>{dbTarget?.env_label ?? "PROD"}</span>
-            </div>
-            {/* Fix #4: Fullscreen toggle button */}
-            <button
-              onClick={() => setIsFullscreen((f) => !f)}
-              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/60 text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-300"
-            >
-              {isFullscreen ? (
-                <Minimize2 className="h-3.5 w-3.5" />
-              ) : (
-                <Maximize2 className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2">
+              {pollingSessionId && (
+                <span className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-600 dark:border-amber-500/30 dark:text-amber-400">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400" />
+                  Waiting for unsafe query review…
+                </span>
               )}
-            </button>
+              <div className="flex items-center gap-1.5 rounded-full border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 px-3 py-1.5 text-[11px]">
+                <Database className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
+                <span className="font-medium text-foreground dark:text-slate-200">{selectedDb}</span>
+                <span className="text-muted-foreground/50 dark:text-slate-600">·</span>
+                <span>{dbTarget?.env_label ?? "PROD"}</span>
+              </div>
+              {/* Fix #4: Fullscreen toggle button */}
+              <button
+                onClick={() => setIsFullscreen((f) => !f)}
+                title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* ── Suggested prompts strip ── */}
-        <div className="flex gap-2 overflow-x-auto border-b border-slate-800/60 bg-slate-900/40 px-4 py-2.5 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 dark:border-slate-800/60 dark:bg-slate-900/40 px-4 py-2.5 scrollbar-none">
+          <span className="hidden shrink-0 items-center gap-1 pr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-slate-600 sm:flex">
+            <Sparkles className="h-3 w-3 text-cyan-600/70 dark:text-cyan-500/70" />
+            Try
+          </span>
           {SUGGESTED_PROMPTS.map((prompt) => (
             <button
               key={prompt}
               onClick={() => sendQuery(prompt)}
               disabled={isLoading}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-700/50 bg-slate-800/50 px-3 py-1 text-[11px] text-slate-400 transition-all hover:border-cyan-500/40 hover:bg-cyan-500/5 hover:text-cyan-300 disabled:opacity-40"
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-secondary text-muted-foreground dark:border-slate-700/50 dark:bg-slate-800/50 dark:text-slate-400 px-3 py-1 text-[11px] transition-all hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-700 dark:hover:text-cyan-200 hover:shadow-[0_0_12px_rgba(6,182,212,0.15)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Sparkles className="h-3 w-3" />
+              <Sparkles className="h-3 w-3 text-cyan-600/60 dark:text-cyan-500/60 transition-colors group-hover:text-cyan-300" />
               {prompt}
             </button>
           ))}
         </div>
 
         {/* ── Messages ── */}
-        <ScrollArea className="flex-1 px-4 py-4">
-          <div className="space-y-5">
+        <ScrollArea className="relative flex-1 px-4 py-4">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 to-transparent dark:from-slate-900/80" />
+          <div className="relative space-y-5">
             {messages.map((msg) => (
               <MessageBubble
                 key={msg.id}
@@ -762,25 +786,25 @@ export function ChatWithDb() {
         </ScrollArea>
 
         {/* ── Input area ── */}
-        <div className="border-t border-slate-700/50 bg-slate-900/80 p-4">
+        <div className="border-t border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 p-4">
           <form onSubmit={handleSubmit}>
-            <div className="flex items-end gap-3 rounded-xl border border-slate-700/60 bg-slate-800/50 px-4 py-3 focus-within:border-cyan-500/40 focus-within:shadow-[0_0_0_1px_rgba(6,182,212,0.15)] transition-all">
-              <MessageSquare className="mb-0.5 h-4 w-4 shrink-0 text-slate-500" />
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-secondary/60 dark:border-slate-700/60 dark:bg-slate-800/50 px-4 py-3 transition-all focus-within:border-cyan-500/50 focus-within:bg-secondary dark:focus-within:bg-slate-800/70 focus-within:shadow-[0_0_0_1px_rgba(6,182,212,0.25),0_0_24px_rgba(6,182,212,0.12)]">
+              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground transition-colors focus-within:text-cyan-600 dark:focus-within:text-cyan-400" />
               <Textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask anything about your Oracle DB… (Shift+Enter for new line)"
+                placeholder="Ask anything about your Oracle DB…  (Shift+Enter for new line)"
                 rows={1}
                 disabled={isLoading}
-                className="min-h-0 flex-1 resize-none border-none bg-transparent p-0 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="min-h-0 flex-1 resize-none border-none bg-transparent p-0 text-sm text-foreground dark:text-slate-100 placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <Button
                 type="submit"
                 size="sm"
                 disabled={isLoading || !input.trim()}
-                className="h-8 shrink-0 gap-1.5 bg-cyan-600 px-3 text-white hover:bg-cyan-500 disabled:opacity-40"
+                className="h-8 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 px-3.5 text-white shadow-[0_0_16px_rgba(6,182,212,0.25)] transition-all hover:from-cyan-500 hover:to-blue-500 hover:shadow-[0_0_22px_rgba(6,182,212,0.4)] disabled:from-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-700 disabled:shadow-none disabled:opacity-50"
               >
                 {isLoading ? (
                   <span className="flex items-center gap-1.5">
@@ -797,9 +821,10 @@ export function ChatWithDb() {
               </Button>
             </div>
             {/* Fix #5: Center-aligned footer text */}
-            <div className="mt-1.5 flex items-center justify-center gap-4 px-1">
-              <p className="text-[10px] text-slate-600 text-center">
-                <ChevronRight className="inline h-3 w-3" /> Results are AI-generated · Always review before acting
+            <div className="mt-2 flex items-center justify-center gap-4 px-1">
+              <p className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600">
+                <ChevronRight className="h-3 w-3" />
+                Results are AI-generated · Always review before acting
               </p>
               {messages.length > 1 && (
                 <button
@@ -807,7 +832,7 @@ export function ChatWithDb() {
                   onClick={() =>
                     setMessages([buildWelcomeMessage(selectedDb, dbTarget)])
                   }
-                  className="flex items-center gap-1 text-[10px] text-slate-600 transition hover:text-slate-400"
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600 transition hover:text-amber-600 dark:hover:text-amber-400"
                 >
                   <X className="h-3 w-3" />
                   Clear chat

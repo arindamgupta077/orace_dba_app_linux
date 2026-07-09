@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createShiftLogin, getTakenShifts, insertAuditLog, listActiveShiftSessions } from "@/lib/server/repository";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { getSelectableShifts, getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
@@ -82,6 +83,17 @@ export async function POST(request: Request) {
       email: created.email,
       login_time: created.login_at,
       shift: getShiftLabel(shiftNumber)
+    });
+
+    emitGlobalNotification({
+      id: `DBA-LOGIN-${created.session_id ?? Date.now()}`,
+      type: "dba_shift",
+      severity: "info",
+      db: getShiftLabel(shiftNumber),
+      title: `DBA Login: ${created.username}`,
+      message: `${created.username} logged in to ${getShiftLabel(shiftNumber)} at ${created.login_at}.`,
+      timestamp: created.login_at,
+      targetPath: "/dba-console/shift-management"
     });
 
     return NextResponse.json({ session: created }, { status: 201 });

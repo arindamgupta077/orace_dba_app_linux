@@ -181,6 +181,8 @@ const SHIFT_START_MINUTES: Record<number, number> = {
  * - A time-based shift (1,2,3) is enabled if it is currently active OR its
  *   next start is within SHIFT_BUFFER_MINUTES from now.
  * - General Shift (4) is always enabled.
+ * - Once Shift 2 starts (14:30 IST), Shift 1 login is disabled for the day.
+ * - Once Shift 3 starts (22:30 IST), Shift 2 login is disabled for the day.
  * - Auto-select: after 06:00 → Shift 1, after 12:00 → Shift 2, after 21:00 → Shift 3.
  * - If the preferred shift is disabled, fall back to General Shift.
  */
@@ -191,7 +193,22 @@ export function getSelectableShifts(now: Date = new Date()): SelectableShifts {
   const enabledShifts: number[] = [GENERAL_SHIFT_NUMBER];
   const disabledShifts: number[] = [];
 
+  // Shift start minutes (IST) used for the "next shift started → disable previous" rule.
+  const SHIFT2_START_MIN = 14 * 60 + 30; // 14:30
+  const SHIFT3_START_MIN = 22 * 60 + 30; // 22:30
+
   for (const shiftNum of [1, 2, 3]) {
+    // Once the next shift has started, login for this shift is locked for the day,
+    // even if this shift's active window has not ended (overlap period).
+    if (shiftNum === 1 && minuteOfDay >= SHIFT2_START_MIN) {
+      disabledShifts.push(shiftNum);
+      continue;
+    }
+    if (shiftNum === 2 && minuteOfDay >= SHIFT3_START_MIN) {
+      disabledShifts.push(shiftNum);
+      continue;
+    }
+
     // Currently active → always enabled.
     if (activeShifts.includes(shiftNum)) {
       enabledShifts.push(shiftNum);

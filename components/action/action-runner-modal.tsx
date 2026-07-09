@@ -126,7 +126,6 @@ function TablespaceResultTable({ rows }: { rows: TablespaceRow[] }) {
             <th className="px-4 py-3 text-right font-medium text-muted-foreground">Used&nbsp;GB</th>
             <th className="px-4 py-3 text-right font-medium text-muted-foreground">Free&nbsp;GB</th>
             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Utilization</th>
-            <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -152,11 +151,6 @@ function TablespaceResultTable({ rows }: { rows: TablespaceRow[] }) {
                   <span className="w-12 text-right tabular-nums text-xs text-muted-foreground">
                     {row.pct_used.toFixed(1)}%
                   </span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex justify-center">
-                  <StatusBadge status={row.status} />
                 </div>
               </td>
             </tr>

@@ -1481,12 +1481,6 @@ export function AlertLogPage() {
         icon={<Bell className="h-5 w-5" />}
         title="Alert Notification System"
         subtitle="Oracle ORA- errors captured by n8n every 15 minutes — stored in dba_alert_log"
-        badge={
-          <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            n8n → App (Inbound)
-          </span>
-        }
       >
         <Section1 />
       </SectionPanel>
@@ -1497,12 +1491,6 @@ export function AlertLogPage() {
         icon={<Clock className="h-5 w-5" />}
         title="Check Alert by Time Range"
         subtitle="Query v$diag_alert_ext via n8n for a custom time window"
-        badge={
-          <span className="flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-3 py-1 text-[11px] text-blue-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-            App → n8n Webhook
-          </span>
-        }
       >
         <Section2 />
       </SectionPanel>
@@ -1513,12 +1501,6 @@ export function AlertLogPage() {
         icon={<Terminal className="h-5 w-5" />}
         title="Check Alert Log — Last N Lines"
         subtitle="Fetch latest alert log lines via PowerShell Get-Content through n8n"
-        badge={
-          <span className="flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-[11px] text-violet-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
-            App → n8n Webhook
-          </span>
-        }
       >
         <Section3 />
       </SectionPanel>

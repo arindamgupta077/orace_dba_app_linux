@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { acknowledgeHandover, insertAuditLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { getShiftLabel } from "@/lib/server/shift-utils";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,17 @@ export async function POST(request: Request) {
       email: session.user.username,
       shift: getShiftLabel(handover.shift_number),
       author: handover.author_username
+    });
+
+    emitGlobalNotification({
+      id: `DBA-HOACK-${handover.handover_id}-${Date.now()}`,
+      type: "dba_shift",
+      severity: "info",
+      db: getShiftLabel(handover.shift_number),
+      title: `Handover Acknowledged: ${session.user.username}`,
+      message: `${session.user.username} acknowledged the handover from ${handover.author_username} for ${getShiftLabel(handover.shift_number)}.`,
+      timestamp: handover.ack_at || new Date().toISOString(),
+      targetPath: "/dba-console/shift-management"
     });
 
     return NextResponse.json({ handover });

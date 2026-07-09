@@ -656,4 +656,70 @@ body::selection {
 :root:not(.dark) .keep-dark .bg-black\/50     { background-color: #0f172a; }
 :root:not(.dark) .keep-dark .bg-black\/70     { background-color: #000000; }
 
+/* ── Same-element variants.
+    The rules above use a DESCENDANT combinator (`.keep-dark .X`),
+    so they only fire when the bg/text utility sits on a CHILD of a
+    `.keep-dark` container.  In several places (Live JSON Preview
+    <pre>, Raw JSON <textarea>, terminal panels, SQL payload <pre>)
+    the `.keep-dark` marker is placed on the SAME element as the
+    `bg-black/50` / `text-cyan-100` utilities.  Without these
+    same-element compound selectors the safety-net overrides above
+    would win, leaving a washed-out semi-transparent surface and a
+    low-contrast dark-cyan text on a light page.  These compound
+    selectors carry higher specificity (0,4,0 vs 0,3,0) and restore
+    the solid dark surface + vivid text on the keep-dark element
+    itself, fixing the Live JSON / Raw JSON contrast in white mode. ── */
+:root:not(.dark) .keep-dark.bg-slate-800      { background-color: #1e293b; }
+:root:not(.dark) .keep-dark.bg-slate-900\/80  { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-slate-900\/60  { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-slate-900\/40  { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-slate-900\/30  { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-slate-950\/40  { background-color: #020617; }
+:root:not(.dark) .keep-dark.bg-slate-950\/30  { background-color: #020617; }
+:root:not(.dark) .keep-dark.bg-slate-950\/20  { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-black\/20      { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-black\/30      { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-black\/40      { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-black\/50      { background-color: #0f172a; }
+:root:not(.dark) .keep-dark.bg-black\/70      { background-color: #000000; }
+:root:not(.dark) .keep-dark.bg-black          { background-color: #000000; }
+
+/* ── Same-element text colours: restore vivid values on the
+    keep-dark element itself (overrides the safety-net darkening). ── */
+:root:not(.dark) .keep-dark.text-slate-50   { color: #f8fafc; }
+:root:not(.dark) .keep-dark.text-slate-100  { color: #f1f5f9; }
+:root:not(.dark) .keep-dark.text-slate-200  { color: #e2e8f0; }
+:root:not(.dark) .keep-dark.text-slate-300  { color: #cbd5e1; }
+:root:not(.dark) .keep-dark.text-slate-400  { color: #94a3b8; }
+:root:not(.dark) .keep-dark.text-slate-500  { color: #64748b; }
+:root:not(.dark) .keep-dark.text-cyan-50    { color: #ecfeff; }
+:root:not(.dark) .keep-dark.text-cyan-100   { color: #cffafe; }
+:root:not(.dark) .keep-dark.text-cyan-200   { color: #a5f3fc; }
+:root:not(.dark) .keep-dark.text-cyan-300   { color: #67e8f9; }
+:root:not(.dark) .keep-dark.text-cyan-400   { color: #22d3ee; }
+:root:not(.dark) .keep-dark.text-red-100    { color: #fee2e2; }
+:root:not(.dark) .keep-dark.text-red-200    { color: #fecaca; }
+:root:not(.dark) .keep-dark.text-red-300    { color: #fca5a5; }
+:root:not(.dark) .keep-dark.text-red-400    { color: #f87171; }
+:root:not(.dark) .keep-dark.text-amber-100  { color: #fef3c7; }
+:root:not(.dark) .keep-dark.text-amber-200  { color: #fde68a; }
+:root:not(.dark) .keep-dark.text-amber-300  { color: #fcd34d; }
+:root:not(.dark) .keep-dark.text-amber-400  { color: #fbbf24; }
+:root:not(.dark) .keep-dark.text-emerald-100 { color: #d1fae5; }
+:root:not(.dark) .keep-dark.text-emerald-200 { color: #a7f3d0; }
+:root:not(.dark) .keep-dark.text-emerald-300 { color: #6ee7b7; }
+:root:not(.dark) .keep-dark.text-emerald-400 { color: #34d399; }
+:root:not(.dark) .keep-dark.text-violet-200 { color: #ddd6fe; }
+:root:not(.dark) .keep-dark.text-violet-300 { color: #c4b5fd; }
+:root:not(.dark) .keep-dark.text-violet-400 { color: #a78bfa; }
+
+/* Opacity-variant text on the keep-dark element itself */
+:root:not(.dark) .keep-dark[class*="text-cyan-100/"] { color: #cffafe; }
+:root:not(.dark) .keep-dark[class*="text-cyan-200/"] { color: #a5f3fc; }
+:root:not(.dark) .keep-dark[class*="text-cyan-300/"] { color: #67e8f9; }
+:root:not(.dark) .keep-dark[class*="text-cyan-400/"] { color: #22d3ee; }
+:root:not(.dark) .keep-dark[class*="text-slate-100/"] { color: #f1f5f9; }
+:root:not(.dark) .keep-dark[class*="text-slate-200/"] { color: #e2e8f0; }
+:root:not(.dark) .keep-dark[class*="text-slate-300/"] { color: #cbd5e1; }
+
 

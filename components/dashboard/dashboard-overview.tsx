@@ -685,12 +685,61 @@ export function DashboardOverview() {
   const memPctOnly    = memTotalGb === 0 && memPctDirect > 0; // flag: only % is available
 
   const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
-  const hasCriticalCapacity = safeNum(fra?.pct_used) >= 85 || maxTablespacePct >= 90 || tablespacesOver90 > 0;
-  const isHealthy  = !m || (blocking.length === 0 && !hasCriticalCapacity && usersExpiringCount === 0 && failedLoginCount === 0);
-  const isWarning  = m && !isHealthy && blocking.length === 0 && !hasCriticalCapacity;
+  const isDbStatusOk = !m || (dbHealth?.open_mode?.includes("READ WRITE") ?? false);
+  const listenerUpper = (dbHealth?.listener_status ?? "").toUpperCase();
+  const isListenerOk = !m || (listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING");
+  const isRemoteConnOk = !m || (dbHealth?.connection_test === "SUCCESS");
+
+  const isCritical = !!m && (
+    maxTablespacePct > 95 ||
+    (fra !== null && safeNum(fra.pct_used) > 90) ||
+    blocking.length > 0 ||
+    !isDbStatusOk ||
+    !isListenerOk ||
+    !isRemoteConnOk
+  );
+  const isWarning  = !!m && !isCritical && (usersExpiringCount > 0 || failedLoginCount > 50);
+  const isHealthy  = !m || (!isCritical && !isWarning);
 
   const overallBadge = !m ? null : isHealthy ? "HEALTHY" : isWarning ? "WARNING" : "CRITICAL";
   const overallColor = !m ? "" : isHealthy ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : isWarning ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-red-400/30 bg-red-500/10 text-red-300";
+
+  // Build tooltip status info
+  const getTooltipText = () => {
+    if (!m) return "";
+    const reasons: string[] = [];
+    if (isCritical) {
+      if (maxTablespacePct > 95) {
+        reasons.push(`- Tablespace usage above 95% (Max: ${maxTablespacePct.toFixed(1)}%)`);
+      }
+      if (fra && safeNum(fra.pct_used) > 90) {
+        reasons.push(`- FRA usage above 90% (${safeNum(fra.pct_used).toFixed(1)}%)`);
+      }
+      if (blocking.length > 0) {
+        reasons.push(`- Active blocking sessions (${blocking.length})`);
+      }
+      if (!isDbStatusOk) {
+        reasons.push(`- Database status is negative (${dbHealth?.open_mode || "RESTRICTED"})`);
+      }
+      if (!isListenerOk) {
+        reasons.push(`- Listener status is negative (${dbHealth?.listener_status || "DOWN"})`);
+      }
+      if (!isRemoteConnOk) {
+        reasons.push(`- Remote connection test negative (${dbHealth?.connection_test || "FAILED"})`);
+      }
+    } else if (isWarning) {
+      if (usersExpiringCount > 0) {
+        reasons.push(`- Users expiring in 15 days (${usersExpiringCount})`);
+      }
+      if (failedLoginCount > 50) {
+        reasons.push(`- Failed login attempts > 50 (${failedLoginCount})`);
+      }
+    }
+
+    const reasonsStr = reasons.length > 0 ? `Triggered by:\n${reasons.join("\n")}\n\n` : "";
+
+    return `${reasonsStr}Status Rules:\n• CRITICAL: Tablespace > 95%, FRA > 90%, Blocking sessions > 0, or negative DB/Listener/Remote connection\n• WARNING: Expiring users in 15 days or Failed logins > 50\n• HEALTHY: None of the above`;
+  };
 
   const csvData = tablespaces.map((t) => ({ tablespace: t.tablespace_name, total_mb: t.total_mb, used_mb: t.used_mb, free_mb: t.free_mb, pct_used: t.pct_used }));
 
@@ -750,7 +799,10 @@ export function DashboardOverview() {
               </>
             )}
             {overallBadge && (
-              <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-wide ${overallColor}`}>
+              <span
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-wide ${overallColor} cursor-help`}
+                title={getTooltipText()}
+              >
                 {overallBadge}
               </span>
             )}
@@ -1072,7 +1124,7 @@ export function DashboardOverview() {
                   label="Failed Logins"
                   value={failedLoginCount}
                   sub="Last 24 hours"
-                  variant={failedLoginCount > 0 ? "warning" : "healthy"}
+                  variant={failedLoginCount > 50 ? "warning" : "healthy"}
                 />
                 <KpiTile
                   icon={Shield}

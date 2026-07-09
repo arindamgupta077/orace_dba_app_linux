@@ -149,6 +149,7 @@ export function ShiftManagementSection() {
   const [overrideReason, setOverrideReason] = useState("");
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [viewHandover, setViewHandover] = useState<ShiftSession | null>(null);
+  const [viewedHandoverIds, setViewedHandoverIds] = useState<Set<number>>(new Set());
   const [handoverHistory, setHandoverHistory] = useState<Handover[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -467,7 +468,17 @@ export function ShiftManagementSection() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => setViewHandover(session)}
+                            onClick={() => {
+                              setViewHandover(session);
+                              if (session.handover_id) {
+                                setViewedHandoverIds((prev) => {
+                                  if (prev.has(session.handover_id!)) return prev;
+                                  const next = new Set(prev);
+                                  next.add(session.handover_id!);
+                                  return next;
+                                });
+                              }
+                            }}
                             title="View handover"
                           >
                             <FileText className="h-3.5 w-3.5" />
@@ -476,7 +487,17 @@ export function ShiftManagementSection() {
                         {canManageShift &&
                           session.username !== user?.username &&
                           session.handover_status === "PENDING" &&
-                          session.handover_id && (
+                          session.handover_id &&
+                          !viewedHandoverIds.has(session.handover_id) && (
+                            <span className="text-xs text-muted-foreground">
+                              View handover to acknowledge
+                            </span>
+                          )}
+                        {canManageShift &&
+                          session.username !== user?.username &&
+                          session.handover_status === "PENDING" &&
+                          session.handover_id &&
+                          viewedHandoverIds.has(session.handover_id) && (
                             <Button
                               size="sm"
                               variant="outline"

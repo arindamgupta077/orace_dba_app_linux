@@ -8,6 +8,7 @@ import {
 } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +75,17 @@ export async function POST(request: Request) {
       logout_time: closed.logout_at,
       handover_text: handover?.handover_text || "",
       shift: getShiftLabel(closed.shift_number)
+    });
+
+    emitGlobalNotification({
+      id: `DBA-LOGOUT-${targetSessionId}-${Date.now()}`,
+      type: "dba_shift",
+      severity: "info",
+      db: getShiftLabel(closed.shift_number),
+      title: `DBA Logout: ${closed.username}`,
+      message: `${closed.username} logged out from ${getShiftLabel(closed.shift_number)} at ${closed.logout_at}.`,
+      timestamp: closed.logout_at || new Date().toISOString(),
+      targetPath: "/dba-console/shift-management"
     });
 
     return NextResponse.json({ session: closed });

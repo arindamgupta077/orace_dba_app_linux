@@ -59,8 +59,8 @@ export function GeneralAdminDashboard() {
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 to-slate-800 shadow-lg">
-          <Settings2 className="h-6 w-6 text-slate-200" />
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-200 to-slate-300 shadow-lg dark:from-slate-600 dark:to-slate-800">
+          <Settings2 className="h-6 w-6 text-slate-700 dark:text-slate-200" />
         </div>
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">General Administration</h1>

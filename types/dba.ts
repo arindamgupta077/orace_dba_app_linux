@@ -274,7 +274,7 @@ export interface AlertLinesResponse {
   database_name: string;
 }
 
-export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "generic";
+export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "generic";
 
 /** Shared shape of the SSE notification payload broadcast to clients */
 export interface NotificationPayload {

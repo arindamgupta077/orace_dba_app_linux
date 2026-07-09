@@ -57,6 +57,8 @@ function NotificationTypeIcon({ type }: { type: NotificationItemType }) {
       return <HardDrive className="h-3.5 w-3.5" />;
     case "alert_log":
       return <FileWarning className="h-3.5 w-3.5" />;
+    case "dba_shift":
+      return <Bell className="h-3.5 w-3.5" />;
     default:
       return <Bell className="h-3.5 w-3.5" />;
   }
@@ -70,6 +72,8 @@ function typeLabel(type: NotificationItemType) {
       return "Filesystem";
     case "alert_log":
       return "Alert Log";
+    case "dba_shift":
+      return "DBA Console";
     default:
       return "Alert";
   }
