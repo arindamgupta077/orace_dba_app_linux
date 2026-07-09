@@ -44,7 +44,7 @@ import {
   updateBackupTemplateApi
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
-import { cn, formatTime, toIstDateString } from "@/lib/utils";
+import { cn, formatTime, getDefaultShiftForTime, toIstDateString } from "@/lib/utils";
 import type {
   BackupStatusCheck,
   BackupStatusValue,
@@ -94,7 +94,7 @@ export function DailyChecklistSection() {
   const [backupChecks, setBackupChecks] = useState<BackupStatusCheck[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [shiftNumber, setShiftNumber] = useState<string>("1");
+  const [shiftNumber, setShiftNumber] = useState<string>(getDefaultShiftForTime());
   const [shiftDate, setShiftDate] = useState<string>(todayStr());
   const [search, setSearch] = useState("");
   const [templateDialog, setTemplateDialog] = useState(false);

@@ -1,15 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { AdminPanel } from "@/components/admin/admin-panel";
-import { requireAuthenticatedSession } from "@/lib/server/session";
-
 export const dynamic = "force-dynamic";
 
-export default async function AdminPanelPage() {
-  const session = await requireAuthenticatedSession();
-  if (!session || session.user.role !== "app_admin") {
-    redirect("/dashboard");
-  }
-
-  return <AdminPanel />;
+export default function AdminPanelPage() {
+  redirect("/admin-panel/app-users");
 }

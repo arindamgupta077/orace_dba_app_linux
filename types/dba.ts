@@ -394,6 +394,7 @@ export interface AuditLogItem {
   status: string;
   timestamp: string;
   detail: string;
+  sql_command?: string;
   user_id?: number;
   metadata?: Record<string, unknown>;
 }
@@ -418,12 +419,33 @@ export interface DatabaseOwnerSummary {
   email: string;
 }
 
+export type DbServerType = "Physical" | "Virtual";
+
+export type DbDivision = "PCPB" | "ITD" | "FBD" | "HOTEL" | "ILTD" | "CORP" | "ITSS";
+
+export const DB_DIVISION_OPTIONS: DbDivision[] = ["PCPB", "ITD", "FBD", "HOTEL", "ILTD", "CORP", "ITSS"];
+
+export const DB_EDITION_OPTIONS = [
+  "Enterprise Edition",
+  "Standard Edition",
+  "Standard Edition One",
+  "Personal Edition",
+  "Express Edition"
+] as const;
+
+export type DbEdition = (typeof DB_EDITION_OPTIONS)[number];
+
 export interface DatabaseInventoryItem extends DatabaseTarget {
   id: number;
   database_name: string;
   location: string;
   owner_id: number;
   owner?: DatabaseOwnerSummary;
+  server_type: DbServerType;
+  db_version?: string;
+  db_edition?: string;
+  db_port: number;
+  division: DbDivision;
   created_at: string;
   updated_at: string;
   created_by?: string;
@@ -443,6 +465,11 @@ export interface DatabaseInventoryInput {
   server_name?: string;
   server_ip?: string;
   zone?: string;
+  server_type?: string;
+  db_version?: string;
+  db_edition?: string;
+  db_port?: number;
+  division?: string;
 }
 
 export interface UserSession {

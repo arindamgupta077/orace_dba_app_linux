@@ -161,6 +161,7 @@ CREATE TABLE app_audit_logs (
   status VARCHAR2(32) NOT NULL,
   detail CLOB,
   metadata_json CLOB,
+  sql_command CLOB,
   created_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP NOT NULL,
   CONSTRAINT app_audit_logs_pk PRIMARY KEY (audit_id),
   CONSTRAINT app_audit_logs_user_fk FOREIGN KEY (user_id) REFERENCES app_users(user_id)

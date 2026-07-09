@@ -259,6 +259,43 @@ function normalizeEnvironmentLabel(value: unknown, environment: string): DbEnvir
   return "DEV";
 }
 
+function normalizeServerType(value: unknown): "Physical" | "Virtual" {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "virtual" ? "Virtual" : "Physical";
+}
+
+function normalizeDivision(value: unknown): "PCPB" | "ITD" | "FBD" | "HOTEL" | "ILTD" | "CORP" | "ITSS" {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (
+    normalized === "PCPB" ||
+    normalized === "ITD" ||
+    normalized === "FBD" ||
+    normalized === "HOTEL" ||
+    normalized === "ILTD" ||
+    normalized === "CORP" ||
+    normalized === "ITSS"
+  ) {
+    return normalized;
+  }
+  return "PCPB";
+}
+
+function normalizeDbPort(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) return 1521;
+  return Math.trunc(parsed);
+}
+
+function normalizeDbVersion(value: unknown): string {
+  const normalized = String(value || "").trim();
+  return normalized.slice(0, 40);
+}
+
+function normalizeDbEdition(value: unknown): string {
+  const normalized = String(value || "").trim();
+  return normalized.slice(0, 40);
+}
+
 function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
   const databaseName = String(row.DATABASE_NAME || "");
   const environment = String(row.ENVIRONMENT || "");
@@ -280,6 +317,11 @@ function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
     server_name: row.SERVER_NAME ? String(row.SERVER_NAME) : undefined,
     server_ip: row.SERVER_IP ? String(row.SERVER_IP) : undefined,
     zone: row.ZONE ? String(row.ZONE) : undefined,
+    server_type: normalizeServerType(row.SERVER_TYPE),
+    db_version: row.DB_VERSION ? String(row.DB_VERSION) : undefined,
+    db_edition: row.DB_EDITION ? String(row.DB_EDITION) : undefined,
+    db_port: normalizeDbPort(row.DB_PORT),
+    division: normalizeDivision(row.DIVISION),
     owner_id: ownerId,
     owner: ownerId
       ? {
@@ -308,6 +350,11 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
   const serverName = input.server_name?.trim() || "";
   const serverIp = input.server_ip?.trim() || "";
   const zone = input.zone?.trim() || "SZ1";
+  const serverType = normalizeServerType(input.server_type);
+  const dbVersion = normalizeDbVersion(input.db_version);
+  const dbEdition = normalizeDbEdition(input.db_edition);
+  const dbPort = normalizeDbPort(input.db_port);
+  const division = normalizeDivision(input.division);
 
   if (!databaseName || databaseName.length > 128) {
     throw new Error("Database name is required and must be 128 characters or fewer.");
@@ -333,6 +380,15 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
   if (zone !== "SZ1" && zone !== "SZ2" && zone !== "LAN") {
     throw new Error("Zone must be SZ1, SZ2, or LAN.");
   }
+  if (dbVersion.length > 40) {
+    throw new Error("DB version must be 40 characters or fewer.");
+  }
+  if (dbEdition.length > 40) {
+    throw new Error("DB edition must be 40 characters or fewer.");
+  }
+  if (!Number.isInteger(dbPort) || dbPort < 1 || dbPort > 65535) {
+    throw new Error("DB port must be between 1 and 65535.");
+  }
 
   return {
     databaseName,
@@ -346,7 +402,12 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
     ownerId,
     serverName,
     serverIp,
-    zone
+    zone,
+    serverType,
+    dbVersion,
+    dbEdition,
+    dbPort,
+    division
   };
 }
 
@@ -670,6 +731,11 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
        d.database_type,
        d.status,
        d.environment_label,
+       d.server_type,
+       d.db_version,
+       d.db_edition,
+       d.db_port,
+       d.division,
        d.owner_id,
        u.username AS owner_username,
        u.email AS owner_email,
@@ -707,6 +773,11 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
          d.database_type,
          d.status,
          d.environment_label,
+         d.server_type,
+         d.db_version,
+         d.db_edition,
+         d.db_port,
+         d.division,
          d.owner_id,
          u.username AS owner_username,
          u.email AS owner_email,
@@ -717,7 +788,7 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
        FROM database_inventory d
        LEFT JOIN app_users u ON u.user_id = d.owner_id
        ${ownerFilter}
-       ORDER BY UPPER(d.database_name)`,
+       ORDER BY d.division, UPPER(d.database_name)`,
       binds
     );
 
@@ -744,26 +815,31 @@ export async function getDatabaseTargetByName(name: string): Promise<DatabaseTar
          d.id,
          d.database_name,
          d.environment,
-         d.server_name,
-         d.server_ip,
-         d.zone,
-         d.location,
-         d.operating_system,
-         d.database_role,
-         d.database_type,
-         d.status,
-         d.environment_label,
-         d.owner_id,
-         u.username AS owner_username,
-         u.email AS owner_email,
-         d.created_at,
-         d.updated_at,
-         d.created_by,
-         d.updated_by
-       FROM database_inventory d
-       LEFT JOIN app_users u ON u.user_id = d.owner_id
-       WHERE UPPER(d.database_name) = UPPER(:name)
-       FETCH FIRST 1 ROW ONLY`,
+d.server_name,
+        d.server_ip,
+        d.zone,
+        d.location,
+        d.operating_system,
+        d.database_role,
+        d.database_type,
+        d.status,
+        d.environment_label,
+        d.server_type,
+        d.db_version,
+        d.db_edition,
+        d.db_port,
+        d.division,
+        d.owner_id,
+        u.username AS owner_username,
+        u.email AS owner_email,
+        d.created_at,
+        d.updated_at,
+        d.created_by,
+        d.updated_by
+      FROM database_inventory d
+      LEFT JOIN app_users u ON u.user_id = d.owner_id
+      WHERE UPPER(d.database_name) = UPPER(:name)
+      FETCH FIRST 1 ROW ONLY`,
       { name: normalizedName }
     );
 
@@ -809,6 +885,11 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
            database_type,
            status,
            environment_label,
+           server_type,
+           db_version,
+           db_edition,
+           db_port,
+           division,
            owner_id,
            created_by,
            updated_by
@@ -825,6 +906,11 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
            :databaseType,
            :status,
            :environmentLabel,
+           :serverType,
+           :dbVersion,
+           :dbEdition,
+           :dbPort,
+           :division,
            :ownerId,
            :actor,
            :actor
@@ -842,6 +928,11 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
           databaseType: normalized.databaseType,
           status: normalized.status,
           environmentLabel: normalized.environmentLabel,
+          serverType: normalized.serverType,
+          dbVersion: normalized.dbVersion || null,
+          dbEdition: normalized.dbEdition || null,
+          dbPort: normalized.dbPort,
+          division: normalized.division,
           ownerId: normalized.ownerId,
           actor
         }
@@ -912,6 +1003,11 @@ export async function updateDatabaseInventory(id: number, input: DatabaseInvento
              database_type = :databaseType,
              status = :status,
              environment_label = :environmentLabel,
+             server_type = :serverType,
+             db_version = :dbVersion,
+             db_edition = :dbEdition,
+             db_port = :dbPort,
+             division = :division,
              owner_id = :ownerId,
              updated_by = :actor
          WHERE id = :id`,
@@ -928,6 +1024,11 @@ export async function updateDatabaseInventory(id: number, input: DatabaseInvento
           databaseType: normalized.databaseType,
           status: normalized.status,
           environmentLabel: normalized.environmentLabel,
+          serverType: normalized.serverType,
+          dbVersion: normalized.dbVersion || null,
+          dbEdition: normalized.dbEdition || null,
+          dbPort: normalized.dbPort,
+          division: normalized.division,
           ownerId: normalized.ownerId,
           actor
         }
@@ -1521,6 +1622,7 @@ export async function listAuditLogs(
          status,
          detail,
          metadata_json,
+         sql_command,
          created_at
        FROM app_audit_logs
        ${whereClause}
@@ -1537,6 +1639,7 @@ export async function listAuditLogs(
       db: row.DB_NAME ? String(row.DB_NAME) : undefined,
       status: String(row.STATUS),
       detail: row.DETAIL ? String(row.DETAIL) : "",
+      sql_command: row.SQL_COMMAND ? String(row.SQL_COMMAND) : undefined,
       metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON),
       timestamp: toIstIsoString(row.CREATED_AT)
     }));

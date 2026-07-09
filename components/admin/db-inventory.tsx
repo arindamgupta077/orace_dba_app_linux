@@ -29,7 +29,8 @@ import {
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
-import type { AppUser, DatabaseInventoryInput, DatabaseInventoryItem, DbEnvironment, DbOs, DbType } from "@/types/dba";
+import type { AppUser, DatabaseInventoryInput, DatabaseInventoryItem, DbDivision, DbEdition, DbEnvironment, DbOs, DbServerType, DbType } from "@/types/dba";
+import { DB_DIVISION_OPTIONS, DB_EDITION_OPTIONS } from "@/types/dba";
 
 const ENVIRONMENT_OPTIONS = ["Production", "non-production", "DR"];
 const OS_OPTIONS: DbOs[] = ["Linux", "Windows"];
@@ -39,6 +40,10 @@ const STATUS_OPTIONS = ["active", "inactive", "decomissioned"];
 const ENV_LABEL_OPTIONS: DbEnvironment[] = ["PROD", "DEV", "UAT", "DR"];
 const LOCATION_OPTIONS = ["SDC", "KDC"];
 const ZONE_OPTIONS = ["SZ1", "SZ2", "LAN"] as const;
+const SERVER_TYPE_OPTIONS: DbServerType[] = ["Physical", "Virtual"];
+const DIVISION_OPTIONS: DbDivision[] = DB_DIVISION_OPTIONS;
+const DB_EDITION_OPTIONS_LIST: readonly DbEdition[] = DB_EDITION_OPTIONS;
+const DEFAULT_DB_PORT = 1521;
 
 interface InventoryFormState {
   database_name: string;
@@ -53,6 +58,11 @@ interface InventoryFormState {
   server_name: string;
   server_ip: string;
   zone: string;
+  server_type: string;
+  db_version: string;
+  db_edition: string;
+  db_port: string;
+  division: string;
 }
 
 const emptyForm: InventoryFormState = {
@@ -67,7 +77,12 @@ const emptyForm: InventoryFormState = {
   owner_id: "",
   server_name: "",
   server_ip: "",
-  zone: "SZ1"
+  zone: "SZ1",
+  server_type: "Physical",
+  db_version: "",
+  db_edition: "Enterprise Edition",
+  db_port: String(DEFAULT_DB_PORT),
+  division: "PCPB"
 };
 
 function toForm(database: DatabaseInventoryItem): InventoryFormState {
@@ -88,7 +103,12 @@ function toForm(database: DatabaseInventoryItem): InventoryFormState {
     owner_id: String(database.owner_id),
     server_name: database.server_name || "",
     server_ip: database.server_ip || "",
-    zone: database.zone || "SZ1"
+    zone: database.zone || "SZ1",
+    server_type: database.server_type,
+    db_version: database.db_version || "",
+    db_edition: database.db_edition || "",
+    db_port: String(database.db_port ?? DEFAULT_DB_PORT),
+    division: database.division
   };
 }
 
@@ -105,7 +125,12 @@ function toInput(form: InventoryFormState): DatabaseInventoryInput {
     owner_id: Number(form.owner_id),
     server_name: form.server_name.trim() || undefined,
     server_ip: form.server_ip.trim() || undefined,
-    zone: form.zone.trim()
+    zone: form.zone.trim(),
+    server_type: form.server_type,
+    db_version: form.db_version.trim() || undefined,
+    db_edition: form.db_edition.trim() || undefined,
+    db_port: form.db_port.trim() !== "" ? Number(form.db_port) : undefined,
+    division: form.division
   };
 }
 
@@ -126,6 +151,8 @@ export function DbInventory() {
   const [selectedDbType, setSelectedDbType] = useState<string>("all");
   const [selectedOs, setSelectedOs] = useState<string>("all");
   const [selectedZone, setSelectedZone] = useState<string>("all");
+  const [selectedDivision, setSelectedDivision] = useState<string>("all");
+  const [selectedServerType, setSelectedServerType] = useState<string>("all");
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -174,7 +201,12 @@ export function DbInventory() {
           database.status,
           database.server_name,
           database.server_ip,
-          database.zone
+          database.zone,
+          database.server_type,
+          database.db_version,
+          database.db_edition,
+          String(database.db_port ?? ""),
+          database.division
         ]
           .join(" ")
           .toLowerCase()
@@ -207,9 +239,19 @@ export function DbInventory() {
         return false;
       }
 
+      // 7. Division Filter
+      if (selectedDivision !== "all" && database.division !== selectedDivision) {
+        return false;
+      }
+
+      // 8. Server Type Filter
+      if (selectedServerType !== "all" && database.server_type !== selectedServerType) {
+        return false;
+      }
+
       return true;
     });
-  }, [databases, query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone]);
+  }, [databases, query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone, selectedDivision, selectedServerType]);
 
   const hasActiveFilters = useMemo(() => {
     return (
@@ -218,9 +260,11 @@ export function DbInventory() {
       selectedStatus !== "all" ||
       selectedDbType !== "all" ||
       selectedOs !== "all" ||
-      selectedZone !== "all"
+      selectedZone !== "all" ||
+      selectedDivision !== "all" ||
+      selectedServerType !== "all"
     );
-  }, [query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone]);
+  }, [query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone, selectedDivision, selectedServerType]);
 
   const handleClearFilters = () => {
     setQuery("");
@@ -229,6 +273,8 @@ export function DbInventory() {
     setSelectedDbType("all");
     setSelectedOs("all");
     setSelectedZone("all");
+    setSelectedDivision("all");
+    setSelectedServerType("all");
   };
 
   const openCreate = () => {
@@ -364,6 +410,15 @@ export function DbInventory() {
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-2">
+          <Label>Division</Label>
+          <Select value={form.division} onValueChange={(value) => updateFormField("division", value)} required>
+            <SelectTrigger><SelectValue placeholder="Select division" /></SelectTrigger>
+            <SelectContent>
+              {DIVISION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -398,7 +453,7 @@ export function DbInventory() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor={`${mode}-server-name`}>Server Name</Label>
+          <Label htmlFor={`${mode}-server-name`}>Host Name</Label>
           <Input
             id={`${mode}-server-name`}
             value={form.server_name}
@@ -415,6 +470,52 @@ export function DbInventory() {
             onChange={(event) => updateFormField("server_ip", event.target.value)}
             maxLength={45}
             placeholder="e.g. 192.168.1.50"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`${mode}-db-version`}>DB Version</Label>
+          <Input
+            id={`${mode}-db-version`}
+            value={form.db_version}
+            onChange={(event) => updateFormField("db_version", event.target.value)}
+            maxLength={40}
+            placeholder="e.g. 19.21.0.0"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>DB Edition</Label>
+          <Select value={form.db_edition} onValueChange={(value) => updateFormField("db_edition", value)}>
+            <SelectTrigger><SelectValue placeholder="Select edition" /></SelectTrigger>
+            <SelectContent>
+              {DB_EDITION_OPTIONS_LIST.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Server Type</Label>
+          <Select value={form.server_type} onValueChange={(value) => updateFormField("server_type", value)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {SERVER_TYPE_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${mode}-db-port`}>DB Port</Label>
+          <Input
+            id={`${mode}-db-port`}
+            type="number"
+            min={1}
+            max={65535}
+            value={form.db_port}
+            onChange={(event) => updateFormField("db_port", event.target.value)}
+            placeholder="e.g. 1521"
           />
         </div>
       </div>
@@ -568,7 +669,9 @@ export function DbInventory() {
                       (selectedStatus !== "all" ? 1 : 0) +
                       (selectedDbType !== "all" ? 1 : 0) +
                       (selectedOs !== "all" ? 1 : 0) +
-                      (selectedZone !== "all" ? 1 : 0)
+                      (selectedZone !== "all" ? 1 : 0) +
+                      (selectedDivision !== "all" ? 1 : 0) +
+                      (selectedServerType !== "all" ? 1 : 0)
                     }
                   </Badge>
                 )}
@@ -590,7 +693,7 @@ export function DbInventory() {
 
           {/* Advanced filters dropdown panel */}
           {showAdvanced && (
-            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5 p-4 rounded-lg border border-border/60 bg-muted/20 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 p-4 rounded-lg border border-border/60 bg-muted/20 backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Environment Label</label>
                 <Select value={selectedEnvLabel} onValueChange={setSelectedEnvLabel}>
@@ -667,6 +770,36 @@ export function DbInventory() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Division</label>
+                <Select value={selectedDivision} onValueChange={setSelectedDivision}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Divisions</SelectItem>
+                    {DIVISION_OPTIONS.map((division) => (
+                      <SelectItem key={division} value={division}>{division}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Server Type</label>
+                <Select value={selectedServerType} onValueChange={setSelectedServerType}>
+                  <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Server Types</SelectItem>
+                    {SERVER_TYPE_OPTIONS.map((serverType) => (
+                      <SelectItem key={serverType} value={serverType}>{serverType}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
@@ -728,6 +861,24 @@ export function DbInventory() {
                   </button>
                 </Badge>
               )}
+
+              {selectedDivision !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Division: {selectedDivision}
+                  <button onClick={() => setSelectedDivision("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+
+              {selectedServerType !== "all" && (
+                <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
+                  Server Type: {selectedServerType}
+                  <button onClick={() => setSelectedServerType("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
             </div>
           )}
         </CardHeader>
@@ -738,13 +889,18 @@ export function DbInventory() {
               Loading DB inventory
             </div>
           ) : (
-            <Table className="min-w-[1200px]">
+            <Table className="min-w-[1500px]">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="font-bold uppercase tracking-wider text-cyan-300">Division</TableHead>
                   <TableHead>Database Name</TableHead>
                   <TableHead>Environment</TableHead>
-                  <TableHead>Server Name</TableHead>
+                  <TableHead>DB Version</TableHead>
+                  <TableHead>DB Edition</TableHead>
+                  <TableHead>Server Type</TableHead>
+                  <TableHead>Host Name</TableHead>
                   <TableHead>Server IP</TableHead>
+                  <TableHead>DB Port</TableHead>
                   <TableHead>Zone</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Operating System</TableHead>
@@ -758,12 +914,21 @@ export function DbInventory() {
               <TableBody>
                 {filteredDatabases.map((database) => (
                   <TableRow key={database.id}>
+                    <TableCell>
+                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-200 font-semibold">
+                        {database.division}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="font-medium">{database.database_name}</TableCell>
                     <TableCell>
                       <Badge variant={database.env_label === "PROD" ? "destructive" : "secondary"}>{database.env_label}</Badge>
                     </TableCell>
+                    <TableCell>{database.db_version || "-"}</TableCell>
+                    <TableCell>{database.db_edition || "-"}</TableCell>
+                    <TableCell>{database.server_type}</TableCell>
                     <TableCell>{database.server_name || "-"}</TableCell>
                     <TableCell>{database.server_ip || "-"}</TableCell>
+                    <TableCell className="font-mono">{database.db_port ?? "-"}</TableCell>
                     <TableCell>{database.zone || "-"}</TableCell>
                     <TableCell className="text-muted-foreground">{database.location || "-"}</TableCell>
                     <TableCell>{database.os}</TableCell>
@@ -806,7 +971,7 @@ export function DbInventory() {
                 ))}
                 {!filteredDatabases.length && (
                   <TableRow>
-                    <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={17} className="h-24 text-center text-muted-foreground">
                       No databases found.
                     </TableCell>
                   </TableRow>

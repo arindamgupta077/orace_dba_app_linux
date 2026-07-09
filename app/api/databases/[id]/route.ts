@@ -28,7 +28,12 @@ function readInventoryBody(body: Partial<DatabaseInventoryInput>): DatabaseInven
     owner_id: Number(body.owner_id),
     server_name: body.server_name ? String(body.server_name) : undefined,
     server_ip: body.server_ip ? String(body.server_ip) : undefined,
-    zone: body.zone ? String(body.zone) : undefined
+    zone: body.zone ? String(body.zone) : undefined,
+    server_type: body.server_type ? String(body.server_type) : undefined,
+    db_version: body.db_version ? String(body.db_version) : undefined,
+    db_edition: body.db_edition ? String(body.db_edition) : undefined,
+    db_port: body.db_port !== undefined && body.db_port !== null && String(body.db_port).trim() !== "" ? Number(body.db_port) : undefined,
+    division: body.division ? String(body.division) : undefined
   };
 }
 

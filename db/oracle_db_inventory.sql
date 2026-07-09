@@ -83,6 +83,11 @@ BEGIN
   add_column_if_missing('updated_at', 'updated_at TIMESTAMP DEFAULT SYSTIMESTAMP');
   add_column_if_missing('created_by', 'created_by VARCHAR2(128 CHAR)');
   add_column_if_missing('updated_by', 'updated_by VARCHAR2(128 CHAR)');
+  add_column_if_missing('server_type', q'[server_type VARCHAR2(10 CHAR) DEFAULT 'Physical']');
+  add_column_if_missing('db_version', 'db_version VARCHAR2(40 CHAR)');
+  add_column_if_missing('db_edition', 'db_edition VARCHAR2(40 CHAR)');
+  add_column_if_missing('db_port', 'db_port NUMBER DEFAULT 1521');
+  add_column_if_missing('division', q'[division VARCHAR2(10 CHAR) DEFAULT 'PCPB']');
 END;
 /
 
@@ -92,6 +97,9 @@ UPDATE database_inventory SET database_role = 'Primary' WHERE database_role IS N
 UPDATE database_inventory SET database_type = 'Standalone' WHERE database_type IS NULL;
 UPDATE database_inventory SET status = 'healthy' WHERE status IS NULL;
 UPDATE database_inventory SET zone = 'SZ1' WHERE zone IS NULL;
+UPDATE database_inventory SET server_type = 'Physical' WHERE server_type IS NULL OR server_type NOT IN ('Physical', 'Virtual');
+UPDATE database_inventory SET db_port = 1521 WHERE db_port IS NULL;
+UPDATE database_inventory SET division = 'PCPB' WHERE division IS NULL OR division NOT IN ('PCPB', 'ITD', 'FBD', 'HOTEL', 'ILTD', 'CORP', 'ITSS');
 
 DECLARE
   PROCEDURE modify_ignore_existing(p_sql VARCHAR2) IS
@@ -211,6 +219,8 @@ BEGIN
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_env_label');
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_location');
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_zone');
+    drop_constraint_if_exists('database_inventory', 'ck_db_inventory_server_type');
+    drop_constraint_if_exists('database_inventory', 'ck_db_inventory_division');
   END;
 
   -- Set default active status for rows matching old statuses (for upgrade safety)
@@ -229,6 +239,9 @@ BEGIN
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_env_label CHECK (environment_label IN ('PROD', 'DEV', 'UAT', 'DR'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_location CHECK (location IN ('SDC', 'KDC'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_zone CHECK (zone IN ('SZ1', 'SZ2', 'LAN'))]');
+  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_server_type CHECK (server_type IN ('Physical', 'Virtual'))]');
+  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_division CHECK (division IN ('PCPB', 'ITD', 'FBD', 'HOTEL', 'ILTD', 'CORP', 'ITSS'))]');
+  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_db_port CHECK (db_port BETWEEN 1 AND 65535)]');
 
   add_constraint_ignore_exists('ALTER TABLE db_owner_mapping ADD CONSTRAINT pk_db_owner_mapping PRIMARY KEY (id)');
   add_constraint_ignore_exists('ALTER TABLE db_owner_mapping ADD CONSTRAINT fk_db_owner_mapping_owner FOREIGN KEY (owner_id) REFERENCES app_users (user_id)');
@@ -253,6 +266,11 @@ BEGIN
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_DB_INVENTORY_STATUS';
   IF v_count = 0 THEN
     EXECUTE IMMEDIATE 'CREATE INDEX ix_db_inventory_status ON database_inventory (status)';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_DB_INVENTORY_DIVISION';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'CREATE INDEX ix_db_inventory_division ON database_inventory (division)';
   END IF;
 
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_DB_OWNER_MAPPING_OWNER';

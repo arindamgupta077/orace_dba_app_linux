@@ -45,6 +45,15 @@ function toRecordArray(value: unknown) {
   return rows.length ? rows : undefined;
 }
 
+// n8n sends a bare boolean indicator (e.g. [{ success: true }]) when a query
+// selects no rows. Such an object is not real data — drop it so the response
+// carries no phantom rows and the frontend renders nothing for empty results.
+const INDICATOR_KEYS = new Set(["success", "ok", "done", "completed"]);
+
+function isStatusIndicatorRow(row: JsonRecord): boolean {
+  return Array.from(INDICATOR_KEYS).some((k) => typeof row[k] === "boolean");
+}
+
 function firstRowsArray(record: JsonRecord) {
   const rawData = isRecord(record.raw_data) ? record.raw_data : undefined;
   const nestedRecords = [record.result, record.body, record.response].filter(isRecord);
@@ -141,6 +150,21 @@ function normalizeDbaResponse(input: unknown, action: DbaAction): DbaResponse {
       ? { ...(payload.raw_data as DbaResponse["raw_data"]) }
       : {};
 
+  // n8n may pre-populate raw_data.backups with a bare no-data indicator
+  // (e.g. [{ success: true }]) when V$RMAN_BACKUP_JOB_DETAILS returns no rows.
+  // Strip those phantom rows so the backup-status modal renders nothing.
+  if (Array.isArray(rawData.backups)) {
+    const realBackups = (rawData.backups as unknown[])
+      .map(unwrapN8nItem)
+      .filter(isRecord)
+      .filter((r) => !isStatusIndicatorRow(r));
+    if (realBackups.length > 0) {
+      rawData.backups = realBackups as unknown as DbaResponse["raw_data"]["backups"];
+    } else {
+      delete rawData.backups;
+    }
+  }
+
   // Collect tabular rows from whatever shape n8n sent
   const rows = collectRows(input);
   const textOutput = readTextOutput(input);
@@ -155,15 +179,19 @@ function normalizeDbaResponse(input: unknown, action: DbaAction): DbaResponse {
         ? (input as unknown[]).map(unwrapN8nItem).filter(isRecord)
         : [];
 
-  if (effectiveRows.length > 0) {
-    rawData.rows = effectiveRows;
+  // Drop bare n8n no-data indicator rows (e.g. [{ success: true }]) so an empty
+  // result set produces no phantom data rows in raw_data / raw_output.
+  const dataRows = effectiveRows.filter((r) => !isStatusIndicatorRow(r));
+
+  if (dataRows.length > 0) {
+    rawData.rows = dataRows;
   }
 
   // Serialize rows into raw_output so the frontend fallback JSON-parse path
   // also works when smart extraction misses them.
   const rawOutput =
     textOutput ||
-    (effectiveRows.length > 0 ? JSON.stringify(effectiveRows, null, 2) : "");
+    (dataRows.length > 0 ? JSON.stringify(dataRows, null, 2) : "");
 
   return {
     status,

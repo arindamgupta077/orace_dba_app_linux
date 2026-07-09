@@ -85,6 +85,25 @@ export function toIstDateStringOffset(date: Date = new Date(), deltaDays: number
   return toIstDateString(shifted);
 }
 
+/**
+ * Auto-selects the daily-checklist shift number (1, 2 or 3) based on the
+ * current IST time. Mirrors the login auto-select thresholds:
+ *   - after 06:00  → Shift 1
+ *   - after 12:00  → Shift 2
+ *   - after 21:00  → Shift 3
+ *   - 00:00–05:59  → Shift 3 (previous night shift, wraps midnight)
+ * Works on the client regardless of the browser's local timezone.
+ */
+export function getDefaultShiftForTime(date: Date = new Date()): "1" | "2" | "3" {
+  const istMs = date.getTime() + 330 * 60 * 1000;
+  const ist = new Date(istMs);
+  const minuteOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+
+  if (minuteOfDay >= 6 * 60 && minuteOfDay < 12 * 60) return "1";
+  if (minuteOfDay >= 12 * 60 && minuteOfDay < 21 * 60) return "2";
+  return "3";
+}
+
 export function titleCase(value?: string | null) {
   const text = value || "unknown";
   return text

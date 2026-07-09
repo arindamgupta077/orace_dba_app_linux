@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardList, Download, Search } from "lucide-react";
+import { ClipboardList, Download, Search, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fetchAuditLogs } from "@/services/api";
 import type { AuditLogItem } from "@/types/dba";
 import { StatusBadge } from "@/components/visual/status-badge";
@@ -63,6 +64,8 @@ export default function AuditPage() {
     const matchesActor = actorFilter === "all" || item.actor === actorFilter;
     return matchesSearch && matchesStatus && matchesActor;
   });
+
+  const [sqlCommandOpen, setSqlCommandOpen] = useState<AuditLogItem | null>(null);
 
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const currentLogs = filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -134,18 +137,19 @@ export default function AuditPage() {
                 <TableHead>DB</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Detail</TableHead>
+                <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     Loading audit logs...
                   </TableCell>
                 </TableRow>
               ) : currentLogs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     No logs found.
                   </TableCell>
                 </TableRow>
@@ -160,6 +164,20 @@ export default function AuditPage() {
                     <StatusBadge status={getStatusType(item.status)}>{item.status}</StatusBadge>
                   </TableCell>
                   <TableCell className="max-w-lg text-muted-foreground">{item.detail}</TableCell>
+                  <TableCell>
+                    {item.sql_command ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label="View SQL command"
+                        title="View SQL command"
+                        onClick={() => setSqlCommandOpen(item)}
+                      >
+                        <StickyNote className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -192,6 +210,20 @@ export default function AuditPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!sqlCommandOpen} onOpenChange={(open) => !open && setSqlCommandOpen(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>SQL command</DialogTitle>
+            <DialogDescription>
+              {sqlCommandOpen ? `Action: ${sqlCommandOpen.action}${sqlCommandOpen.db ? ` • DB: ${sqlCommandOpen.db}` : ""}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-4 text-xs leading-relaxed font-mono whitespace-pre-wrap break-words">
+            {sqlCommandOpen?.sql_command || ""}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

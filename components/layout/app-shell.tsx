@@ -131,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authChecking, setAuthChecking] = useState(true);
   const [showDatabase, setShowDatabase] = useState(true);
 
-  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/db-inventory") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
+  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
   const isClient = user?.role === "client";
   const isSidebarVisible = !!user && !isClient && showDatabase && !isNonDbRoute;
   const isDbSelectorVisible = !!user && showDatabase && !isNonDbRoute;
@@ -269,38 +269,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Button>
               )}
 
-              {/* Admin-only buttons */}
+              {/* Admin-only button */}
               {user?.role === "app_admin" && (
-                <>
-                  <Button
-                    asChild
-                    variant={pathname.startsWith("/admin-panel") ? "secondary" : "outline"}
-                    size="sm"
-                    className={cn(
-                      "transition-all",
-                      pathname.startsWith("/admin-panel") && "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20"
-                    )}
-                  >
-                    <Link href="/admin-panel">
-                      <ShieldCheck className="h-4 w-4" />
-                      <span className="hidden sm:inline">Admin Panel</span>
-                    </Link>
-                  </Button>
-                  <Button
-                    asChild
-                    variant={pathname.startsWith("/db-inventory") ? "secondary" : "outline"}
-                    size="sm"
-                    className={cn(
-                      "transition-all",
-                      pathname.startsWith("/db-inventory") && "bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
-                    )}
-                  >
-                    <Link href="/db-inventory">
-                      <DatabaseZap className="h-4 w-4" />
-                      <span className="hidden sm:inline">DB Inventory</span>
-                    </Link>
-                  </Button>
-                </>
+                <Button
+                  asChild
+                  variant={pathname.startsWith("/admin-panel") ? "secondary" : "outline"}
+                  size="sm"
+                  className={cn(
+                    "transition-all",
+                    pathname.startsWith("/admin-panel") && "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20"
+                  )}
+                >
+                  <Link href="/admin-panel/app-users">
+                    <ShieldCheck className="h-4 w-4" />
+                    <span className="hidden sm:inline">Admin Panel</span>
+                  </Link>
+                </Button>
               )}
 
               {/* Audit Logs button */}

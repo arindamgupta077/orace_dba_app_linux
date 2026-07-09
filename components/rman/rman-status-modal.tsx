@@ -229,7 +229,24 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
 
   const isLoading = status === "loading";
   const isDone    = response !== null && !isLoading;
-  const backupRows: ExtendedBackupRow[] = (response?.raw_data?.backups as ExtendedBackupRow[] | undefined) ?? [];
+
+  // n8n sends a bare no-data marker (e.g. [{ success: true }]) when the
+  // V$RMAN_BACKUP_JOB_DETAILS query selects no rows. Such an object is not a
+  // real backup — keep only rows that carry an actual backup start timestamp
+  // and input type, so an empty result set renders nothing.
+  const readField = (r: Record<string, unknown>, key: string): unknown =>
+    r[key] ?? r[key.toUpperCase()] ?? r[key.toLowerCase()];
+  const backupRows: ExtendedBackupRow[] = (((response?.raw_data?.backups as unknown as ExtendedBackupRow[] | undefined) ?? [])
+    .map((r) => r as unknown as Record<string, unknown>)
+    .filter((r) => {
+      const startedAt = readField(r, "started_at") || readField(r, "start_time");
+      const type      = readField(r, "type") || readField(r, "input_type");
+      return Boolean(startedAt) && Boolean(type);
+    }) as unknown as ExtendedBackupRow[]);
+
+  const hasRows   = backupRows.length > 0;
+  const isFailure = response?.status !== "success";
+  const showResult = isDone && (hasRows || isFailure);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -249,7 +266,7 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
         </DialogHeader>
 
         {/* ── Post-run result view ── */}
-        {isDone ? (
+        {showResult ? (
           <div className="space-y-4">
             {/* Status banner */}
             <div
