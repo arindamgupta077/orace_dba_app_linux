@@ -224,7 +224,7 @@ export async function POST(request: Request) {
           action: "disk_utilization",
           db,
           status: alert.status,
-          detail: `${ALERT_TYPE} alert ${alert.id} refreshed for ${target}.`,
+          detail: `${ALERT_TYPE} alert refreshed for ${target} on database ${db}.`,
           metadata: {
             alert_id: alert.id,
             alert_type: alert.alert_type,
@@ -280,7 +280,7 @@ export async function POST(request: Request) {
         action: "disk_utilization",
         db,
         status: alert.status,
-        detail: `${ALERT_TYPE} alert ${alert.id} created for ${target}.`,
+        detail: `${ALERT_TYPE} alert created for ${target} on database ${db}.`,
         metadata: {
           alert_id: alert.id,
           alert_type: alert.alert_type,

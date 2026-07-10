@@ -1,7 +1,7 @@
 import "server-only";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
-import { alertTypeToAuditAction } from "@/lib/server/notification-events";
+import { alertTypeToAuditAction, deriveAlertSubject } from "@/lib/server/notification-events";
 import { dispatchDbaWorkflowCommand, validateTablespaceExtensionSql } from "@/lib/server/dba-workflow";
 import { getAlertNotification, insertAuditLog, listAlertNotifications, patchAlertNotification } from "@/lib/server/repository";
 import type { AlertNotification, AlertSqlApproval, AlertSqlApprovalDecision, AlertSqlExecutionResult } from "@/types/dba";
@@ -299,8 +299,9 @@ export async function registerAlertSqlApproval(input: RegisterSqlApprovalInput) 
     actor: input.actor,
     action: alertTypeToAuditAction(alert.alert_type),
     db: alert.db,
-    status: "sql_pending_approval",
-    detail: `${alert.alert_type} alert ${alert.id} is waiting for SQL approval.`,
+    status: "pending_approval",
+    detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} is waiting for SQL approval.`,
+    sqlCommand: input.sqlCommand || undefined,
     metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_approval: true }
   });
 
@@ -383,8 +384,9 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
       actor: input.actor,
       action: alertTypeToAuditAction(alert.alert_type),
       db: alert.db,
-      status: `datafile_sql_${input.decision}`,
-      detail: `${alert.alert_type} alert ${alert.id} SQL ${input.decision}; resumed n8n wait node.`,
+      status: input.decision,
+      detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} SQL ${input.decision}; resumed n8n wait node.`,
+      sqlCommand: safeSqlCommand || undefined,
       metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_approval: true, wait_node_resumed: true }
     });
 
@@ -421,14 +423,20 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
         }
       });
 
-      await insertAuditLog({
-        actor: input.actor,
-        action: alertTypeToAuditAction(alert.alert_type),
-        db: alert.db,
-        status: `sql_execution_${immediateExecutionResult.status}`,
-        detail: `${alert.alert_type} alert ${alert.id} SQL execution ${immediateExecutionResult.status}.`,
-        metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_execution: true, immediate_response: true }
-      });
+      // For "completed": skip the audit log — the inference logic on GET
+      // writes the "inferred SQL execution completed" entry.  For "failed":
+      // write the audit log here since the inference skips "failed".
+      if (immediateExecutionResult.status === "failed") {
+        await insertAuditLog({
+          actor: input.actor,
+          action: alertTypeToAuditAction(alert.alert_type),
+          db: alert.db,
+          status: immediateExecutionResult.status,
+          detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${alert.db} SQL execution ${immediateExecutionResult.status}. ${immediateExecutionResult.message || ""}`.trim(),
+          sqlCommand: safeSqlCommand || undefined,
+          metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_execution: true, immediate_response: true }
+        });
+      }
 
       emitAlertNotificationEvent("updated", alert);
 
@@ -456,8 +464,9 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
     actor: input.actor,
     action: alertTypeToAuditAction(alert.alert_type),
     db: alert.db,
-    status: `sql_${input.decision}`,
-    detail: `${alert.alert_type} alert ${alert.id} SQL ${input.decision}.`,
+    status: input.decision,
+    detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} SQL ${input.decision}.`,
+    sqlCommand: safeSqlCommand || undefined,
     metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_approval: true }
   });
 

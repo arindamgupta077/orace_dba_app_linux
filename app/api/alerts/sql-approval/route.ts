@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
-import { alertTypeToAuditAction } from "@/lib/server/notification-events";
+import { alertTypeToAuditAction, deriveAlertSubject } from "@/lib/server/notification-events";
 import { getAlertNotification, insertAuditLog, updateAlertNotification } from "@/lib/server/repository";
 import { decideAlertSqlApproval, listPendingAlertSqlApprovals, registerAlertSqlApproval } from "@/lib/server/sql-approval";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -268,9 +268,55 @@ export async function POST(request: Request) {
     const sqlCommand = readString(body, ["sql_command", "sqlCommand", "generated_sql", "generatedSql", "sql", "command"]);
     const executionStatus = readExecutionStatus(body);
     const actor = readString(body, ["created_by", "createdBy", "requested_by", "requestedBy", "actor"]) || PUBLIC_ALERT_ACTOR;
+    const actionField = readString(body, ["action"]).toLowerCase();
 
     if (!alertId) {
       return NextResponse.json({ message: "alert_id is required." }, { status: 400 });
+    }
+
+    // ── Case 1: n8n reports that the user rejected the proposed SQL ──
+    if (actionField === "sql_rejected") {
+      const existingAlert = await getAlertNotification(alertId);
+      if (!existingAlert) {
+        return NextResponse.json({ message: `Alert notification not found: ${alertId}` }, { status: 404 });
+      }
+
+      // If the alert was already rejected (by decideAlertSqlApproval when the
+      // user clicked Reject in the UI), just return the current state — the
+      // audit log was already written there.
+      if (existingAlert.status === "rejected") {
+        return NextResponse.json({ alert: existingAlert }, { status: 200 });
+      }
+
+      const message = readString(body, ["message", "detail"]) || "SQL rejected by user.";
+      const alert = await updateAlertNotification({
+        id: alertId,
+        status: "rejected",
+        actor,
+        message,
+        metadata: {
+          ...(existingAlert.metadata || {}),
+          ...(readObject(body, ["metadata", "raw", "payload"]) || {}),
+          sql_rejection: {
+            rejected_at: new Date().toISOString(),
+            rejected_by: actor,
+            message
+          }
+        }
+      });
+
+      await insertAuditLog({
+        actor,
+        action: alertTypeToAuditAction(alert.alert_type),
+        db: alert.db,
+        status: "rejected",
+        detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${alert.db} rejected: ${message}`,
+        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_rejected: true }
+      });
+
+      emitAlertNotificationEvent("updated", alert);
+
+      return NextResponse.json({ alert }, { status: 200 });
     }
 
     if (executionStatus) {
@@ -281,6 +327,7 @@ export async function POST(request: Request) {
 
       const message = readString(body, ["message", "detail", "completion_message", "completionMessage"]);
       const incomingMetadata = readObject(body, ["metadata", "raw", "payload"]);
+
       const alert = await updateAlertNotification({
         id: alertId,
         status: executionStatus,
@@ -301,14 +348,30 @@ export async function POST(request: Request) {
         }
       });
 
-      await insertAuditLog({
-        actor,
-        action: alertTypeToAuditAction(alert.alert_type),
-        db: alert.db,
-        status: alert.status,
-        detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,
-        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_execution: true }
-      });
+      // For "completed": the inference logic on GET writes the "inferred
+      // SQL execution completed" audit entry.  Skip to avoid a duplicate
+      // "marked completed" entry.  But if the POST arrives before any GET
+      // (existingAlert is still "approved"), write a fallback "inferred"
+      // entry.  For "failed": the inference skips "failed", so the POST
+      // handler is the authoritative source.
+      const shouldWriteAuditLog =
+        (executionStatus === "failed" && existingAlert.status !== executionStatus) ||
+        (executionStatus === "completed" && existingAlert.status !== "completed");
+
+      if (shouldWriteAuditLog) {
+        await insertAuditLog({
+          actor,
+          action: alertTypeToAuditAction(alert.alert_type),
+          db: alert.db,
+          status: alert.status,
+          detail:
+            executionStatus === "completed"
+              ? `${alert.alert_type} alert for ${deriveAlertSubject(alert)} inferred SQL execution completed.`
+              : `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${alert.db} marked ${alert.status}. ${message || ""}`.trim(),
+          sqlCommand: sqlCommand || undefined,
+          metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_execution: true }
+        });
+      }
 
       emitAlertNotificationEvent("updated", alert);
 

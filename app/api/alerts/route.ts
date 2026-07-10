@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
 import { dispatchDbaWorkflowCommand } from "@/lib/server/dba-workflow";
-import { alertTypeToAuditAction, alertTypeToTargetPath, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
+import { alertTypeToAuditAction, alertTypeToTargetPath, deriveAlertSubject, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
 import {
   findPendingAlertNotificationOccurrence,
   getAlertNotification,
@@ -476,9 +476,16 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
   const nextAlerts = await Promise.all(
     alerts.map(async (alert) => {
       const inferredExecutionStatus = inferCompletedSqlExecution(alert);
-      if (inferredExecutionStatus === "completed" || inferredExecutionStatus === "failed") {
+
+      // Only infer "completed" — write the audit log and update the alert
+      // status.  For "failed", we intentionally skip the inference so the
+      // authoritative audit entry (with ORA-error details and sql_command)
+      // is written by the POST handler when n8n sends the execution-result
+      // callback.  This prevents duplicate audit entries (one "inferred"
+      // and one "marked failed" with the ORA error).
+      if (inferredExecutionStatus === "completed") {
         const sqlApproval = readMetadataRecord(alert.metadata?.sql_approval ?? alert.metadata?.sqlApproval);
-        const message = alert.message || (inferredExecutionStatus === "completed" ? "SQL executed successfully." : "SQL execution failed.");
+        const message = alert.message || "SQL executed successfully.";
         const updatedAlert = await updateAlertNotification({
           id: alert.id,
           status: inferredExecutionStatus,
@@ -499,7 +506,8 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
           action: alertTypeToAuditAction(updatedAlert.alert_type),
           db: updatedAlert.db,
           status: inferredExecutionStatus,
-          detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} inferred SQL execution ${inferredExecutionStatus}.`,
+          detail: `${updatedAlert.alert_type} alert for ${deriveAlertSubject(updatedAlert)} inferred SQL execution ${inferredExecutionStatus}.`,
+          sqlCommand: typeof sqlApproval?.sql_command === "string" ? sqlApproval.sql_command : undefined,
           metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_execution_inferred: true }
         });
 
@@ -531,7 +539,7 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
           action: alertTypeToAuditAction(updatedAlert.alert_type),
           db: updatedAlert.db,
           status: "failed",
-          detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL generation timed out.`,
+detail: `${updatedAlert.alert_type} alert for ${deriveAlertSubject(updatedAlert)} SQL generation timed out.`,
           metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_generation_timeout: true }
         });
 
@@ -564,8 +572,9 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
         action: alertTypeToAuditAction(updatedAlert.alert_type),
         db: updatedAlert.db,
         status: "failed",
-        detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL execution timed out.`,
-        metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_execution_timeout: true }
+detail: `${updatedAlert.alert_type} alert for ${deriveAlertSubject(updatedAlert)} SQL execution timed out.`,
+        sqlCommand: readMetadataRecord(alert.metadata?.sql_approval)?.sql_command as string | undefined,
+          metadata: { alert_id: updatedAlert.id, alert_type: updatedAlert.alert_type, sql_execution_timeout: true }
       });
 
       emitAlertNotificationEvent("updated", updatedAlert);
@@ -612,6 +621,58 @@ export async function POST(request: Request) {
     const existingAlertId = readString(body, ["id", "alert_id", "alertId"]);
     const sqlCommand = readString(body, ["sql_command", "sqlCommand", "generated_sql", "generatedSql", "sql"]);
     const postedStatus = readExecutionStatus(body);
+    const actionField = readString(body, ["action"]).toLowerCase();
+
+    // ── Case 1: n8n reports that the user rejected the proposed SQL ──
+    // n8n sends a compact payload: { action: "sql_rejected", alert_id, message }
+    // We mark the alert as "rejected", write an audit log, and emit the
+    // update so the Tablespace panel + bell reflect the new state.
+    if (actionField === "sql_rejected" && existingAlertId) {
+      const existingAlert = await getAlertNotification(existingAlertId);
+      if (!existingAlert) {
+        return NextResponse.json({ message: `Alert notification not found: ${existingAlertId}` }, { status: 404 });
+      }
+
+      // If the alert was already rejected (by decideAlertSqlApproval when the
+      // user clicked Reject in the UI), just return the current state — the
+      // audit log was already written there.  This prevents a duplicate audit
+      // entry when n8n echoes the rejection back as a POST callback.
+      if (existingAlert.status === "rejected") {
+        return NextResponse.json({ alert: existingAlert }, { status: 200 });
+      }
+
+      const actor = readString(body, ["actor", "rejected_by", "rejectedBy", "requested_by", "requestedBy"]) || PUBLIC_ALERT_ACTOR;
+      const message = readString(body, ["message", "detail"]) || "SQL rejected by user.";
+
+      const alert = await updateAlertNotification({
+        id: existingAlertId,
+        status: "rejected",
+        actor,
+        message,
+        metadata: {
+          ...(existingAlert.metadata || {}),
+          ...(readObject(body, ["metadata", "raw", "payload"]) || {}),
+          sql_rejection: {
+            rejected_at: new Date().toISOString(),
+            rejected_by: actor,
+            message
+          }
+        }
+      });
+
+      await insertAuditLog({
+        actor,
+        action: alertTypeToAuditAction(alert.alert_type),
+        db: alert.db,
+        status: "rejected",
+        detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${alert.db} rejected: ${message}`,
+        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_rejected: true }
+      });
+
+      emitAlertNotificationEvent("updated", alert);
+
+      return NextResponse.json({ alert }, { status: 200 });
+    }
 
     if (existingAlertId && isExecutionResultStatus(postedStatus)) {
       const existingAlert = await getAlertNotification(existingAlertId);
@@ -622,6 +683,7 @@ export async function POST(request: Request) {
       const actor = readString(body, ["actor", "approved_by", "approvedBy", "executed_by", "executedBy"]) || PUBLIC_ALERT_ACTOR;
       const message = readString(body, ["message", "detail", "completion_message", "completionMessage"]);
       const incomingMetadata = readObject(body, ["metadata", "raw", "payload"]);
+
       const alert = await updateAlertNotification({
         id: existingAlertId,
         status: postedStatus,
@@ -642,14 +704,36 @@ export async function POST(request: Request) {
         }
       });
 
-      await insertAuditLog({
-        actor,
-        action: alertTypeToAuditAction(alert.alert_type),
-        db: alert.db,
-        status: alert.status,
-        detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,
-        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_execution: true }
-      });
+      // For "completed": the inference logic in applySqlExecutionTimeouts
+      // (triggered by GET /api/alerts) writes the "inferred SQL execution
+      // completed" audit entry.  We skip the audit log here to avoid a
+      // duplicate "marked completed" entry.  However, if the POST arrives
+      // before any GET has run the inference (existingAlert is still
+      // "approved"), the inference will never run (the alert is now
+      // "completed"), so we write an audit log with the same "inferred"
+      // wording as a fallback.
+      //
+      // For "failed": the inference intentionally skips "failed" so the
+      // POST handler is the authoritative source (with ORA-error details
+      // and sql_command).
+      const shouldWriteAuditLog =
+        (postedStatus === "failed" && existingAlert.status !== postedStatus) ||
+        (postedStatus === "completed" && existingAlert.status !== "completed");
+
+      if (shouldWriteAuditLog) {
+        await insertAuditLog({
+          actor,
+          action: alertTypeToAuditAction(alert.alert_type),
+          db: alert.db,
+          status: alert.status,
+          detail:
+            postedStatus === "completed"
+              ? `${alert.alert_type} alert for ${deriveAlertSubject(alert)} inferred SQL execution completed.`
+              : `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${alert.db} marked ${alert.status}. ${message || ""}`.trim(),
+          sqlCommand: sqlCommand || undefined,
+          metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, sql_execution: true }
+        });
+      }
 
       emitAlertNotificationEvent("updated", alert);
 
@@ -769,7 +853,7 @@ export async function POST(request: Request) {
         action: alertTypeToAuditAction(alert.alert_type),
         db,
         status: alert.status,
-        detail: `${alert.alert_type} alert ${alert.id} refreshed for ${tablespace || objectName || db}.`,
+detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} on database ${db} refreshed.`,
         metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true, refreshed: true }
       });
 
@@ -795,8 +879,8 @@ export async function POST(request: Request) {
       action: alertTypeToAuditAction(alertType),
       db,
       status: alert.status,
-      detail: `${alert.alert_type} alert ${alert.id} created for ${tablespace || objectName || db}.`,
-      metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
+detail: `${alert.alert_type} alert created for ${deriveAlertSubject(alert)} on database ${db}.`,
+        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
     });
 
     emitAlertNotificationEvent("created", alert);
@@ -904,7 +988,7 @@ export async function PATCH(request: Request) {
       action: alertTypeToAuditAction(alert.alert_type),
       db: alert.db,
       status: alert.status,
-      detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,
+      detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} marked ${alert.status}.`,
       metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
     });
 

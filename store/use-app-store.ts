@@ -13,6 +13,15 @@ interface AppState {
   autoRefreshSeconds: number;
   tablespaceRefreshTrigger: number;
   notifications: NotificationItem[];
+  /**
+   * Persisted list of notification IDs the user has dismissed via the bell
+   * "Clear" button. The /api/notifications/stream SSE endpoint replays every
+   * alert that is still pending_approval on every (re)connect — which used to
+   * resurrect cleared alerts after a page reload. We now remember the
+   * dismissed ids so `addNotification` can silently drop replayed items the
+   * user has already cleared. New alerts get fresh ids, so they still pop up.
+   */
+  dismissedNotificationIds: string[];
   dataPumpJobs: DataPumpJob[];
   expdpTemplates: ExpdpTemplate[];
   impdpTemplates: ImpdpTemplate[];
@@ -31,6 +40,9 @@ interface AppState {
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
   clearNotifications: () => void;
+  dismissNotification: (id: string) => void;
+  /** Forget a single previously-dismissed notification id so it can reappear. */
+  undismissNotification: (id: string) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
   clearCompletedDataPumpJobs: () => void;
   addExpdpTemplate: (template: ExpdpTemplate) => void;
@@ -40,6 +52,12 @@ interface AppState {
   upsertRmanJob: (job: RmanJob) => void;
   clearCompletedRmanJobs: () => void;
 }
+
+// Maximum number of dismissed-notification ids to persist. Bell
+// notifications are deduped by id (the underlying alert id), so capping at
+// ~500 keeps the longest realistic session's worth of cleared alerts while
+// keeping localStorage small.
+const DISMISSED_NOTIFICATION_ID_LIMIT = 500;
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -52,6 +70,7 @@ export const useAppStore = create<AppState>()(
       autoRefreshSeconds: 60,
       tablespaceRefreshTrigger: 0,
       notifications: [],
+      dismissedNotificationIds: [],
       dataPumpJobs: [],
       expdpTemplates: [],
       impdpTemplates: [],
@@ -97,6 +116,14 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
+          // Drop notifications the user has already dismissed with the "Clear"
+          // button. Important: /api/notifications/stream replays every alert
+          // that is still pending_approval on each (re)connect, so without this
+          // guard the cleared alerts would pop back into the bell after every
+          // page reload (see dismissedNotificationIds).
+          if (state.dismissedNotificationIds.includes(String(item.id))) {
+            return state;
+          }
           const existingIndex = state.notifications.findIndex((n) => String(n.id) === String(item.id));
           if (existingIndex >= 0) {
             const updated = [...state.notifications];
@@ -113,7 +140,39 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           notifications: state.notifications.map((n) => ({ ...n, read: true }))
         })),
-      clearNotifications: () => set({ notifications: [] }),
+      clearNotifications: () =>
+        set((state) => {
+          // Remember every currently-visible notification id as dismissed so
+          // that the next SSE replay (after reload/reconnect) doesn't pull
+          // them back. New alerts get fresh ids, so they still surface.
+          const ids = state.notifications.map((n) => String(n.id));
+          if (!ids.length) return { notifications: [] };
+          const merged = [...ids, ...state.dismissedNotificationIds];
+          // Keep insertion order while dropping duplicates; cap to limit to
+          // avoid unbounded growth over long sessions.
+          const seen = new Set<string>();
+          const deduped: string[] = [];
+          for (const id of merged) {
+            if (seen.has(id)) continue;
+            seen.add(id);
+            deduped.push(id);
+          }
+          const trimmed = deduped.slice(-DISMISSED_NOTIFICATION_ID_LIMIT);
+          return { notifications: [], dismissedNotificationIds: trimmed };
+        }),
+      dismissNotification: (id) =>
+        set((state) => {
+          const stringId = String(id);
+          if (state.dismissedNotificationIds.includes(stringId)) return {};
+          return {
+            notifications: state.notifications.filter((n) => String(n.id) !== stringId),
+            dismissedNotificationIds: [...state.dismissedNotificationIds, stringId].slice(-DISMISSED_NOTIFICATION_ID_LIMIT)
+          };
+        }),
+      undismissNotification: (id) =>
+        set((state) => ({
+          dismissedNotificationIds: state.dismissedNotificationIds.filter((existing) => existing !== String(id))
+        })),
       upsertDataPumpJob: (job) =>
         set((state) => {
           const existing = state.dataPumpJobs.findIndex((j) => j.id === job.id);
@@ -208,6 +267,11 @@ export const useAppStore = create<AppState>()(
 
         // ── Notifications (cap 30) ─────────────────────────────
         notifications: state.notifications.slice(0, 30),
+
+        // ── Dismissed Notification IDs (cap 500) ──────────────
+        // Persist so cleared alerts don't get pulled back in by the next SSE
+        // replay after a page reload (see addNotification guard above).
+        dismissedNotificationIds: state.dismissedNotificationIds.slice(-DISMISSED_NOTIFICATION_ID_LIMIT),
 
         // ── Data Pump Jobs (cap 15, strip params) ──────────────
         dataPumpJobs: state.dataPumpJobs.slice(0, 15).map(({ params: _p, ...rest }) => ({

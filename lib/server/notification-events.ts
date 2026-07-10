@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { NotificationItemType, NotificationPayload } from "@/types/dba";
+import type { AlertNotification, NotificationItemType, NotificationPayload } from "@/types/dba";
 
 export type { NotificationPayload as GlobalNotificationPayload };
 
@@ -148,5 +148,22 @@ export function alertTypeToAuditAction(alertType: string): string {
   if (t === "tablespace") return "Tablespace Alert";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "disk_utilization";
   return "alert_log";
+}
+
+/**
+ * Derive a human-readable subject for an alert — the tablespace name for
+ * tablespace alerts, or the filesystem/drive name for filesystem alerts — so
+ * the audit log "Detail" column reads e.g. "tablespace alert created for
+ * USERS on database ORCL." instead of embedding the opaque alert id
+ * (e.g. "ALT-1A9412A7BE4D5280D2D942CBEF66E5DE-1783681017693-456" or
+ * "FS-1783679781797").
+ */
+export function deriveAlertSubject(alert: Pick<AlertNotification, "alert_type" | "db" | "tablespace" | "object_name">): string {
+  const t = alert.alert_type.trim().toLowerCase();
+  if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") {
+    return alert.object_name || alert.tablespace || alert.db;
+  }
+  // tablespace, datafile_extend, alert_log, generic, etc.
+  return alert.tablespace || alert.object_name || alert.db;
 }
 

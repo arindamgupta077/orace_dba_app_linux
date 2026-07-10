@@ -1600,6 +1600,7 @@ export async function insertAuditLog(input: {
   status: string;
   detail: string;
   metadata?: Record<string, unknown>;
+  sqlCommand?: string;
 }) {
   const action = String(input.action || "");
   const statusValue = String(input.status || "").toLowerCase();
@@ -1632,6 +1633,7 @@ export async function insertAuditLog(input: {
   const status = String(input.status || "").slice(0, 32) || "info";
   const detail = input.detail || "";
   const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
+  const sqlCommand = input.sqlCommand ? String(input.sqlCommand) : null;
 
   try {
     await executeOne(async (connection) => {
@@ -1642,14 +1644,16 @@ export async function insertAuditLog(input: {
            db_name,
            status,
            detail,
-           metadata_json
+           metadata_json,
+           sql_command
          ) VALUES (
            :actor,
            :action,
            :dbName,
            :status,
            :detail,
-           :metadataJson
+           :metadataJson,
+           :sqlCommand
          )`,
         {
           actor,
@@ -1657,7 +1661,8 @@ export async function insertAuditLog(input: {
           dbName,
           status,
           detail,
-          metadataJson
+          metadataJson,
+          sqlCommand
         },
         { autoCommit: true }
       );
