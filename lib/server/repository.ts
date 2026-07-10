@@ -1635,6 +1635,35 @@ export async function insertAuditLog(input: {
   const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
   const sqlCommand = input.sqlCommand ? String(input.sqlCommand) : null;
 
+  const alertId = input.metadata?.alert_id;
+  if (alertId && (statusValue === "completed" || statusValue === "failed" || statusValue === "error")) {
+    try {
+      const exists = await executeOne(async (connection) => {
+        const checkResult = await connection.execute<DbRow>(
+          `SELECT COUNT(*) AS count FROM app_audit_logs
+           WHERE status = :status
+             AND action = :action
+             AND db_name = :dbName
+             AND DBMS_LOB.INSTR(metadata_json, :alertIdStr) > 0`,
+          {
+            status: status,
+            action: safeAction,
+            dbName: dbName,
+            alertIdStr: `"alert_id":"${alertId}"`
+          }
+        );
+        return Number(checkResult.rows?.[0]?.COUNT || 0) > 0;
+      });
+
+      if (exists) {
+        console.log(`[Audit Log Duplicate Avoided] alert_id: ${alertId}, status: ${status}`);
+        return;
+      }
+    } catch (checkError) {
+      console.error(`[Audit Log Duplicate Check Failed]`, checkError);
+    }
+  }
+
   try {
     await executeOne(async (connection) => {
       await connection.execute(
@@ -1707,7 +1736,7 @@ export async function listAuditLogs(
          created_at
        FROM app_audit_logs
        ${whereClause}
-       ORDER BY created_at DESC
+       ORDER BY created_at DESC, audit_id ASC
        FETCH FIRST ${safeLimit} ROWS ONLY`,
       binds
     );
@@ -1720,7 +1749,7 @@ export async function listAuditLogs(
       db: row.DB_NAME ? String(row.DB_NAME) : undefined,
       status: String(row.STATUS),
       detail: row.DETAIL ? String(row.DETAIL) : "",
-      sql_command: row.SQL_COMMAND ? String(row.SQL_COMMAND) : undefined,
+      sql_command: (row.SQL_COMMAND && String(row.STATUS).toLowerCase() !== "pending_approval") ? String(row.SQL_COMMAND) : undefined,
       metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON),
       timestamp: toIstIsoString(row.CREATED_AT)
     }));

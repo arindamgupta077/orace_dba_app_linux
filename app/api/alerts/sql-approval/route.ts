@@ -191,7 +191,7 @@ function readExecutionStatus(body: BodyRecord) {
   const message = readString(body, ["message", "detail", "completion_message", "completionMessage", "sql_output", "sqlOutput", "output"]);
   if (/no[_\s-]?disk[_\s-]?space|disk[_\s-]?space/i.test(errorCode)) return "failed";
   if (/sql\s+executed\s+successfully|execution\s+completed/i.test(message)) return "completed";
-  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
+  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|allowlist|blocked|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
 
   return "";
 }

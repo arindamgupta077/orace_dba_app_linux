@@ -80,7 +80,13 @@ function unwrapWorkflowResponse(raw: unknown): Record<string, unknown> {
 
     if (!isRecord(current)) return {};
 
-    const wrapped = current.json ?? current.body ?? current.data ?? current.payload;
+    const wrapped =
+      current.result_payload ??
+      current.resultPayload ??
+      current.json ??
+      current.body ??
+      current.data ??
+      current.payload;
     if (wrapped && wrapped !== current) {
       current = wrapped;
       continue;
@@ -224,7 +230,7 @@ function normalizeExecutionStatus(body: Record<string, unknown>) {
   }
 
   if (/sql\s+executed\s+successfully|execution\s+completed/i.test(message)) return "completed";
-  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+/i.test(message)) return "failed";
+  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|allowlist|blocked/i.test(message)) return "failed";
 
   return "";
 }
@@ -295,15 +301,7 @@ export async function registerAlertSqlApproval(input: RegisterSqlApprovalInput) 
     metadata
   });
 
-  await insertAuditLog({
-    actor: input.actor,
-    action: alertTypeToAuditAction(alert.alert_type),
-    db: alert.db,
-    status: "pending_approval",
-    detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} is waiting for SQL approval.`,
-    sqlCommand: input.sqlCommand || undefined,
-    metadata: { alert_id: alert.id, alert_type: alert.alert_type, sql_approval: true }
-  });
+
 
   emitAlertNotificationEvent("updated", alert);
 

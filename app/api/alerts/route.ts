@@ -213,7 +213,7 @@ function readExecutionStatus(body: BodyRecord) {
   const message = readString(body, ["message", "detail", "completion_message", "completionMessage", "sql_output", "sqlOutput", "output"]);
   if (/no[_\s-]?disk[_\s-]?space|disk[_\s-]?space/i.test(errorCode)) return "failed";
   if (/sql\s+executed\s+successfully|execution\s+completed/i.test(message)) return "completed";
-  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
+  if (/sql\s+execution\s+failed|execution\s+failed|ora-\d+|allowlist|blocked|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(message)) return "failed";
 
   return "pending_approval";
 }
@@ -462,7 +462,7 @@ function inferCompletedSqlExecution(alert: NonNullable<Awaited<ReturnType<typeof
 
   if (/sql\s+executed\s+successfully|execution\s+completed/i.test(alert.message)) return "completed";
   if (
-    /sql\s+execution\s+failed|execution\s+failed|ora-\d+|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(
+    /sql\s+execution\s+failed|execution\s+failed|ora-\d+|allowlist|blocked|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space/i.test(
       alert.message
     )
   ) {
@@ -983,16 +983,19 @@ export async function PATCH(request: Request) {
       metadata
     });
 
-    await insertAuditLog({
-      actor,
-      action: alertTypeToAuditAction(alert.alert_type),
-      db: alert.db,
-      status: alert.status,
-      detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} marked ${alert.status}.`,
-      metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
-    });
+    const shouldAudit = !(isExtensionAlert && alert.status === "approved");
+    if (shouldAudit) {
+      await insertAuditLog({
+        actor,
+        action: alertTypeToAuditAction(alert.alert_type),
+        db: alert.db,
+        status: alert.status,
+        detail: `${alert.alert_type} alert for ${deriveAlertSubject(alert)} marked ${alert.status}.`,
+        metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
+      });
+    }
 
-emitAlertNotificationEvent("updated", alert);
+    emitAlertNotificationEvent("updated", alert);
 
     if (status === "acknowledged" && existingAlert.alert_type === "filesystem_drive") {
       const fsTarget = alert.object_name || "";

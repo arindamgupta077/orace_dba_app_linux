@@ -103,7 +103,7 @@ function getSqlExecutionResult(alert: AlertNotification): AlertSqlExecutionResul
   const failedByMessage =
     alert.status === "approved" &&
     sqlApproval?.status === "approved" &&
-    /no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space|sql\s+execution\s+failed|execution\s+failed|ora-\d+/i.test(
+    /allowlist|blocked|no\s+disk\s+space|not\s+enough\s+(os\s+)?disk\s+space|insufficient\s+(os\s+)?disk\s+space|sql\s+execution\s+failed|execution\s+failed|ora-\d+/i.test(
       alert.message
     );
 

@@ -32,7 +32,38 @@ export default function AuditPage() {
       try {
         const response = await fetchAuditLogs(300);
         if (!active) return;
-        setAuditLogs(response.items);
+        const getSortOrder = (item: AuditLogItem) => {
+          const status = item.status.toLowerCase();
+          const detail = item.detail.toLowerCase();
+          if (status === "pending" || status === "pending_approval") return 0;
+          if (status === "acknowledged") return 1;
+          if (status === "approved") {
+            if (detail.includes("marked approved")) return 2;
+            if (detail.includes("sql approved")) return 3;
+            return 4;
+          }
+          if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
+            return 5;
+          }
+          return 9;
+        };
+
+        const sorted = (response.items || []).sort((a, b) => {
+          const dateA = formatDateTime(a.timestamp);
+          const dateB = formatDateTime(b.timestamp);
+          if (dateA === dateB) {
+            const orderA = getSortOrder(a);
+            const orderB = getSortOrder(b);
+            if (orderA !== orderB) {
+              return orderB - orderA;
+            }
+            const idA = parseInt(a.id.replace("AUD-", ""), 10) || 0;
+            const idB = parseInt(b.id.replace("AUD-", ""), 10) || 0;
+            return idB - idA;
+          }
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+        setAuditLogs(sorted);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load audit logs.";
         toast.error("Could not load audit logs", { description: message });
@@ -165,7 +196,7 @@ export default function AuditPage() {
                   </TableCell>
                   <TableCell className="max-w-lg text-muted-foreground">{item.detail}</TableCell>
                   <TableCell>
-                    {item.sql_command ? (
+                    {item.sql_command && item.status.toLowerCase() !== "pending_approval" ? (
                       <Button
                         variant="ghost"
                         size="icon"
