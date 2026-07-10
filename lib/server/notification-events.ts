@@ -17,9 +17,29 @@ interface NotificationListener {
 const encoder = new TextEncoder();
 const globalState = globalThis as typeof globalThis & {
   __globalNotifListeners?: Map<string, NotificationListener>;
+  __globalNotifRecent?: BroadcastPayload[];
 };
+
 const listeners = globalState.__globalNotifListeners ?? new Map<string, NotificationListener>();
 globalState.__globalNotifListeners = listeners;
+
+/**
+ * In-memory ring buffer of recently broadcast notifications.
+ *
+ * `emitGlobalNotification` is fire-and-forget: it only pushes to SSE listeners
+ * that are connected *at the moment of emission*. If a user's browser is
+ * closed (no active EventSource), the broadcast is lost forever — so a user
+ * logging in afterwards never sees the bell badge update for events that
+ * happened while they were away (e.g. a DBA login/logout, handover submit,
+ * HO acknowledgement, or an alert-log error that isn't backed by a pending
+ * alert row).
+ *
+ * We retain the most recent broadcasts here and replay them (merged with the
+ * DB-sourced replay items, deduped by id) when a new SSE client connects.
+ */
+const RECENT_BUFFER_LIMIT = 50;
+const recentBroadcasts = globalState.__globalNotifRecent ?? [];
+globalState.__globalNotifRecent = recentBroadcasts;
 
 function writeSse(listener: NotificationListener, event: string, data: unknown) {
   listener.controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
@@ -60,6 +80,22 @@ export function addGlobalNotificationListener(
       }
     }
 
+    // Replay recently-broadcast ephemeral notifications (shift login/logout,
+    // handover submit/ack, alert-log errors, etc.) that were emitted while no
+    // browser was connected. Merge with the DB-sourced items already replayed
+    // above, deduping by id so DB-backed alerts aren't shown twice.
+    if (recentBroadcasts.length > 0) {
+      const replayedIds = new Set((replayItems ?? []).map((r) => r.id));
+      for (const item of recentBroadcasts) {
+        if (replayedIds.has(item.id)) continue;
+        try {
+          writeSse(listener, "notification", { ...item, replayed: true });
+        } catch {
+          break; // stream already closed
+        }
+      }
+    }
+
     listener.heartbeatId = setInterval(() => {
       try {
         writeSse(listener, "heartbeat", { sent_at: new Date().toISOString() });
@@ -76,6 +112,14 @@ export function addGlobalNotificationListener(
 
 export function emitGlobalNotification(payload: NotificationPayload) {
   const broadcast: BroadcastPayload = { ...payload, sent_at: new Date().toISOString() };
+
+  // Record in the ring buffer so users who were offline at emission time get
+  // the notification replayed when they next connect.
+  recentBroadcasts.push(broadcast);
+  if (recentBroadcasts.length > RECENT_BUFFER_LIMIT) {
+    recentBroadcasts.splice(0, recentBroadcasts.length - RECENT_BUFFER_LIMIT);
+  }
+
   for (const listener of listeners.values()) {
     try {
       writeSse(listener, "notification", broadcast);
