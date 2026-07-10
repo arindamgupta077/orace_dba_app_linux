@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
+import { alertTypeToAuditAction } from "@/lib/server/notification-events";
 import { getAlertNotification, insertAuditLog, updateAlertNotification } from "@/lib/server/repository";
 import { decideAlertSqlApproval, listPendingAlertSqlApprovals, registerAlertSqlApproval } from "@/lib/server/sql-approval";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -302,7 +303,7 @@ export async function POST(request: Request) {
 
       await insertAuditLog({
         actor,
-        action: "alert_log",
+        action: alertTypeToAuditAction(alert.alert_type),
         db: alert.db,
         status: alert.status,
         detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,

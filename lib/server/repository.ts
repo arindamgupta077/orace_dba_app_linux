@@ -1582,7 +1582,7 @@ export async function revokeSession(sessionToken: string) {
   });
 }
 
-const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log"]);
+const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert"]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
   "acknowledged",

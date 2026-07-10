@@ -97,12 +97,17 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
-          if (state.notifications.some((n) => n.id === item.id)) return state;
+          const existingIndex = state.notifications.findIndex((n) => String(n.id) === String(item.id));
+          if (existingIndex >= 0) {
+            const updated = [...state.notifications];
+            updated[existingIndex] = { ...updated[existingIndex], ...item, read: updated[existingIndex].read };
+            return { notifications: updated };
+          }
           return { notifications: [{ ...item, read: false }, ...state.notifications].slice(0, 30) };
         }),
       markNotificationRead: (id) =>
         set((state) => ({
-          notifications: state.notifications.map((n) => (n.id === id ? { ...n, read: true } : n))
+          notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: true } : n))
         })),
       markAllNotificationsRead: () =>
         set((state) => ({

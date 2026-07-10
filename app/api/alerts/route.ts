@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
 import { dispatchDbaWorkflowCommand } from "@/lib/server/dba-workflow";
-import { alertTypeToTargetPath, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
+import { alertTypeToAuditAction, alertTypeToTargetPath, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
 import {
   findPendingAlertNotificationOccurrence,
   getAlertNotification,
@@ -248,11 +248,6 @@ function buildAlertTitle(alertType: string, target: string, severity: string) {
 
 function fsSeverityToAlertLogSeverity(severity: AlertNotificationSeverity): DbaAlertLogSeverity {
   return severity === "critical" || severity === "error" ? "P2" : "INFO";
-}
-
-function alertTypeToAuditAction(alertType: string) {
-  if (alertType === "filesystem_drive") return "disk_utilization";
-  return "alert_log";
 }
 
 async function readOptionalSession() {

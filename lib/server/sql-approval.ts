@@ -1,6 +1,7 @@
 import "server-only";
 
 import { emitAlertNotificationEvent } from "@/lib/server/alert-events";
+import { alertTypeToAuditAction } from "@/lib/server/notification-events";
 import { dispatchDbaWorkflowCommand, validateTablespaceExtensionSql } from "@/lib/server/dba-workflow";
 import { getAlertNotification, insertAuditLog, listAlertNotifications, patchAlertNotification } from "@/lib/server/repository";
 import type { AlertNotification, AlertSqlApproval, AlertSqlApprovalDecision, AlertSqlExecutionResult } from "@/types/dba";
@@ -296,7 +297,7 @@ export async function registerAlertSqlApproval(input: RegisterSqlApprovalInput) 
 
   await insertAuditLog({
     actor: input.actor,
-    action: "alert_log",
+    action: alertTypeToAuditAction(alert.alert_type),
     db: alert.db,
     status: "sql_pending_approval",
     detail: `${alert.alert_type} alert ${alert.id} is waiting for SQL approval.`,
@@ -380,7 +381,7 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
 
     await insertAuditLog({
       actor: input.actor,
-      action: "alert_log",
+      action: alertTypeToAuditAction(alert.alert_type),
       db: alert.db,
       status: `datafile_sql_${input.decision}`,
       detail: `${alert.alert_type} alert ${alert.id} SQL ${input.decision}; resumed n8n wait node.`,
@@ -422,7 +423,7 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
 
       await insertAuditLog({
         actor: input.actor,
-        action: "alert_log",
+        action: alertTypeToAuditAction(alert.alert_type),
         db: alert.db,
         status: `sql_execution_${immediateExecutionResult.status}`,
         detail: `${alert.alert_type} alert ${alert.id} SQL execution ${immediateExecutionResult.status}.`,
@@ -453,7 +454,7 @@ export async function decideAlertSqlApproval(input: DecideSqlApprovalInput) {
 
   await insertAuditLog({
     actor: input.actor,
-    action: "alert_log",
+    action: alertTypeToAuditAction(alert.alert_type),
     db: alert.db,
     status: `sql_${input.decision}`,
     detail: `${alert.alert_type} alert ${alert.id} SQL ${input.decision}.`,

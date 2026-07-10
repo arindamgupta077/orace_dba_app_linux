@@ -142,3 +142,11 @@ export function resolveNotificationType(alertType: string): NotificationItemType
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
   return "generic";
 }
+
+export function alertTypeToAuditAction(alertType: string): string {
+  const t = alertType.trim().toLowerCase();
+  if (t === "tablespace") return "Tablespace Alert";
+  if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "disk_utilization";
+  return "alert_log";
+}
+

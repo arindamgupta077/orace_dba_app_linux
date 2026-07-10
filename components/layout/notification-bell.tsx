@@ -203,7 +203,7 @@ export function NotificationBell() {
               <p className="text-xs text-muted-foreground/60">Alerts from n8n will appear here</p>
             </div>
           ) : (
-            <ScrollArea className="max-h-[420px]">
+            <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
               <div className="divide-y divide-border/50">
                 {notifications.map((notif) => (
                   <button
@@ -244,7 +244,7 @@ export function NotificationBell() {
                   </button>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
 
           {/* Footer */}
