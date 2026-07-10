@@ -1582,16 +1582,92 @@ export async function revokeSession(sessionToken: string) {
   });
 }
 
+const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log"]);
+const APP_AUDITED_STATUSES = new Set<string>([
+  "pending_approval",
+  "acknowledged",
+  "approved",
+  "rejected",
+  "completed",
+  "failed",
+  "error"
+]);
+
 export async function insertAuditLog(input: {
   actor: string;
-  action: DbaAction | "login" | "logout" | "retry" | string;
+  action: string;
   db?: string;
   status: string;
   detail: string;
   metadata?: Record<string, unknown>;
 }) {
-  // Audit logs are inserted from n8n into app_audit_logs table, so we do not insert from the application end.
-  console.log(`[Audit Log Bypass] actor: ${input.actor}, action: ${input.action}, db: ${input.db}, status: ${input.status}, detail: ${input.detail}`);
+  const action = String(input.action || "");
+  const statusValue = String(input.status || "").toLowerCase();
+
+  // Only "Filesystem/Drive utilization" (disk_utilization) and "Alert Log
+  // Notification System" (alert_log) audit events are persisted from the
+  // application. All other audit logs (login/logout, handover, checklist,
+  // database management, etc.) are inserted by n8n and bypassed here.
+  if (!APP_AUDITED_ACTIONS.has(action)) {
+    console.log(
+      `[Audit Log Bypass] actor: ${input.actor}, action: ${action}, db: ${input.db}, status: ${input.status}, detail: ${input.detail}`
+    );
+    return;
+  }
+
+  // Only meaningful lifecycle transitions (acknowledged/approved/rejected/
+  // completed/failed) are persisted. "pending_approval" and other interim
+  // states are skipped — they represent alert creation/refresh, not a
+  // user action worth auditing.
+  if (!APP_AUDITED_STATUSES.has(statusValue)) {
+    console.log(
+      `[Audit Log Bypass] actor: ${input.actor}, action: ${action}, db: ${input.db}, status: ${input.status}, detail: ${input.detail}`
+    );
+    return;
+  }
+
+  const safeAction = action.slice(0, 64) || "unknown";
+  const actor = String(input.actor || "").slice(0, 128) || "system";
+  const dbName = input.db ? String(input.db).slice(0, 64) : null;
+  const status = String(input.status || "").slice(0, 32) || "info";
+  const detail = input.detail || "";
+  const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
+
+  try {
+    await executeOne(async (connection) => {
+      await connection.execute(
+        `INSERT INTO app_audit_logs (
+           actor,
+           action,
+           db_name,
+           status,
+           detail,
+           metadata_json
+         ) VALUES (
+           :actor,
+           :action,
+           :dbName,
+           :status,
+           :detail,
+           :metadataJson
+         )`,
+        {
+          actor,
+          action: safeAction,
+          dbName,
+          status,
+          detail,
+          metadataJson
+        },
+        { autoCommit: true }
+      );
+    });
+  } catch (error) {
+    console.error(
+      `[Audit Log Insert Failed] actor: ${actor}, action: ${safeAction}, db: ${input.db}, status: ${status}, detail: ${detail.slice(0, 200)}, error:`,
+      error instanceof Error ? error.message : error
+    );
+  }
 }
 
 export async function listAuditLogs(
@@ -2402,6 +2478,101 @@ export async function insertDbaAlertLog(input: InsertDbaAlertInput): Promise<{ i
       return { inserted: true, alert_id: alertId };
     } catch (err) {
       // ORA-00001 = unique constraint violation → duplicate, ignore silently.
+      const oraErr = err as { errorNum?: number };
+      if (oraErr?.errorNum === 1) {
+        return { inserted: false };
+      }
+      throw err;
+    }
+  });
+}
+
+export interface InsertDbaAlertAuditInput {
+  database_name: string;
+  error_code?: string;
+  message_text: string;
+  severity?: DbaAlertLogSeverity;
+  status?: DbaAlertLogStatus;
+  acknowledged_by?: string;
+  resolved_by?: string;
+  originating_timestamp?: string | Date;
+}
+
+/**
+ * Insert a fully-specified dba_alert_log row (used for audit events such as
+ * filesystem/drive alert acknowledgements). Unlike insertDbaAlertLog, this
+ * variant lets the caller choose the initial status and stamp the
+ * acknowledged_by/resolved_by columns in the same INSERT. Duplicates
+ * (uk_dba_alert_log) are silently ignored.
+ */
+export async function insertDbaAlertLogAudit(
+  input: InsertDbaAlertAuditInput
+): Promise<{ inserted: boolean; alert_id?: number }> {
+  const status: DbaAlertLogStatus = input.status || "OPEN";
+  const severity: DbaAlertLogSeverity = input.severity || computeAlertSeverity(input.error_code);
+  const ts =
+    input.originating_timestamp instanceof Date
+      ? input.originating_timestamp
+      : new Date(input.originating_timestamp || Date.now());
+  const messageText = (input.message_text || "").slice(0, 4000);
+  const isAck = status === "ACKNOWLEDGED";
+  const isResolved = status === "RESOLVED";
+
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `INSERT INTO dba_alert_log (
+           database_name,
+           originating_timestamp,
+           error_code,
+           message_text,
+           severity,
+           status,
+           acknowledged_by,
+           acknowledged_at,
+           resolved_by,
+           resolved_at
+         ) VALUES (
+           :databaseName,
+           :originatingTimestamp,
+           :errorCode,
+           :messageText,
+           :severity,
+           :status,
+           :acknowledgedBy,
+           :acknowledgedAt,
+           :resolvedBy,
+           :resolvedAt
+         )`,
+        {
+          databaseName: input.database_name.slice(0, 50),
+          originatingTimestamp: ts,
+          errorCode: input.error_code ? input.error_code.slice(0, 20) : null,
+          messageText: messageText || null,
+          severity,
+          status,
+          acknowledgedBy: isAck ? input.acknowledged_by || null : null,
+          acknowledgedAt: isAck ? ts : null,
+          resolvedBy: isResolved ? input.resolved_by || input.acknowledged_by || null : null,
+          resolvedAt: isResolved ? ts : null
+        },
+        { autoCommit: true }
+      );
+
+      const sel = await connection.execute<{ ALERT_ID: number }>(
+        `SELECT alert_id FROM dba_alert_log
+         WHERE database_name = :databaseName
+           AND originating_timestamp = :originatingTimestamp
+         FETCH FIRST 1 ROW ONLY`,
+        {
+          databaseName: input.database_name.slice(0, 50),
+          originatingTimestamp: ts
+        }
+      );
+
+      const alertId = sel.rows?.[0]?.ALERT_ID;
+      return { inserted: true, alert_id: alertId };
+    } catch (err) {
       const oraErr = err as { errorNum?: number };
       if (oraErr?.errorNum === 1) {
         return { inserted: false };

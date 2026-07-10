@@ -60,6 +60,8 @@ function statusTone(status: AlertNotificationStatus) {
   return status;
 }
 
+
+
 export function FilesystemDriveAlertsPanel() {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const user = useAppStore((state) => state.user);
@@ -219,7 +221,11 @@ export function FilesystemDriveAlertsPanel() {
                         {alert.db} / {formatDateTime(alert.created_at)}
                       </span>
                       <span>Raised by {alert.created_by}</span>
-                      {alert.approved_by ? <span>Acknowledged by {alert.approved_by}</span> : null}
+                      {alert.approved_by ? (
+                        <span>
+                          Acknowledged by {alert.approved_by}
+                        </span>
+                      ) : null}
                       {alert.approved_at ? <span>Acknowledged at {formatDateTime(alert.approved_at)}</span> : null}
                     </div>
                   </div>
@@ -231,7 +237,9 @@ export function FilesystemDriveAlertsPanel() {
                   ) : (
                     <Button variant="ghost" size="sm" disabled>
                       <CheckCircle2 className="h-4 w-4" />
-                      {alert.status === "acknowledged" ? "Acknowledged" : alert.status.replace(/_/g, " ")}
+                      {alert.status === "acknowledged"
+                        ? "Acknowledged"
+                        : alert.status.replace(/_/g, " ")}
                     </Button>
                   )}
                 </div>

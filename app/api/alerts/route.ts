@@ -8,6 +8,7 @@ import {
   getAlertNotification,
   insertAlertNotification,
   insertAuditLog,
+  insertDbaAlertLogAudit,
   listAlertNotifications,
   replacePendingAlertNotification,
   updateAlertNotification
@@ -15,7 +16,7 @@ import {
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { sha256Hex } from "@/lib/server/security";
 import { registerAlertSqlApproval } from "@/lib/server/sql-approval";
-import type { AlertNotificationSeverity, AlertNotificationStatus, AlertNotificationType } from "@/types/dba";
+import type { AlertNotificationSeverity, AlertNotificationStatus, AlertNotificationType, DbaAlertLogSeverity } from "@/types/dba";
 
 export const dynamic = "force-dynamic";
 
@@ -243,6 +244,15 @@ function buildAlertTitle(alertType: string, target: string, severity: string) {
   if (alertType === "tablespace") return `Tablespace ${sev}: ${target}`;
   if (alertType === "filesystem_drive") return `Filesystem ${sev}: ${target}`;
   return `Alert ${sev}: ${target}`;
+}
+
+function fsSeverityToAlertLogSeverity(severity: AlertNotificationSeverity): DbaAlertLogSeverity {
+  return severity === "critical" || severity === "error" ? "P2" : "INFO";
+}
+
+function alertTypeToAuditAction(alertType: string) {
+  if (alertType === "filesystem_drive") return "disk_utilization";
+  return "alert_log";
 }
 
 async function readOptionalSession() {
@@ -491,7 +501,7 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
 
         await insertAuditLog({
           actor: PUBLIC_ALERT_ACTOR,
-          action: "alert_log",
+          action: alertTypeToAuditAction(updatedAlert.alert_type),
           db: updatedAlert.db,
           status: inferredExecutionStatus,
           detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} inferred SQL execution ${inferredExecutionStatus}.`,
@@ -523,7 +533,7 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
 
         await insertAuditLog({
           actor: PUBLIC_ALERT_ACTOR,
-          action: "alert_log",
+          action: alertTypeToAuditAction(updatedAlert.alert_type),
           db: updatedAlert.db,
           status: "failed",
           detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL generation timed out.`,
@@ -556,7 +566,7 @@ async function applySqlExecutionTimeouts(alerts: NonNullable<Awaited<ReturnType<
 
       await insertAuditLog({
         actor: PUBLIC_ALERT_ACTOR,
-        action: "alert_log",
+        action: alertTypeToAuditAction(updatedAlert.alert_type),
         db: updatedAlert.db,
         status: "failed",
         detail: `${updatedAlert.alert_type} alert ${updatedAlert.id} SQL execution timed out.`,
@@ -639,7 +649,7 @@ export async function POST(request: Request) {
 
       await insertAuditLog({
         actor,
-        action: "alert_log",
+        action: alertTypeToAuditAction(alert.alert_type),
         db: alert.db,
         status: alert.status,
         detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,
@@ -761,7 +771,7 @@ export async function POST(request: Request) {
 
       await insertAuditLog({
         actor: alertInput.createdBy,
-        action: "alert_log",
+        action: alertTypeToAuditAction(alert.alert_type),
         db,
         status: alert.status,
         detail: `${alert.alert_type} alert ${alert.id} refreshed for ${tablespace || objectName || db}.`,
@@ -787,7 +797,7 @@ export async function POST(request: Request) {
 
     await insertAuditLog({
       actor: readString(body, ["created_by", "createdBy", "requested_by", "requestedBy"]) || PUBLIC_ALERT_ACTOR,
-      action: "alert_log",
+      action: alertTypeToAuditAction(alertType),
       db,
       status: alert.status,
       detail: `${alert.alert_type} alert ${alert.id} created for ${tablespace || objectName || db}.`,
@@ -896,14 +906,45 @@ export async function PATCH(request: Request) {
 
     await insertAuditLog({
       actor,
-      action: "alert_log",
+      action: alertTypeToAuditAction(alert.alert_type),
       db: alert.db,
       status: alert.status,
       detail: `${alert.alert_type} alert ${alert.id} marked ${alert.status}.`,
       metadata: { alert_id: alert.id, alert_type: alert.alert_type, public_endpoint: true }
     });
 
-    emitAlertNotificationEvent("updated", alert);
+emitAlertNotificationEvent("updated", alert);
+
+    if (status === "acknowledged" && existingAlert.alert_type === "filesystem_drive") {
+      const fsTarget = alert.object_name || "";
+      const auditMessage =
+        `Filesystem/Drive alert acknowledged by ${actor}. ` +
+        `Target: ${fsTarget}, DB: ${alert.db}. ` +
+        (typeof alert.utilization_pct === "number" ? `Last utilization: ${alert.utilization_pct}%. ` : "") +
+        `Alert id: ${alert.id}.`;
+
+      const auditOutcome = await insertDbaAlertLogAudit({
+        database_name: alert.db,
+        error_code: "FS-DRV-ACK",
+        message_text: auditMessage,
+        severity: fsSeverityToAlertLogSeverity(alert.severity),
+        status: "ACKNOWLEDGED",
+        acknowledged_by: actor
+      });
+
+      if (auditOutcome.inserted) {
+        emitGlobalNotification({
+          id: `ALOG-${auditOutcome.alert_id}`,
+          type: "filesystem_drive",
+          severity: "info",
+          db: alert.db,
+          title: `Filesystem alert acknowledged: ${fsTarget}`,
+          message: auditMessage,
+          timestamp: new Date().toISOString(),
+          targetPath: "/filesystem-drive"
+        });
+      }
+    }
 
     if (status === "approved" && isExtensionAlert) {
       void dispatchDbaWorkflowCommand({
@@ -936,7 +977,7 @@ export async function PATCH(request: Request) {
         });
         await insertAuditLog({
           actor: PUBLIC_ALERT_ACTOR,
-          action: "alert_log",
+          action: alertTypeToAuditAction(failedAlert.alert_type),
           db: failedAlert.db,
           status: "failed",
           detail: failureMessage,
