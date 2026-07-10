@@ -4,6 +4,7 @@ import { overrideHandover, insertAuditLog, closeShiftSession } from "@/lib/serve
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { getShiftLabel } from "@/lib/server/shift-utils";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,17 @@ export async function POST(request: Request) {
       shift: getShiftLabel(handover.shift_number),
       author: handover.author_username,
       reason
+    });
+
+    emitGlobalNotification({
+      id: `DBA-HOACK-${handover.handover_id}-${Date.now()}`,
+      type: "dba_shift",
+      severity: "info",
+      db: getShiftLabel(handover.shift_number),
+      title: `Handover Override: ${session.user.username}`,
+      message: `${session.user.username} force-acknowledged the handover from ${handover.author_username} for ${getShiftLabel(handover.shift_number)}.`,
+      timestamp: handover.ack_at || new Date().toISOString(),
+      targetPath: "/dba-console/shift-management"
     });
 
     // Optionally force-close the session too.

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useNotificationStream } from "@/hooks/use-notification-stream";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { NotificationItem, NotificationItemType } from "@/types/dba";
@@ -95,8 +94,6 @@ function formatRelativeTime(timestamp: string) {
 }
 
 export function NotificationBell() {
-  useNotificationStream();
-
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);

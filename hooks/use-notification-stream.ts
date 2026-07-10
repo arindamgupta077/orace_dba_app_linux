@@ -18,11 +18,14 @@ function payloadToNotificationItem(data: NotificationPayload): Omit<Notification
 }
 
 export function useNotificationStream() {
+  const user = useAppStore((s) => s.user);
   const addNotification = useAppStore((s) => s.addNotification);
   const addNotificationRef = useRef(addNotification);
   addNotificationRef.current = addNotification;
 
   useEffect(() => {
+    if (!user) return;
+
     let es: EventSource | null = null;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
@@ -34,8 +37,12 @@ export function useNotificationStream() {
 
       es.addEventListener("notification", (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data as string) as NotificationPayload;
+          const data = JSON.parse(event.data as string);
           addNotificationRef.current(payloadToNotificationItem(data));
+          if (!data.replayed) {
+            console.log("[useNotificationStream] New live notification received:", data);
+            window.dispatchEvent(new CustomEvent("dba-notification", { detail: data }));
+          }
         } catch {
           // ignore malformed events
         }
@@ -57,5 +64,5 @@ export function useNotificationStream() {
       if (retryTimeout) clearTimeout(retryTimeout);
       es?.close();
     };
-  }, []);
+  }, [user]);
 }

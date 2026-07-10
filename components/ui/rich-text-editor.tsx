@@ -177,6 +177,13 @@ export function RichTextEditor({
     }
   }, [editor, value]);
 
+  // Sync editability when disabled prop changes.
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!disabled);
+    }
+  }, [editor, disabled]);
+
   // Update editor content height when fullscreen toggles.
   useEffect(() => {
     if (editor) {

@@ -1019,7 +1019,7 @@ export function TablespaceAlertsPanel() {
                 <table className="w-full min-w-[760px] text-left text-xs">
                   <thead className="bg-secondary/60 text-muted-foreground">
                     <tr>
-                      {["Tablespace", "Datafile", "File size GB", "Free GB", "Autoextend", "Max size GB", "OMF destination"].map((heading) => (
+                      {["Tablespace", "Datafile", "File size GB", "Free GB", "Autoextend", "Max size GB"].map((heading) => (
                         <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
                       ))}
                     </tr>
@@ -1028,16 +1028,13 @@ export function TablespaceAlertsPanel() {
                     {sqlMetadataRows.map((row, index) => (
                       <tr key={`${getFieldValue(row, ["file_name"])}-${index}`} className="border-t border-border/60">
                         <td className="px-3 py-2 font-mono text-cyan-100">{getFieldValue(row, ["tablespace_name"])}</td>
-                        <td className="max-w-72 truncate px-3 py-2 font-mono text-slate-100" title={getFieldValue(row, ["file_name"])}>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-100" title={getFieldValue(row, ["file_name"])}>
                           {getFieldValue(row, ["file_name"])}
                         </td>
                         <td className="px-3 py-2">{getFieldValue(row, ["file_size_gb"])}</td>
                         <td className="px-3 py-2">{getFieldValue(row, ["free_gb"])}</td>
                         <td className="px-3 py-2">{getFieldValue(row, ["autoextensible"])}</td>
                         <td className="px-3 py-2">{getFieldValue(row, ["max_size_gb"])}</td>
-                        <td className="max-w-48 truncate px-3 py-2" title={getFieldValue(row, ["db_create_file_dest"])}>
-                          {getFieldValue(row, ["db_create_file_dest"]) || "-"}
-                        </td>
                       </tr>
                     ))}
                   </tbody>

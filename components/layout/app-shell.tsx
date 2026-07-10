@@ -30,6 +30,7 @@ import { DatabaseSelector } from "@/components/visual/database-selector";
 import { useTheme } from "@/components/providers/theme-provider";
 import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
+import { useNotificationStream } from "@/hooks/use-notification-stream";
 import { cn } from "@/lib/utils";
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
 const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
@@ -121,6 +122,7 @@ function RmanRunningBadge() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  useNotificationStream();
   const router = useRouter();
   const pathname = usePathname();
   const user = useAppStore((state) => state.user);

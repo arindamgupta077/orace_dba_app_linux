@@ -181,15 +181,30 @@ export function ShiftManagementSection() {
   }, []);
 
   useEffect(() => {
-    void load();
-    const interval = setInterval(() => void load(), REFRESH_INTERVAL_MS);
+    const tick = () => {
+      void load();
+      void loadHistory(5);
+    };
+    tick();
+    const interval = setInterval(tick, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [load, loadHistory]);
 
-  // Load recent handovers (5) on mount for the summary card.
+  // Listen to real-time notification stream events to update immediately.
   useEffect(() => {
-    void loadHistory(5);
-  }, [loadHistory]);
+    const handleNotification = (event: Event) => {
+      const customEvent = event as CustomEvent<any>;
+      if (customEvent.detail?.type === "dba_shift") {
+        console.log("[ShiftManagementSection] Real-time dba_shift event received, reloading shift state and history.");
+        void load();
+        void loadHistory(5);
+      }
+    };
+    window.addEventListener("dba-notification", handleNotification);
+    return () => {
+      window.removeEventListener("dba-notification", handleNotification);
+    };
+  }, [load, loadHistory]);
 
   const sessions = (state?.sessions ?? []).filter(Boolean);
   const mySession = sessions.find((s) => s?.username === user?.username) || null;
@@ -265,6 +280,7 @@ export function ShiftManagementSection() {
       toast.success("Handover submitted. Waiting for acknowledgement.");
       setHandoverText("");
       await load();
+      await loadHistory(5);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to submit handover.");
     } finally {
@@ -282,6 +298,7 @@ export function ShiftManagementSection() {
       await acknowledgeHandover(session.handover_id);
       toast.success(`Acknowledged ${session.username}'s handover.`);
       await load();
+      await loadHistory(5);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to acknowledge.");
     } finally {
@@ -301,6 +318,7 @@ export function ShiftManagementSection() {
       setOverrideTarget(null);
       setOverrideReason("");
       await load();
+      await loadHistory(5);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Override failed.");
     } finally {
