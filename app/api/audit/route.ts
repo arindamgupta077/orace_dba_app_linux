@@ -13,7 +13,8 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url);
-    const limit = Number(url.searchParams.get("limit") || "200");
+    const limitParam = url.searchParams.get("limit");
+    const limit = (limitParam === "unlimited" || !limitParam) ? undefined : Number(limitParam);
 
     // For "client" role users, restrict results to their own databases only.
     const items = await listAuditLogs(limit, {

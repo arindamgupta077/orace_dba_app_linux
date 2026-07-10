@@ -18,5 +18,7 @@ export const STATUS_COLOR: Record<string, string> = {
   rejected: "text-red-300 border-red-400/30 bg-red-500/10",
   completed: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10",
   failed: "text-red-300 border-red-400/30 bg-red-500/10",
-  acknowledged: "text-slate-300 border-slate-400/25 bg-slate-400/10"
+  acknowledged: "text-slate-300 border-slate-400/25 bg-slate-400/10",
+  open: "text-cyan-300 border-cyan-400/30 bg-cyan-400/10",
+  resolved: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10"
 };

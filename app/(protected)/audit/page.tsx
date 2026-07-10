@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardList, Download, Search, StickyNote } from "lucide-react";
+import { ClipboardList, Download, RotateCcw, Search, StickyNote, ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
+import { useAppStore } from "@/store/use-app-store";
+import { exportDataset, ExportColumn } from "@/lib/export";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,9 +23,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { fetchAuditLogs } from "@/services/api";
 import type { AuditLogItem } from "@/types/dba";
 import { StatusBadge } from "@/components/visual/status-badge";
-import { downloadText, formatDateTime, toCsv } from "@/lib/utils";
+import { downloadText, formatDateTime, toCsv, parseAppTimestamp, toIstDateString } from "@/lib/utils";
 
 export default function AuditPage() {
+  const user = useAppStore((state) => state.user);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -23,19 +34,22 @@ export default function AuditPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [actorFilter, setActorFilter] = useState("all");
+  const [dbFilter, setDbFilter] = useState("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState(() => toIstDateString());
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const itemsPerPage = 50;
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const response = await fetchAuditLogs(300);
+        const response = await fetchAuditLogs("unlimited");
         if (!active) return;
         const getSortOrder = (item: AuditLogItem) => {
           const status = item.status.toLowerCase();
           const detail = item.detail.toLowerCase();
-          if (status === "pending" || status === "pending_approval") return 0;
+          if (status === "pending" || status === "pending_approval" || status === "open") return 0;
           if (status === "acknowledged") return 1;
           if (status === "approved") {
             if (detail.includes("marked approved")) return 2;
@@ -45,7 +59,8 @@ export default function AuditPage() {
           if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
             return 5;
           }
-          return 9;
+          if (status === "resolved") return 9;
+          return 7;
         };
 
         const sorted = (response.items || []).sort((a, b) => {
@@ -80,10 +95,11 @@ export default function AuditPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, actorFilter]);
+  }, [searchTerm, statusFilter, actorFilter, dbFilter, fromDate, toDate]);
 
   const uniqueStatuses = Array.from(new Set(auditLogs.map((l) => l.status)));
-  const uniqueActors = Array.from(new Set(auditLogs.map((l) => l.actor))).filter(Boolean);
+  const uniqueActors = Array.from(new Set(auditLogs.map((l) => l.actor).filter((actor): actor is string => !!actor)));
+  const uniqueDbs = Array.from(new Set(auditLogs.map((l) => l.db).filter((db): db is string => !!db))).sort();
 
   const filteredLogs = auditLogs.filter((item) => {
     const matchesSearch =
@@ -93,7 +109,20 @@ export default function AuditPage() {
       item.detail.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesActor = actorFilter === "all" || item.actor === actorFilter;
-    return matchesSearch && matchesStatus && matchesActor;
+    const matchesDb = dbFilter === "all" || item.db === dbFilter;
+
+    let matchesDateRange = true;
+    if (fromDate || toDate) {
+      const itemDateStr = toIstDateString(parseAppTimestamp(item.timestamp));
+      if (fromDate && itemDateStr < fromDate) {
+        matchesDateRange = false;
+      }
+      if (toDate && itemDateStr > toDate) {
+        matchesDateRange = false;
+      }
+    }
+
+    return matchesSearch && matchesStatus && matchesActor && matchesDb && matchesDateRange;
   });
 
   const [sqlCommandOpen, setSqlCommandOpen] = useState<AuditLogItem | null>(null);
@@ -104,70 +133,188 @@ export default function AuditPage() {
   const getStatusType = (status: string) => {
     const s = status.toLowerCase();
     if (["error", "failed", "rejected", "critical"].includes(s)) return "critical";
-    if (["success", "completed", "healthy", "approved", "done"].includes(s)) return "healthy";
-    if (["pending", "pending_approval", "warning", "running"].includes(s)) return "warning";
+    if (["success", "completed", "healthy", "approved", "done", "resolved"].includes(s)) return "healthy";
+    if (["pending", "pending_approval", "warning", "running", "open"].includes(s)) return "warning";
+    if (["acknowledged"].includes(s)) return "acknowledged";
     return "unknown";
+  };
+
+  const handleExport = (format: "excel" | "pdf") => {
+    const columns: ExportColumn<AuditLogItem>[] = [
+      { header: "Timestamp", value: (row) => formatDateTime(row.timestamp) },
+      { header: "Actor", value: (row) => row.actor },
+      { header: "Action", value: (row) => row.action },
+      { header: "Database", value: (row) => row.db || "—" },
+      { header: "Status", value: (row) => row.status },
+      { header: "Detail", value: (row) => row.detail }
+    ];
+
+    const periodLabel = fromDate || toDate
+      ? `${fromDate || "Start"} to ${toDate || "End"}`
+      : "All time";
+
+    const activeFilters = [];
+    if (statusFilter !== "all") activeFilters.push(`Status: ${statusFilter}`);
+    if (actorFilter !== "all") activeFilters.push(`Actor: ${actorFilter}`);
+    if (dbFilter !== "all") activeFilters.push(`DB: ${dbFilter}`);
+    if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
+    const filterLabel = activeFilters.join(", ") || "None";
+
+    exportDataset(format, columns, filteredLogs, {
+      title: "Operations Audit Logs",
+      exportedBy: user?.username || "System",
+      periodLabel,
+      filterLabel
+    });
   };
 
   return (
     <>
       <PageHeader title="Audit Logs" description="Role-aware activity trail for DBA actions, retries, approvals, and authentication events." icon={ClipboardList} />
       <Card>
-        <CardHeader className="flex-col items-start gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Operations Audit</CardTitle>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <CardContent className="space-y-6 pt-6">
+          {/* Filters Bar */}
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4">
+            <div className="flex-1 min-w-[240px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Search</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search logs..."
+                  className="pl-8 bg-background"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Status</label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {uniqueStatuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Actor</label>
+              <Select value={actorFilter} onValueChange={setActorFilter}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="All Actors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Actors</SelectItem>
+                  {uniqueActors.map((actor) => (
+                    <SelectItem key={actor} value={actor}>
+                      {actor}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Database</label>
+              <Select value={dbFilter} onValueChange={setDbFilter}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="All Databases" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Databases</SelectItem>
+                  {uniqueDbs.map((db) => (
+                    <SelectItem key={db} value={db}>
+                      {db}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">From Date</label>
               <Input
-                type="search"
-                placeholder="Search logs..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                type="date"
+                className="bg-background"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                {uniqueStatuses.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={actorFilter} onValueChange={setActorFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Filter by actor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Actors</SelectItem>
-                {uniqueActors.map((actor) => (
-                  <SelectItem key={actor} value={actor}>
-                    {actor}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={() => downloadText("oracle-dba-audit.csv", toCsv(filteredLogs), "text/csv")}>
-              <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </Button>
+
+            <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">To Date</label>
+              <Input
+                type="date"
+                className="bg-background"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+            </div>
+
+            {(searchTerm || statusFilter !== "all" || actorFilter !== "all" || dbFilter !== "all" || fromDate || toDate !== toIstDateString()) && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSearchTerm("");
+                  setStatusFilter("all");
+                  setActorFilter("all");
+                  setDbFilter("all");
+                  setFromDate("");
+                  setToDate(toIstDateString());
+                }}
+                className="h-10 px-3 text-muted-foreground hover:text-foreground animate-in fade-in duration-200"
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Reset
+              </Button>
+            )}
+
+            <div className="ml-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="h-10 bg-background">
+                    <Download className="mr-2 h-4 w-4" />
+                    Export Logs
+                    <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Export Formats</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleExport("excel")} className="cursor-pointer">
+                    <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-500" />
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("pdf")} className="cursor-pointer">
+                    <FileText className="mr-2 h-4 w-4 text-rose-500" />
+                    PDF (.pdf)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => downloadText("oracle-dba-audit.csv", toCsv(filteredLogs), "text/csv")} className="cursor-pointer">
+                    <FileText className="mr-2 h-4 w-4 text-blue-500" />
+                    CSV (.csv)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-        </CardHeader>
-        <CardContent>
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead>Timestamp</TableHead>
-                <TableHead>Actor</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>DB</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Detail</TableHead>
+                <TableHead className="font-semibold text-foreground/80">Timestamp</TableHead>
+                <TableHead className="font-semibold text-foreground/80">Actor</TableHead>
+                <TableHead className="font-semibold text-foreground/80">Action</TableHead>
+                <TableHead className="font-semibold text-foreground/80">DB</TableHead>
+                <TableHead className="font-semibold text-foreground/80">Status</TableHead>
+                <TableHead className="font-semibold text-foreground/80">Detail</TableHead>
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
@@ -186,21 +333,35 @@ export default function AuditPage() {
                 </TableRow>
               ) : null}
               {currentLogs.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="whitespace-nowrap">{formatDateTime(item.timestamp)}</TableCell>
-                  <TableCell>{item.actor}</TableCell>
-                  <TableCell className="font-mono">{item.action}</TableCell>
-                  <TableCell>{item.db || "-"}</TableCell>
+                <TableRow key={item.id} className="hover:bg-muted/20">
+                  <TableCell className="whitespace-nowrap font-medium text-indigo-600 dark:text-indigo-400">
+                    {formatDateTime(item.timestamp)}
+                  </TableCell>
+                  <TableCell className="font-semibold text-foreground/90">{item.actor}</TableCell>
+                  <TableCell>
+                    <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted border border-border/40 text-foreground/80 font-medium">
+                      {item.action}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {item.db ? (
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {item.db}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={getStatusType(item.status)}>{item.status}</StatusBadge>
                   </TableCell>
-                  <TableCell className="max-w-lg text-muted-foreground">{item.detail}</TableCell>
+                  <TableCell className="max-w-lg text-muted-foreground leading-relaxed">{item.detail}</TableCell>
                   <TableCell>
                     {item.sql_command && item.status.toLowerCase() !== "pending_approval" ? (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         aria-label="View SQL command"
                         title="View SQL command"
                         onClick={() => setSqlCommandOpen(item)}

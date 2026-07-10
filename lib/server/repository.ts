@@ -1590,7 +1590,9 @@ const APP_AUDITED_STATUSES = new Set<string>([
   "rejected",
   "completed",
   "failed",
-  "error"
+  "error",
+  "open",
+  "resolved"
 ]);
 
 export async function insertAuditLog(input: {
@@ -1705,10 +1707,10 @@ export async function insertAuditLog(input: {
 }
 
 export async function listAuditLogs(
-  limit = 200,
+  limit?: number,
   input: { role?: UserRole; userId?: number } = {}
 ): Promise<AuditLogItem[]> {
-  const safeLimit = Math.min(Math.max(limit, 1), 1000);
+  const safeLimit = limit !== undefined ? Math.min(Math.max(limit, 1), 1000000) : undefined;
 
   // For "client" role users, restrict to audit logs whose db_name belongs
   // to a database they own in db_inventory.
@@ -1718,6 +1720,8 @@ export async function listAuditLogs(
          SELECT database_name FROM database_inventory WHERE owner_id = :ownerId
        )`
     : "";
+
+  const limitClause = safeLimit !== undefined ? `FETCH FIRST ${safeLimit} ROWS ONLY` : "";
 
   return executeOne(async (connection) => {
     const binds: BindParameters = isClientRestricted ? { ownerId: input.userId } : {};
@@ -1737,7 +1741,7 @@ export async function listAuditLogs(
        FROM app_audit_logs
        ${whereClause}
        ORDER BY created_at DESC, audit_id ASC
-       FETCH FIRST ${safeLimit} ROWS ONLY`,
+       ${limitClause}`,
       binds
     );
 

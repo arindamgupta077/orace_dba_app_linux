@@ -200,8 +200,9 @@ export async function fetchUsersByRole(role: AppUserRole) {
   return requestJson<{ users: AppUser[] }>(`/api/users?${query}`);
 }
 
-export async function fetchAuditLogs(limit = 200) {
-  const query = new URLSearchParams({ limit: String(limit) }).toString();
+export async function fetchAuditLogs(limit?: number | "unlimited") {
+  const limitVal = limit === undefined || limit === "unlimited" ? "unlimited" : String(limit);
+  const query = new URLSearchParams({ limit: limitVal }).toString();
   return requestJson<{ items: AuditLogItem[] }>(`/api/audit?${query}`);
 }
 

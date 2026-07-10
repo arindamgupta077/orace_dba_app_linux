@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { emitGlobalNotification } from "@/lib/server/notification-events";
-import { insertDbaAlertLog, listDbaAlertLog, updateDbaAlertLog } from "@/lib/server/repository";
+import { insertAuditLog, insertDbaAlertLog, listDbaAlertLog, updateDbaAlertLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { DbaAlertLogSeverity, DbaAlertLogStatus } from "@/types/dba";
 
@@ -130,6 +130,15 @@ export async function POST(request: Request) {
           timestamp: originating_timestamp,
           targetPath: "/alerts"
         });
+
+        await insertAuditLog({
+          actor: "n8n",
+          action: "alert_log",
+          db: database_name,
+          status: "open",
+          detail: `Oracle alert log notification received from n8n: ${errCode} on database ${database_name}. Msg: ${msgSnippet}`,
+          metadata: { alert_id: outcome.alert_id }
+        });
       }
     }
 
@@ -179,6 +188,15 @@ export async function PATCH(request: Request) {
 
     const actor = session.user.username;
     const alert = await updateDbaAlertLog({ alert_id, status, actor });
+
+    await insertAuditLog({
+      actor,
+      action: "alert_log",
+      db: alert.database_name,
+      status: alert.status.toLowerCase(),
+      detail: `Oracle alert log notification ${alert.status.toLowerCase()} by user ${actor} for database ${alert.database_name}: ${alert.error_code || "ORA-ERROR"} - ${alert.message_text ? alert.message_text.slice(0, 120) : "Alert log error."}`,
+      metadata: { alert_id: alert.alert_id }
+    });
 
     return NextResponse.json({ alert });
   } catch (error) {
