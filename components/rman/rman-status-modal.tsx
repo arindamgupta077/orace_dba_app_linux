@@ -244,9 +244,7 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
       return Boolean(startedAt) && Boolean(type);
     }) as unknown as ExtendedBackupRow[]);
 
-  const hasRows   = backupRows.length > 0;
-  const isFailure = response?.status !== "success";
-  const showResult = isDone && (hasRows || isFailure);
+  const showResult = isDone;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -295,7 +293,7 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
               <BackupStatusTable rows={backupRows} />
             ) : (
               <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-border/50 text-sm text-muted-foreground">
-                No backup jobs found for the selected date range.
+                No backup found in the selected time period.
               </div>
             )}
 
