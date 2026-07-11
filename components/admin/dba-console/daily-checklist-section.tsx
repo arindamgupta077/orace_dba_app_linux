@@ -44,6 +44,7 @@ import {
   updateBackupTemplateApi
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
+import { getBackupResponsibleShift, parseScheduledFinishMinutes } from "@/lib/backup-shifts";
 import { cn, formatTime, getDefaultShiftForTime, toIstDateString } from "@/lib/utils";
 import type {
   BackupStatusCheck,
@@ -147,13 +148,20 @@ export function DailyChecklistSection() {
     return activeDatabases.filter((d) => d.database_name.toUpperCase().includes(q));
   }, [activeDatabases, search]);
 
-  const filteredTemplates = useMemo(() => {
-    if (!search) return backupTemplates;
-    const q = search.toUpperCase();
+  const responsibleBackupTemplates = useMemo(() => {
+    const selectedShift = Number(shiftNumber);
     return backupTemplates.filter(
+      (t) => t.is_active && getBackupResponsibleShift(t.scheduled_time) === selectedShift
+    );
+  }, [backupTemplates, shiftNumber]);
+
+  const filteredTemplates = useMemo(() => {
+    if (!search) return responsibleBackupTemplates;
+    const q = search.toUpperCase();
+    return responsibleBackupTemplates.filter(
       (t) => t.backup_name.toUpperCase().includes(q) || t.database_name.toUpperCase().includes(q)
     );
-  }, [backupTemplates, search]);
+  }, [responsibleBackupTemplates, search]);
 
   const dbCheckMap = useMemo(() => {
     const map = new Map<number, DbStatusCheck>();
@@ -174,10 +182,10 @@ export function DailyChecklistSection() {
   }, [activeDatabases, dbChecks]);
 
   const backupCompletion = useMemo(() => {
-    const total = backupTemplates.filter((t) => t.is_active).length;
-    const completed = backupChecks.length;
+    const total = responsibleBackupTemplates.length;
+    const completed = responsibleBackupTemplates.filter((t) => backupCheckMap.has(t.backup_id)).length;
     return { total, completed, pct: total > 0 ? Math.round((completed / total) * 100) : 0 };
-  }, [backupTemplates, backupChecks]);
+  }, [responsibleBackupTemplates, backupCheckMap]);
 
   const handleSaveDbStatus = async (databaseId: number, status: DbStatusValue, comment?: string) => {
     const key = `db-${databaseId}`;
@@ -573,9 +581,21 @@ export function DailyChecklistSection() {
                     <Archive className="h-6 w-6 text-muted-foreground/50" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">No backup templates defined</p>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {search && responsibleBackupTemplates.length > 0
+                        ? "No matching backups"
+                        : backupTemplates.some((t) => t.is_active)
+                          ? "No backups due for this shift"
+                          : "No backup templates defined"}
+                    </p>
                     <p className="mt-0.5 text-xs text-muted-foreground/70">
-                      {isAdmin ? "Use \"Manage Templates\" to add backup definitions." : "Ask an admin to define backup templates."}
+                      {search && responsibleBackupTemplates.length > 0
+                        ? "Try another backup or database search."
+                        : backupTemplates.some((t) => t.is_active)
+                        ? "Only backups whose scheduled finish time falls in the selected shift are shown."
+                        : isAdmin
+                          ? "Use \"Manage Templates\" to add backup definitions."
+                          : "Ask an admin to define backup templates."}
                     </p>
                   </div>
                 </div>
@@ -635,7 +655,7 @@ export function DailyChecklistSection() {
                         )}
                         <TableHead>Backup Name</TableHead>
                         <TableHead>Database</TableHead>
-                        <TableHead>Scheduled</TableHead>
+                        <TableHead>Scheduled Finish</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Checked By</TableHead>
                         <TableHead>Check Time</TableHead>
@@ -676,7 +696,7 @@ export function DailyChecklistSection() {
           <DialogHeader>
             <DialogTitle>Backup Template Management</DialogTitle>
             <DialogDescription>
-              Define backup schedules that DBAs verify each shift. Only app_admin can modify templates.
+              Define backup finish times that decide which shift verifies each backup. Only app_admin can modify templates.
             </DialogDescription>
           </DialogHeader>
           <BackupTemplateManager
@@ -906,8 +926,12 @@ function BackupTemplateManager({
   }, [editingTemplate]);
 
   const handleSave = async () => {
-    if (!formDb || !formName.trim()) {
-      toast.error("Database and backup name are required.");
+    if (!formDb || !formName.trim() || !formTime.trim()) {
+      toast.error("Database, backup name, and scheduled finish time are required.");
+      return;
+    }
+    if (parseScheduledFinishMinutes(formTime.trim()) == null) {
+      toast.error("Scheduled finish time must be in HH:MM format from 00:00 to 23:59.");
       return;
     }
     setSaving(true);
@@ -962,7 +986,7 @@ function BackupTemplateManager({
           <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. RMAN Full Backup" />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Scheduled Time (HH:MM)</Label>
+          <Label className="text-xs">Scheduled Finish Time (HH:MM)</Label>
           <Input value={formTime} onChange={(e) => setFormTime(e.target.value)} placeholder="e.g. 02:00" />
         </div>
         <div className="space-y-1.5">
@@ -999,7 +1023,7 @@ function BackupTemplateManager({
             <TableRow>
               <TableHead>Backup Name</TableHead>
               <TableHead>Database</TableHead>
-              <TableHead>Scheduled</TableHead>
+              <TableHead>Scheduled Finish</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>

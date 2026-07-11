@@ -4125,6 +4125,15 @@ async function fetchLateLogins(connection: Connection, binds: BindParameters, wh
   return allLate.sort((a, b) => (a.login_at < b.login_at ? 1 : -1)).slice(0, 50);
 }
 
+function scheduledFinishMinuteSql(alias: string): string {
+  return `CASE
+            WHEN REGEXP_LIKE(TRIM(${alias}.scheduled_time), '^([0-9]|[01][0-9]|2[0-3]):[0-5][0-9]$')
+            THEN TO_NUMBER(SUBSTR(TRIM(${alias}.scheduled_time), 1, INSTR(TRIM(${alias}.scheduled_time), ':') - 1)) * 60
+                 + TO_NUMBER(SUBSTR(TRIM(${alias}.scheduled_time), INSTR(TRIM(${alias}.scheduled_time), ':') + 1, 2))
+            ELSE NULL
+          END`;
+}
+
 async function fetchChecklistCompletion(
   connection: Connection,
   filters: ShiftReportFilters,
@@ -4164,6 +4173,90 @@ async function fetchChecklistCompletion(
     sessConditions.push("s.shift_number = :shiftNumber");
   }
   const sessWhere = sessConditions.length ? `WHERE ${sessConditions.join(" AND ")}` : "";
+
+  if (type === "backup") {
+    const backupCheckBinds: BindParameters = {};
+    const backupCheckConditions: string[] = ["b.is_active = 'Y'"];
+    if (filters.fromDate) {
+      backupCheckBinds.fromDate = filters.fromDate;
+      backupCheckConditions.push("TRUNC(c.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+    }
+    if (filters.toDate) {
+      backupCheckBinds.toDate = filters.toDate;
+      backupCheckConditions.push("TRUNC(c.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+    }
+    if (filters.shiftNumber) {
+      backupCheckBinds.shiftNumber = filters.shiftNumber;
+      backupCheckConditions.push("c.shift_number = :shiftNumber");
+    }
+
+    const templateFinishMin = scheduledFinishMinuteSql("t");
+    const checkFinishMin = scheduledFinishMinuteSql("b");
+
+    const [expectedResult, doneResult] = await Promise.all([
+      connection.execute<DbRow>(
+        `WITH slots AS (
+           SELECT s.shift_number,
+                  COUNT(DISTINCT TRUNC(s.shift_date) || '-' || s.shift_number) AS slot_count
+           FROM app_shift_sessions s
+           ${sessWhere}
+           GROUP BY s.shift_number
+         ),
+         backup_counts AS (
+           SELECT responsible_shift AS shift_number, COUNT(*) AS backup_count
+           FROM (
+             SELECT CASE
+                      WHEN finish_min >= 420 AND finish_min <= 930 THEN 1
+                      WHEN finish_min > 930 AND finish_min <= 1380 THEN 2
+                      ELSE 3
+                    END AS responsible_shift
+             FROM (
+               SELECT ${templateFinishMin} AS finish_min
+               FROM app_backup_template t
+               WHERE t.is_active = 'Y'
+             )
+             WHERE finish_min IS NOT NULL
+           )
+           GROUP BY responsible_shift
+         )
+         SELECT NVL(SUM(slots.slot_count * NVL(backup_counts.backup_count, 0)), 0) AS total
+         FROM slots
+         LEFT JOIN backup_counts ON backup_counts.shift_number = slots.shift_number`,
+        sessBinds
+      ),
+      connection.execute<DbRow>(
+        `WITH checked_backups AS (
+           SELECT DISTINCT c.backup_id, c.shift_number, TRUNC(c.shift_date) AS shift_day,
+                  CASE
+                    WHEN finish_min >= 420 AND finish_min <= 930 THEN 1
+                    WHEN finish_min > 930 AND finish_min <= 1380 THEN 2
+                    WHEN finish_min IS NOT NULL THEN 3
+                    ELSE NULL
+                  END AS responsible_shift
+           FROM (
+             SELECT c.backup_id, c.shift_number, c.shift_date, ${checkFinishMin} AS finish_min
+             FROM app_backup_status_checks c
+             JOIN app_backup_template b ON b.backup_id = c.backup_id
+             WHERE ${backupCheckConditions.join(" AND ")}
+           ) c
+         )
+         SELECT COUNT(*) AS completed
+         FROM checked_backups
+         WHERE responsible_shift = shift_number`,
+        backupCheckBinds
+      )
+    ]);
+
+    const expectedTotal = Number(expectedResult.rows?.[0]?.TOTAL ?? 0);
+    const completed = Number(doneResult.rows?.[0]?.COMPLETED ?? 0);
+    const effectiveCompleted = Math.min(completed, expectedTotal);
+
+    return {
+      total: expectedTotal,
+      completed: effectiveCompleted,
+      completion_pct: expectedTotal > 0 ? Math.round((effectiveCompleted / expectedTotal) * 100) : 0
+    };
+  }
 
   const invTable = type === "db" ? "database_inventory" : "app_backup_template";
   const invFilter = type === "db" ? "status = 'active'" : "is_active = 'Y'";

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { listBackupStatusChecks, upsertBackupStatusCheck, insertAuditLog } from "@/lib/server/repository";
+import { getBackupResponsibleShift } from "@/lib/backup-shifts";
+import { listBackupStatusChecks, listBackupTemplates, upsertBackupStatusCheck, insertAuditLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { getActiveShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
 import type { BackupStatusValue } from "@/types/dba";
@@ -81,9 +82,27 @@ export async function POST(request: Request) {
       shiftDate = toOracleDateString(getShiftStartDate(new Date(), shiftNumber));
     }
 
+    const template = (await listBackupTemplates(true)).find((t) => t.backup_id === backupId);
+    if (!template) {
+      return NextResponse.json({ message: "Active backup template not found." }, { status: 404 });
+    }
+    const responsibleShift = getBackupResponsibleShift(template.scheduled_time);
+    if (!responsibleShift) {
+      return NextResponse.json(
+        { message: "Scheduled finish time is required in HH:MM format before this backup can be checked." },
+        { status: 400 }
+      );
+    }
+    if (responsibleShift !== shiftNumber) {
+      return NextResponse.json(
+        { message: `This backup is assigned to Shift ${responsibleShift} based on scheduled finish time.` },
+        { status: 400 }
+      );
+    }
+
     const check = await upsertBackupStatusCheck({
       backupId,
-      databaseId,
+      databaseId: template.database_id,
       shiftNumber,
       shiftDate,
       status,

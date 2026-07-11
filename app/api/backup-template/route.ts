@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { parseScheduledFinishMinutes } from "@/lib/backup-shifts";
 import { createBackupTemplate, insertAuditLog, listBackupTemplates } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 
@@ -58,15 +59,19 @@ export async function POST(request: Request) {
 
     const databaseId = Number(body.databaseId);
     const backupName = (body.backupName || "").trim();
+    const scheduledTime = (body.scheduledTime || "").trim();
 
-    if (!databaseId || !backupName) {
-      return NextResponse.json({ message: "databaseId and backupName are required." }, { status: 400 });
+    if (!databaseId || !backupName || !scheduledTime) {
+      return NextResponse.json({ message: "databaseId, backupName, and scheduledTime are required." }, { status: 400 });
+    }
+    if (parseScheduledFinishMinutes(scheduledTime) == null) {
+      return NextResponse.json({ message: "scheduledTime must be in HH:MM format from 00:00 to 23:59." }, { status: 400 });
     }
 
     const template = await createBackupTemplate({
       databaseId,
       backupName,
-      scheduledTime: body.scheduledTime?.trim() || undefined,
+      scheduledTime,
       backupType: body.backupType?.trim() || undefined,
       actor: session.user.username
     });

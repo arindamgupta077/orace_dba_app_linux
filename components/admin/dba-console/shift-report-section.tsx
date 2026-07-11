@@ -393,9 +393,7 @@ export function ShiftReportSection() {
     );
   }
 
-  const overallCompliance = Math.round(
-    (report.dbStatusCompletion.completion_pct + report.backupCompletion.completion_pct) / 2
-  );
+  const overallCompliance = report.checklistCompletion.completion_pct;
 
   return (
     <div className="dba-fade-in space-y-6">
