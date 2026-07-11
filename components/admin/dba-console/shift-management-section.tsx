@@ -47,7 +47,7 @@ import {
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime } from "@/lib/utils";
-import type { CurrentShiftState, Handover, ShiftSession } from "@/types/dba";
+import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
 
 const GENERAL_SHIFT_NUMBER = 4;
 const SHIFT_LABELS: Record<number, string> = {
@@ -193,7 +193,7 @@ export function ShiftManagementSection() {
   // Listen to real-time notification stream events to update immediately.
   useEffect(() => {
     const handleNotification = (event: Event) => {
-      const customEvent = event as CustomEvent<any>;
+      const customEvent = event as CustomEvent<NotificationPayload>;
       if (customEvent.detail?.type === "dba_shift") {
         console.log("[ShiftManagementSection] Real-time dba_shift event received, reloading shift state and history.");
         void load();
