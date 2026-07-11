@@ -569,6 +569,22 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
     icon: "StopCircle",
     params: []
   },
+  {
+    action: "fetch_listener",
+    title: "Check listener.ora File",
+    description: "Fetch and display listener.ora content from the Oracle network admin directory via n8n.",
+    category: "general_admin",
+    icon: "FileText",
+    params: []
+  },
+  {
+    action: "fetch_tnsnames",
+    title: "Check tnsnames.ora File",
+    description: "Fetch and display tnsnames.ora content from the Oracle network admin directory via n8n.",
+    category: "general_admin",
+    icon: "FileText",
+    params: []
+  },
 
   // ── General Administration — Query Panel ──────────────────
   {

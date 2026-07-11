@@ -130,6 +130,8 @@ export type DbaAction =
   | "check_listener"
   | "start_listener"
   | "stop_listener"
+  | "fetch_listener"
+  | "fetch_tnsnames"
   | "query";
 
 export type DbaActionCategory =

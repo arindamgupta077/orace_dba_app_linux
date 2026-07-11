@@ -74,7 +74,7 @@ function firstRowsArray(record: JsonRecord) {
 }
 
 function hasTextOutput(record: JsonRecord) {
-  return ["raw_output", "rawOutput", "output", "stdout", "stderr", "text", "log", "logs"].some(
+  return ["raw_output", "rawOutput", "output", "stdout", "stderr", "text", "content", "file_content", "fileContent", "log", "logs"].some(
     (key) => typeof record[key] === "string" && String(record[key]).trim()
   );
 }
@@ -128,7 +128,7 @@ function readTextOutput(value: unknown, depth = 0): string {
 
   for (const source of [unwrapped, rawData, ...nestedRecords]) {
     if (!source) continue;
-    for (const key of ["raw_output", "rawOutput", "output", "stdout", "stderr", "text", "log", "logs"]) {
+    for (const key of ["raw_output", "rawOutput", "output", "stdout", "stderr", "text", "content", "file_content", "fileContent", "listener_ora", "tnsnames_ora", "log", "logs"]) {
       const output = readTextOutput(source[key], depth + 1);
       if (output) return output;
     }

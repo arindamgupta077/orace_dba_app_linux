@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  FileText,
   PlayCircle,
   Radio,
   StopCircle
@@ -58,6 +59,22 @@ const LISTENER_ACTIONS: ActionCard[] = [
     colorClass: "from-red-500 to-rose-600",
     glowClass: "shadow-[0_0_18px_rgba(239,68,68,0.35)]",
     destructive: true
+  },
+  {
+    action: "fetch_listener",
+    label: "Check listener.ora File",
+    description: "Fetch listener.ora content from the Oracle network admin directory",
+    icon: FileText,
+    colorClass: "from-sky-500 to-cyan-600",
+    glowClass: "shadow-[0_0_18px_rgba(14,165,233,0.35)]"
+  },
+  {
+    action: "fetch_tnsnames",
+    label: "Check tnsnames.ora File",
+    description: "Fetch tnsnames.ora content from the Oracle network admin directory",
+    icon: FileText,
+    colorClass: "from-amber-500 to-orange-600",
+    glowClass: "shadow-[0_0_18px_rgba(245,158,11,0.35)]"
   }
 ];
 
@@ -121,7 +138,7 @@ export function ListenerControlPanel() {
   return (
     <div>
       {/* Action cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {LISTENER_ACTIONS.map((card) => {
           const Icon = card.icon;
           const isRunning = loading === card.action;
