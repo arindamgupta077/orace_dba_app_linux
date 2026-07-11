@@ -57,7 +57,7 @@ import type {
 
 const DB_STATUS_OPTIONS: DbStatusValue[] = ["UP", "DOWN", "PARTIAL", "MAINTENANCE"];
 const BACKUP_STATUS_OPTIONS: BackupStatusValue[] = ["SUCCESS", "FAILED", "RUNNING", "NOT_STARTED", "UNKNOWN"];
-const BACKUP_TYPE_OPTIONS = ["FULL", "INCREMENTAL L0", "INCREMENTAL L1", "ARCHIVELOG", "DATA PUMP"];
+const BACKUP_TYPE_OPTIONS = ["RMAN backup", "Export backup", "Hot backup", "Cold backup"];
 
 function dbStatusBadge(status: DbStatusValue) {
   const map: Record<DbStatusValue, string> = {

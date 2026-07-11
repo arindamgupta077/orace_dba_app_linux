@@ -99,8 +99,8 @@ export function getDefaultShiftForTime(date: Date = new Date()): "1" | "2" | "3"
   const ist = new Date(istMs);
   const minuteOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
 
-  if (minuteOfDay >= 6 * 60 && minuteOfDay < 12 * 60) return "1";
-  if (minuteOfDay >= 12 * 60 && minuteOfDay < 21 * 60) return "2";
+  if (minuteOfDay >= 7 * 60 && minuteOfDay < 14 * 60 + 30) return "1";
+  if (minuteOfDay >= 14 * 60 + 30 && minuteOfDay < 22 * 60 + 30) return "2";
   return "3";
 }
 
