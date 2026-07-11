@@ -520,11 +520,19 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   {
     action: "stop_database",
     title: "Stop Database",
-    description: "Shutdown the Oracle database immediately via SSH (SHUTDOWN IMMEDIATE).",
+    description: "Shutdown the Oracle database instance via SSH (IMMEDIATE, TRANSACTIONAL, or ABORT).",
     category: "general_admin",
     destructive: true,
     icon: "StopCircle",
-    params: []
+    params: [
+      {
+        name: "shutdown_option",
+        label: "Shutdown Mode",
+        type: "select",
+        options: ["IMMEDIATE", "TRANSACTIONAL", "ABORT"],
+        defaultValue: "IMMEDIATE"
+      }
+    ]
   },
   {
     action: "mount_database",

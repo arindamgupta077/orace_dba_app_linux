@@ -890,5 +890,47 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
     ];
   }
 
+  if (action === "stop_database") {
+    const shutdownOption = String(params.shutdown_option || "IMMEDIATE");
+    base.db_status = "unknown";
+    base.ai_summary = `Database ${db} shutdown command triggered with mode ${shutdownOption}.`;
+    base.findings = [
+      {
+        title: "Database Shutdown Initiated",
+        detail: `The database instance shutdown command was executed with the ${shutdownOption} option.`,
+        severity: "warning",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Verify instance status",
+        detail: "Run 'Check Status' or check OS processes to confirm that the instance is down.",
+        severity: "healthy",
+        action: "status_database"
+      }
+    ];
+    base.raw_output = [
+      "SQL*Plus: Release 19.0.0.0.0 - Production on Sat Jul 11 12:35:00 2026",
+      "Version 19.3.0.0.0",
+      "",
+      "Copyright (c) 1982, 2019, Oracle.  All rights reserved.",
+      "",
+      "Connected to:",
+      "Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production",
+      "Version 19.3.0.0.0",
+      "",
+      `SQL> SHUTDOWN ${shutdownOption};`,
+      shutdownOption === "ABORT"
+        ? "ORACLE instance shut down."
+        : [
+            "Database closed.",
+            "Database dismounted.",
+            "ORACLE instance shut down."
+          ].join("\n"),
+      `Request ${requestId} completed successfully.`
+    ].join("\n");
+  }
+
   return base;
 }

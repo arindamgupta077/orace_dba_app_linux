@@ -73,6 +73,24 @@ const DB_ACTIONS: ActionCard[] = [
   }
 ];
 
+const SHUTDOWN_OPTIONS = [
+  {
+    value: "IMMEDIATE",
+    label: "SHUTDOWN IMMEDIATE;",
+    description: "Gracefully terminates active transactions and shuts down."
+  },
+  {
+    value: "TRANSACTIONAL",
+    label: "SHUTDOWN TRANSACTIONAL;",
+    description: "Waits for active transactions to complete before shutting down."
+  },
+  {
+    value: "ABORT",
+    label: "SHUTDOWN ABORT;",
+    description: "Instantly terminates all processes (requires recovery on startup)."
+  }
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function DbControlPanel() {
@@ -88,6 +106,9 @@ export function DbControlPanel() {
   // Generic destructive confirm (Start / Stop)
   const [confirmAction, setConfirmAction] = useState<ActionCard | null>(null);
 
+  // Selected shutdown option
+  const [selectedShutdownOption, setSelectedShutdownOption] = useState<string>("IMMEDIATE");
+
   // Loading tracker for all buttons
   const [loading, setLoading] = useState<DbaAction | null>(null);
 
@@ -96,12 +117,12 @@ export function DbControlPanel() {
 
   // ── Generic execute helper ─────────────────────────────────────────────────
 
-  const execute = async (action: DbaAction) => {
+  const execute = async (action: DbaAction, params: Record<string, unknown> = {}) => {
     if (!selectedDb) return;
     setLoading(action);
     setRunState({ status: "loading", output: null, timestamp: null, action });
     try {
-      const result = await executeDBAAction(action, selectedDb, {});
+      const result = await executeDBAAction(action, selectedDb, params);
       setRunState({
         status: result.status === "error" ? "error" : "success",
         output: result.raw_output || result.ai_summary || "(no output)",
@@ -134,7 +155,10 @@ export function DbControlPanel() {
 
   const handleConfirm = () => {
     if (confirmAction) {
-      void execute(confirmAction.action);
+      const params = confirmAction.action === "stop_database"
+        ? { shutdown_option: selectedShutdownOption }
+        : {};
+      void execute(confirmAction.action, params);
       setConfirmAction(null);
     }
   };
@@ -258,7 +282,7 @@ export function DbControlPanel() {
 
       {/* ── Generic destructive confirm dialog (Start / Stop) ─────────────── */}
       <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
-        <DialogContent>
+        <DialogContent className={cn(confirmAction?.action === "stop_database" ? "max-w-lg" : "max-w-md")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-400">
               <AlertTriangle className="h-5 w-5" />
@@ -270,15 +294,54 @@ export function DbControlPanel() {
               on database{" "}
               <span className="font-mono font-semibold text-amber-400">{selectedDb}</span>.
               <br />
-              This is a disruptive operation. Are you sure?
+              This is a disruptive operation. {confirmAction?.action !== "stop_database" && "Are you sure?"}
             </DialogDescription>
           </DialogHeader>
+
+          {confirmAction?.action === "stop_database" && (
+            <div className="my-4 space-y-3">
+              <label className="text-sm font-semibold text-muted-foreground block">
+                Select Shutdown Option:
+              </label>
+              <div className="grid grid-cols-1 gap-2.5">
+                {SHUTDOWN_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSelectedShutdownOption(opt.value)}
+                    className={cn(
+                      "flex flex-col items-start gap-1 rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer",
+                      selectedShutdownOption === opt.value
+                        ? "border-red-500/50 bg-red-500/10 ring-1 ring-red-500/30"
+                        : "border-border/60 bg-muted/20 hover:bg-muted/40 hover:border-border"
+                    )}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className={cn(
+                        "font-mono font-bold text-sm",
+                        selectedShutdownOption === opt.value ? "text-red-400" : "text-foreground"
+                      )}>
+                        {opt.label}
+                      </span>
+                      {selectedShutdownOption === opt.value && (
+                        <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+                      {opt.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setConfirmAction(null)}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleConfirm}>
-              Yes, Execute
+              {confirmAction?.action === "stop_database" ? "Confirm & Shutdown" : "Yes, Execute"}
             </Button>
           </DialogFooter>
         </DialogContent>
