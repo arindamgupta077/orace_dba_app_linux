@@ -341,11 +341,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {isDbSelectorVisible && (
-            <div className="px-4 py-3 lg:px-6 border-t border-border/70 bg-background/40 flex flex-wrap items-center gap-3">
+            <div className="grid grid-cols-1 items-center gap-3 border-t border-border/70 bg-background/40 px-4 py-3 lg:grid-cols-[auto_minmax(400px,1fr)_auto] lg:px-6">
               <DatabaseSelector />
               <SecurityPostureCard />
               {/* Active DBA on-shift indicator — shown in db selector row when database view is active */}
-              <div className="ml-auto">
+              <div className="lg:justify-self-end">
                 <ActiveDbaPill />
               </div>
             </div>

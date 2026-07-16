@@ -523,11 +523,14 @@ function mapSecurityPostureReport(row: DbRow): SecurityPostureReport {
     file_size: Number(row.FILE_SIZE_BYTES || 0),
     mime_type: String(row.MIME_TYPE || "application/pdf"),
     uploaded_by: String(row.UPLOADED_BY || ""),
-    uploaded_at: toIstIsoString(row.UPLOADED_AT),
+    // Security posture uses TIMESTAMP WITH TIME ZONE. Unlike the older plain
+    // TIMESTAMP tables, node-oracledb preserves the real instant here; applying
+    // the legacy IST wall-clock correction would display it 5:30 behind IST.
+    uploaded_at: toIsoString(row.UPLOADED_AT),
     processing_status: String(row.PROCESSING_STATUS || "UPLOADED").toUpperCase() as SecurityPostureProcessingStatus,
     ai_summary: row.AI_SUMMARY ? String(row.AI_SUMMARY) : undefined,
     ai_model: row.AI_MODEL ? String(row.AI_MODEL) : undefined,
-    summary_generated_at: row.SUMMARY_GENERATED_AT ? toIstIsoString(row.SUMMARY_GENERATED_AT) : undefined,
+    summary_generated_at: row.SUMMARY_GENERATED_AT ? toIsoString(row.SUMMARY_GENERATED_AT) : undefined,
     error_message: row.ERROR_MESSAGE ? String(row.ERROR_MESSAGE) : undefined
   };
 }
@@ -641,7 +644,7 @@ export async function createSecurityPostureReport(input: {
       file_size: Number(output.returnedFileSize?.[0] || input.fileSize),
       mime_type: String(output.returnedMimeType?.[0] || input.mimeType),
       uploaded_by: String(output.returnedUploadedBy?.[0] || input.uploadedBy),
-      uploaded_at: toIstIsoString(output.returnedUploadedAt?.[0]),
+      uploaded_at: toIsoString(output.returnedUploadedAt?.[0]),
       processing_status: String(output.returnedStatus?.[0] || "UPLOADED") as SecurityPostureProcessingStatus
     };
   });

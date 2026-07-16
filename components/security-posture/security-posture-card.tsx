@@ -84,21 +84,21 @@ export function SecurityPostureCard() {
 
   return (
     <>
-      <section className="min-w-0 flex-1 max-w-2xl rounded-xl border border-violet-400/20 bg-violet-500/[0.04] px-3 py-2 shadow-[0_0_16px_rgba(139,92,246,0.06)]" aria-label="Security Posture Management">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="rounded-md border border-violet-400/25 bg-violet-400/10 p-1 text-violet-300"><ShieldCheck className="h-3.5 w-3.5" /></span>
-            <div className="leading-tight"><p className="text-xs font-semibold text-foreground">Security Posture</p><p className="text-[10px] text-muted-foreground">Nessus scan report</p></div>
-          </div>
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : report ? <Badge variant="outline" className={cn("h-5 text-[10px] font-bold", statusStyles[report.processing_status])}>{report.processing_status === "PROCESSING" && <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />}{report.processing_status}</Badge> : <span className="text-[11px] text-muted-foreground">No active report</span>}
-          {report && <span className="text-[10px] text-muted-foreground">Uploaded {formatDate(report.uploaded_at)} by {report.uploaded_by}</span>}
-          <div className="ml-auto flex items-center gap-1.5">
-            {canUpload && <><Input ref={inputRef} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => void upload(event.target.files?.[0])} /><Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => inputRef.current?.click()} disabled={!selectedDb || uploading}>{uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileUp className="h-3 w-3" />}Upload</Button></>}
-            {report && <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" asChild><a href={`/api/security-posture/${report.id}/download`}><Download className="h-3 w-3" />Download</a></Button>}
-            {report && <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => setSummaryOpen(true)}><Bot className="h-3 w-3" />Summary</Button>}
-          </div>
+      <section className="flex w-full max-w-[640px] flex-wrap items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-500/[0.04] px-3 py-2 shadow-[0_0_16px_rgba(139,92,246,0.06)] sm:flex-nowrap" aria-label="Security Posture Management">
+        <div className="flex min-w-0 shrink items-center gap-2">
+          <span className="shrink-0 rounded-md border border-violet-400/25 bg-violet-400/10 p-1 text-violet-300"><ShieldCheck className="h-3.5 w-3.5" /></span>
+          <div className="min-w-0 leading-tight"><p className="text-xs font-semibold text-foreground">Security Posture</p><p className="text-[10px] text-muted-foreground">Nessus scan report</p></div>
+          {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : report ? <Badge variant="outline" className={cn("h-5 shrink-0 text-[10px] font-bold", statusStyles[report.processing_status])}>{report.processing_status === "PROCESSING" && <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />}{report.processing_status}</Badge> : <span className="truncate text-[11px] text-muted-foreground">No active report</span>}
+          {report && isOutdated && <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-400/60 bg-red-500/20 px-1.5 text-[9px] font-bold text-red-200 shadow-[0_0_10px_rgba(239,68,68,0.4)] motion-safe:animate-pulse"><AlertTriangle className="h-2.5 w-2.5 motion-safe:animate-bounce" />Outdated</span>}
         </div>
-        {report && isOutdated && <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[10px] font-semibold text-amber-300"><AlertTriangle className="h-3 w-3" />Security Posture is Outdated</div>}
+        <div className="min-w-0 flex-1 text-[10px] text-muted-foreground sm:order-2">
+          {report ? <span className="block truncate">Uploaded {formatDate(report.uploaded_at)} by {report.uploaded_by}</span> : <span className="block truncate">Select a report to begin AI security analysis.</span>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 sm:order-3">
+          {report && <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSummaryOpen(true)} aria-label="Open AI security summary" title="AI Summary"><Bot className="h-3.5 w-3.5" /></Button>}
+          {canUpload && <><Input ref={inputRef} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => void upload(event.target.files?.[0])} /><Button size="icon" variant="outline" className="h-7 w-7" onClick={() => inputRef.current?.click()} disabled={!selectedDb || uploading} aria-label="Upload Nessus scan report" title="Upload report">{uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}</Button></>}
+          {report && <Button size="icon" variant="outline" className="h-7 w-7" aria-label="Download Nessus scan report" title="Download report" asChild><a href={`/api/security-posture/${report.id}/download`}><Download className="h-3.5 w-3.5" /></a></Button>}
+        </div>
       </section>
 
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
