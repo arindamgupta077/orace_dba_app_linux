@@ -410,6 +410,8 @@ export interface DatabaseTarget {
   env_label: DbEnvironment;
   os: DbOs;
   db_type: DbType;
+  /** True when the active Nessus security-posture report is more than 30 days old. */
+  security_posture_outdated: boolean;
   server_name?: string;
   server_ip?: string;
   zone?: string;

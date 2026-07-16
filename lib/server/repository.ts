@@ -2,6 +2,7 @@ import "server-only";
 
 import oracledb, { type BindParameters, type Connection } from "oracledb";
 
+import { SECURITY_POSTURE_OUTDATED_AFTER_DAYS } from "@/lib/security-posture-policy";
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
@@ -316,6 +317,7 @@ function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
     env_label: normalizeEnvironmentLabel(row.ENVIRONMENT_LABEL, environment),
     os: normalizeDatabaseOs(row.OPERATING_SYSTEM),
     db_type: normalizeDatabaseType(row.DATABASE_TYPE),
+    security_posture_outdated: String(row.SECURITY_POSTURE_OUTDATED || "N").toUpperCase() === "Y",
     server_name: row.SERVER_NAME ? String(row.SERVER_NAME) : undefined,
     server_ip: row.SERVER_IP ? String(row.SERVER_IP) : undefined,
     zone: row.ZONE ? String(row.ZONE) : undefined,
@@ -943,6 +945,13 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
          d.database_type,
          d.status,
          d.environment_label,
+         CASE WHEN EXISTS (
+           SELECT 1
+           FROM app_security_posture_reports r
+           WHERE r.database_id = d.id
+             AND r.is_active = 'Y'
+             AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_DAYS}, 'DAY')
+         ) THEN 'Y' ELSE 'N' END AS security_posture_outdated,
          d.server_type,
          d.db_version,
          d.db_edition,

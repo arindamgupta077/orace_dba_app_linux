@@ -1,6 +1,7 @@
 "use client";
 
-import { DatabaseZap, Terminal, Cpu } from "lucide-react";
+import type { DatabaseTarget } from "@/types/dba";
+import { DatabaseZap, Terminal, Cpu, ShieldAlert } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/store/use-app-store";
@@ -10,7 +11,19 @@ export function DatabaseSelector() {
   const databases = useAppStore((state) => state.databases);
   const selectedDb = useAppStore((state) => state.selectedDb);
   const setSelectedDb = useAppStore((state) => state.setSelectedDb);
+  const setDatabases = useAppStore((state) => state.setDatabases);
   const selected = databases.find((db) => db.name === selectedDb);
+
+  const refreshDatabaseStatuses = async () => {
+    try {
+      const response = await fetch("/api/databases", { cache: "no-store" });
+      if (!response.ok) return;
+      const { databases: refreshedDatabases } = await response.json() as { databases?: DatabaseTarget[] };
+      if (refreshedDatabases) setDatabases(refreshedDatabases);
+    } catch {
+      // Retain the existing selector data if its background refresh fails.
+    }
+  };
 
   const getEnvBadgeStyle = (env: string) => {
     switch (env?.toUpperCase()) {
@@ -42,7 +55,14 @@ export function DatabaseSelector() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <Select value={selectedDb} onValueChange={setSelectedDb} disabled={!databases.length}>
+      <Select
+        value={selectedDb}
+        onValueChange={setSelectedDb}
+        onOpenChange={(open) => {
+          if (open) void refreshDatabaseStatuses();
+        }}
+        disabled={!databases.length}
+      >
         <SelectTrigger className="h-10 min-w-[210px] rounded-xl border border-cyan-500/20 bg-background/20 backdrop-blur-md px-3 py-2 text-sm font-medium text-foreground shadow-[0_0_12px_rgba(6,182,212,0.05)] hover:border-cyan-500/40 hover:bg-background/40 hover:shadow-[0_0_15px_rgba(6,182,212,0.15)] transition-all duration-300 focus:ring-cyan-500/30 focus:ring-1">
           <div className="flex w-full items-center justify-between gap-2.5">
             <div className="flex items-center gap-2 min-w-0">
@@ -93,6 +113,20 @@ export function DatabaseSelector() {
                     <Cpu className="h-2.5 w-2.5" />
                     {db.os}
                   </span>
+                  {db.security_posture_outdated && (
+                    <>
+                      <span className="h-1 w-1 rounded-full bg-muted-foreground/45" />
+                      <span
+                        className="flex items-center gap-0.5 text-red-500"
+                        aria-label="Security posture is outdated"
+                        title="Security posture is outdated"
+                        data-testid="posture"
+                      >
+                        <ShieldAlert className="h-2.5 w-2.5" />
+                        Posture
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </SelectItem>
