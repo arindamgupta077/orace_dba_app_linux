@@ -226,8 +226,13 @@ export function ShiftManagementSection() {
   const canManageShift = user?.role === "app_admin" || user?.role === "dba_admin";
   const isMySessionGeneral = mySession ? mySession.shift_number === GENERAL_SHIFT_NUMBER : false;
   const myHandoverAcknowledged = mySession?.handover_status === "ACKNOWLEDGED";
-  // General shift can logout without handover acknowledgement.
-  const canLogout = isMySessionGeneral || myHandoverAcknowledged;
+  const checklistReady = state?.logout_checklist?.is_complete === true;
+  // General Shift is exempt from both handover and Daily Checklist requirements.
+  const canLogout = isMySessionGeneral || (myHandoverAcknowledged && checklistReady);
+  const checklist = state?.logout_checklist;
+  const checklistSummary = checklist
+    ? `Daily Checklist required for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: Database status ${checklist.database_status.completed}/${checklist.database_status.total}; backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+    : "Daily Checklist completion is being checked.";
 
   // Pagination for handover history dialog.
   const historyTotalPages = Math.max(1, Math.ceil(handoverHistory.length / historyPageSize));
@@ -671,7 +676,7 @@ export function ShiftManagementSection() {
                     variant="destructive"
                     onClick={() => setLogoutConfirm(true)}
                     disabled={actionLoading || !canLogout}
-                    title={!canLogout ? "Your handover must be acknowledged before logout" : undefined}
+                    title={!canLogout ? (!checklistReady ? checklistSummary : "Your handover must be acknowledged before logout") : undefined}
                   >
                     <LogOut className="h-4 w-4" />
                     Logout from Shift
@@ -679,9 +684,11 @@ export function ShiftManagementSection() {
                   <p className="text-xs text-muted-foreground">
                     {isMySessionGeneral
                       ? "General Shift — no handover required. You can logout anytime."
-                      : canLogout
-                        ? "Your handover has been acknowledged. You can safely logout."
-                        : "Logout is disabled until your handover is acknowledged by another DBA."}
+                      : !checklistReady
+                        ? `${checklistSummary} Complete all required checks before logout.`
+                        : canLogout
+                          ? "Your handover has been acknowledged and the required Daily Checklist checks are complete. You can safely logout."
+                          : "Logout is disabled until your handover is acknowledged by another DBA."}
                   </p>
                 </div>
               </div>

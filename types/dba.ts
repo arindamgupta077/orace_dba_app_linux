@@ -852,6 +852,8 @@ export interface CurrentShiftState {
   selectable_shifts: number[];
   disabled_shifts: number[];
   preferred_shift: number;
+  /** Checklist completion required before the authenticated DBA can logout. */
+  logout_checklist?: ShiftLogoutChecklistReadiness;
 }
 
 export interface Handover {
@@ -921,6 +923,18 @@ export interface ChecklistCompletion {
   total: number;
   completed: number;
   completion_pct: number;
+}
+
+/**
+ * Logout readiness for a time-based shift. A DBA must complete the checklist
+ * for every shift from Shift 1 through their own shift on the session date.
+ */
+export interface ShiftLogoutChecklistReadiness {
+  shift_date: string;
+  required_shifts: Array<1 | 2 | 3>;
+  database_status: ChecklistCompletion;
+  backup_status: ChecklistCompletion;
+  is_complete: boolean;
 }
 
 export interface ShiftReportFilters {

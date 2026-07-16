@@ -4,6 +4,7 @@ import {
   closeShiftSession,
   getActiveShiftSessionForUser,
   getHandoverForSession,
+  getLogoutChecklistReadiness,
   insertAuditLog
 } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -46,9 +47,20 @@ export async function POST(request: Request) {
     const activeSession = await getActiveShiftSessionForUser(session.userId);
     const isGeneral = isGeneralShift(activeSession.shift_number);
 
-    // Logout rule: blocked until handover is acknowledged (unless app_admin
-    // override or General Shift — general shift does not require handover).
+    // Normal time-based logout requires cumulative checklist completion and
+    // handover acknowledgement. General Shift and app-admin force overrides
+    // remain exempt.
     if (!isAdminOverride && !isGeneral) {
+      const checklist = await getLogoutChecklistReadiness(activeSession);
+      if (!checklist.is_complete) {
+        return NextResponse.json(
+          {
+            message: `Logout blocked: Daily Checklist is incomplete for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}. Database status: ${checklist.database_status.completed}/${checklist.database_status.total}; backup status: ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+          },
+          { status: 409 }
+        );
+      }
+
       const handover = await getHandoverForSession(targetSessionId);
       if (!handover || handover.status !== "ACKNOWLEDGED") {
         return NextResponse.json(

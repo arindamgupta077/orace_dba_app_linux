@@ -10,6 +10,7 @@ import {
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
+import { getBackupResponsibleShift } from "@/lib/backup-shifts";
 import { getActiveShifts, getSelectableShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
 import type {
   AlertNotification,
@@ -42,6 +43,7 @@ import type {
   RequestHistoryItem,
   ShiftReportData,
   ShiftReportFilters,
+  ShiftLogoutChecklistReadiness,
   ShiftSession,
   SecurityPostureProcessingStatus,
   SecurityPostureReport,
@@ -3454,6 +3456,108 @@ export async function getCurrentShiftState(): Promise<CurrentShiftState> {
     disabled_shifts: selectable.disabledShifts,
     preferred_shift: selectable.preferredShift
   };
+}
+
+/**
+ * Calculates the Daily Checklist work required for a time-based shift to
+ * logout. Shift 2 inherits Shift 1's checks and Shift 3 inherits both prior
+ * shifts. General Shift deliberately has no checklist requirement.
+ */
+export async function getLogoutChecklistReadiness(
+  session: ShiftSession
+): Promise<ShiftLogoutChecklistReadiness> {
+  if (session.shift_number === 4) {
+    return {
+      shift_date: session.shift_date,
+      required_shifts: [],
+      database_status: { total: 0, completed: 0, completion_pct: 100 },
+      backup_status: { total: 0, completed: 0, completion_pct: 100 },
+      is_complete: true
+    };
+  }
+
+  const requiredShifts = Array.from(
+    { length: session.shift_number },
+    (_, index) => (index + 1) as 1 | 2 | 3
+  );
+  const shiftList = requiredShifts.join(", ");
+
+  return executeOne(async (connection) => {
+    const [databaseResult, templateResult, dbCheckResult, backupCheckResult] = await Promise.all([
+      connection.execute<DbRow>(
+        `SELECT id FROM database_inventory WHERE status = 'active'`
+      ),
+      connection.execute<DbRow>(
+        `SELECT backup_id, scheduled_time
+         FROM app_backup_template
+         WHERE is_active = 'Y'`
+      ),
+      connection.execute<DbRow>(
+        `SELECT DISTINCT c.database_id, c.shift_number
+         FROM app_db_status_checks c
+         JOIN database_inventory d ON d.id = c.database_id
+         WHERE d.status = 'active'
+           AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+           AND c.shift_number IN (${shiftList})`,
+        { shiftDate: session.shift_date }
+      ),
+      connection.execute<DbRow>(
+        `SELECT DISTINCT c.backup_id, c.shift_number
+         FROM app_backup_status_checks c
+         JOIN app_backup_template t ON t.backup_id = c.backup_id
+         WHERE t.is_active = 'Y'
+           AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
+           AND c.shift_number IN (${shiftList})`,
+        { shiftDate: session.shift_date }
+      )
+    ]);
+
+    const activeDatabaseIds = new Set(
+      (databaseResult.rows || []).map((row) => Number(row.ID))
+    );
+    const backupIdsByShift = new Map<number, Set<number>>();
+    for (const shift of requiredShifts) backupIdsByShift.set(shift, new Set());
+    for (const row of templateResult.rows || []) {
+      const responsibleShift = getBackupResponsibleShift(
+        row.SCHEDULED_TIME ? String(row.SCHEDULED_TIME) : undefined
+      );
+      if (responsibleShift && backupIdsByShift.has(responsibleShift)) {
+        backupIdsByShift.get(responsibleShift)!.add(Number(row.BACKUP_ID));
+      }
+    }
+
+    const completedDbChecks = new Set(
+      (dbCheckResult.rows || [])
+        .filter((row) => activeDatabaseIds.has(Number(row.DATABASE_ID)))
+        .map((row) => `${Number(row.SHIFT_NUMBER)}:${Number(row.DATABASE_ID)}`)
+    );
+    const completedBackupChecks = new Set(
+      (backupCheckResult.rows || [])
+        .filter((row) => backupIdsByShift.get(Number(row.SHIFT_NUMBER))?.has(Number(row.BACKUP_ID)))
+        .map((row) => `${Number(row.SHIFT_NUMBER)}:${Number(row.BACKUP_ID)}`)
+    );
+
+    const databaseTotal = activeDatabaseIds.size * requiredShifts.length;
+    const backupTotal = Array.from(backupIdsByShift.values()).reduce((total, ids) => total + ids.size, 0);
+    const databaseCompleted = completedDbChecks.size;
+    const backupCompleted = completedBackupChecks.size;
+    const completion = (completed: number, total: number): ChecklistCompletion => ({
+      total,
+      completed,
+      // No configured tasks is already complete; it must not prevent logout.
+      completion_pct: total === 0 ? 100 : Math.round((completed / total) * 100)
+    });
+    const databaseStatus = completion(databaseCompleted, databaseTotal);
+    const backupStatus = completion(backupCompleted, backupTotal);
+
+    return {
+      shift_date: session.shift_date,
+      required_shifts: requiredShifts,
+      database_status: databaseStatus,
+      backup_status: backupStatus,
+      is_complete: databaseCompleted === databaseTotal && backupCompleted === backupTotal
+    };
+  });
 }
 
 // ============================================================

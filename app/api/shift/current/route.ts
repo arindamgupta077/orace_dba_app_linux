@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentShiftState } from "@/lib/server/repository";
+import { getCurrentShiftState, getLogoutChecklistReadiness } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,12 @@ export async function GET() {
     }
 
     const state = await getCurrentShiftState();
-    return NextResponse.json(state);
+    const activeSession = state.sessions.find((item) => item.user_id === session.userId);
+    const logoutChecklist = activeSession
+      ? await getLogoutChecklistReadiness(activeSession)
+      : undefined;
+
+    return NextResponse.json({ ...state, logout_checklist: logoutChecklist });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load current shift state.";
     return NextResponse.json({ message }, { status: 500 });
