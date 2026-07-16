@@ -2,7 +2,7 @@ import "server-only";
 
 import oracledb, { type BindParameters, type Connection } from "oracledb";
 
-import { SECURITY_POSTURE_OUTDATED_AFTER_DAYS } from "@/lib/security-posture-policy";
+import { SECURITY_POSTURE_OUTDATED_AFTER_MINUTES } from "@/lib/security-posture-policy";
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
@@ -950,7 +950,7 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
            FROM app_security_posture_reports r
            WHERE r.database_id = d.id
              AND r.is_active = 'Y'
-             AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_DAYS}, 'DAY')
+             AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
          ) THEN 'Y' ELSE 'N' END AS security_posture_outdated,
          d.server_type,
          d.db_version,

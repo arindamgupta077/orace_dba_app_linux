@@ -1,5 +1,5 @@
-/** Age at which an active security-posture report must be refreshed. */
-export const SECURITY_POSTURE_OUTDATED_AFTER_DAYS = 30;
+/** Age at which an active security-posture report must be refreshed, in minutes. */
+export const SECURITY_POSTURE_OUTDATED_AFTER_MINUTES = 30 * 24 * 60;
 
 export const SECURITY_POSTURE_OUTDATED_AFTER_MS =
-  SECURITY_POSTURE_OUTDATED_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  SECURITY_POSTURE_OUTDATED_AFTER_MINUTES * 60 * 1000;
