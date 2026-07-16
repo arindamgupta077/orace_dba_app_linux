@@ -334,7 +334,8 @@ export function ShiftManagementSection() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <Card>
+        <div className="grid items-stretch gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <Card className="h-full">
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <Skeleton className="h-6 w-40" />
             <Skeleton className="h-8 w-8 rounded-md" />
@@ -350,8 +351,8 @@ export function ShiftManagementSection() {
               ))}
             </div>
           </CardContent>
-        </Card>
-        <Card>
+          </Card>
+          <Card className="h-full">
           <CardHeader>
             <Skeleton className="h-6 w-36" />
           </CardHeader>
@@ -359,7 +360,8 @@ export function ShiftManagementSection() {
             <Skeleton className="dba-skeleton h-10 w-full rounded-md" />
             <Skeleton className="dba-skeleton h-10 w-48 rounded-md" />
           </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -376,8 +378,9 @@ export function ShiftManagementSection() {
 
   return (
     <div className="dba-fade-in space-y-6">
+      <div className="grid items-stretch gap-6 xl:grid-cols-[1.1fr_0.9fr]">
       {/* Current Shift Panel — visible to ALL roles */}
-      <Card>
+      <Card className="h-full min-w-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Clock className="h-5 w-5 text-cyan-400" />
@@ -435,7 +438,7 @@ export function ShiftManagementSection() {
               <div>
                 <p className="text-sm font-medium text-muted-foreground">No DBA is currently on shift</p>
                 <p className="mt-0.5 text-xs text-muted-foreground/70">
-                  {canManageShift ? "Use the panel below to login to a shift." : "Check back later."}
+                  {canManageShift ? "Use the Shift Actions panel to log in to a shift." : "Check back later."}
                 </p>
               </div>
             </div>
@@ -488,34 +491,39 @@ export function ShiftManagementSection() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {session.handover_text && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setViewHandover(session);
-                              if (session.handover_id) {
+                          canManageShift &&
+                          session.username !== user?.username &&
+                          session.handover_status === "PENDING" &&
+                          session.handover_id &&
+                          !viewedHandoverIds.has(session.handover_id) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-cyan-500/30 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200"
+                              onClick={() => {
+                                setViewHandover(session);
                                 setViewedHandoverIds((prev) => {
                                   if (prev.has(session.handover_id!)) return prev;
                                   const next = new Set(prev);
                                   next.add(session.handover_id!);
                                   return next;
                                 });
-                              }
-                            }}
-                            title="View handover"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </Button>
+                              }}
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              View Handover
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setViewHandover(session)}
+                              title="View handover"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                            </Button>
+                          )
                         )}
-                        {canManageShift &&
-                          session.username !== user?.username &&
-                          session.handover_status === "PENDING" &&
-                          session.handover_id &&
-                          !viewedHandoverIds.has(session.handover_id) && (
-                            <span className="text-xs text-muted-foreground">
-                              View handover to acknowledge
-                            </span>
-                          )}
                         {canManageShift &&
                           session.username !== user?.username &&
                           session.handover_status === "PENDING" &&
@@ -543,7 +551,7 @@ export function ShiftManagementSection() {
 
       {/* Action Panel — only for dba_admin and app_admin */}
       {canManageShift ? (
-        <Card>
+        <Card className="h-full min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <LogIn className="h-5 w-5 text-cyan-400" />
@@ -733,7 +741,7 @@ export function ShiftManagementSection() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card className="h-full min-w-0">
           <CardContent className="py-8">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
@@ -749,6 +757,7 @@ export function ShiftManagementSection() {
           </CardContent>
         </Card>
       )}
+      </div>
 
       {/* Recent Handovers — visible to all roles */}
       <Card>

@@ -8,6 +8,7 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Highlight from "@tiptap/extension-highlight";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bold,
   Italic,
@@ -220,13 +221,16 @@ export function RichTextEditor({
     );
   }
 
-  return (
+  const editorContent = (
     <div
       className={cn(
         "rounded-md border border-input bg-background/50",
-        fullscreen && "fixed inset-4 z-[70] flex flex-col rounded-lg border border-border bg-popover p-4 shadow-glass",
+        fullscreen && "fixed inset-0 z-[100] flex flex-col rounded-none border-0 bg-popover p-5 shadow-glass",
         className
       )}
+      role={fullscreen ? "dialog" : undefined}
+      aria-modal={fullscreen || undefined}
+      aria-label={fullscreen ? "Full screen rich text editor" : undefined}
     >
       {fullscreen && (
         <div className="mb-2 flex items-center justify-between">
@@ -375,4 +379,6 @@ export function RichTextEditor({
       </div>
     </div>
   );
+
+  return fullscreen ? createPortal(editorContent, document.body) : editorContent;
 }
