@@ -4,12 +4,16 @@ import cron, { type ScheduledTask } from "node-cron";
 
 import { getServerEnv } from "@/lib/server/env";
 import {
+  claimOutdatedSecurityPostureNotifications,
   getDatabaseTargetByName,
   getActiveSchedules,
   insertAuditLog,
+  markSecurityPostureOutdatedWebhookSent,
+  releaseSecurityPostureOutdatedWebhookClaim,
   updateScheduleRunMetadata,
   type DashboardSchedule,
 } from "@/lib/server/repository";
+import { triggerSecurityPostureOutdatedNotification } from "@/lib/server/security-posture";
 import type { DbaRequestPayload } from "@/types/dba";
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -219,6 +223,32 @@ async function syncSchedules(): Promise<void> {
   }
 }
 
+async function notifyOutdatedSecurityPostures(): Promise<void> {
+  if (!getServerEnv().securityPostureWebhookUrl) return;
+  try {
+    const notifications = await claimOutdatedSecurityPostureNotifications();
+    for (const notification of notifications) {
+      try {
+        await triggerSecurityPostureOutdatedNotification(notification);
+        await markSecurityPostureOutdatedWebhookSent(notification.reportId);
+        await insertAuditLog({
+          actor: "scheduler",
+          action: "posture_outdated",
+          db: notification.databaseName,
+          status: "success",
+          detail: "Sent overdue security-posture notification to n8n.",
+          metadata: { report_id: notification.reportId, last_upload_date: notification.lastUploadDate }
+        });
+      } catch (error) {
+        await releaseSecurityPostureOutdatedWebhookClaim(notification.reportId).catch(() => {});
+        console.warn(`[scheduler] Failed to notify n8n about overdue security posture for ${notification.databaseName}:`, error);
+      }
+    }
+  } catch (error) {
+    console.warn("[scheduler] Failed to check overdue security-posture reports:", error);
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const SYNC_INTERVAL_MIN = 1; // reload schedules from DB every minute
@@ -236,12 +266,14 @@ export async function startScheduler(): Promise<void> {
 
   // Immediate first sync
   await syncSchedules();
+  await notifyOutdatedSecurityPostures();
 
   // Periodic re-sync to pick up schedule changes made while the server is running
   state.syncTask = cron.schedule(`*/${SYNC_INTERVAL_MIN} * * * *`, () => {
     syncSchedules().catch((e) =>
       console.warn("[scheduler] Periodic sync error:", e)
     );
+    notifyOutdatedSecurityPostures();
   });
 
   console.log(`[scheduler] Scheduler running. Re-syncs from Oracle every ${SYNC_INTERVAL_MIN}m.`);

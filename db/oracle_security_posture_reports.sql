@@ -45,6 +45,23 @@ END;
 
 DECLARE
   v_count NUMBER;
+  PROCEDURE add_column_if_missing(p_column VARCHAR2, p_sql VARCHAR2) IS
+  BEGIN
+    SELECT COUNT(*) INTO v_count
+    FROM user_tab_columns
+    WHERE table_name = 'APP_SECURITY_POSTURE_REPORTS' AND column_name = UPPER(p_column);
+    IF v_count = 0 THEN EXECUTE IMMEDIATE p_sql; END IF;
+  END;
+BEGIN
+  add_column_if_missing('OUTDATED_WEBHOOK_SENT_AT',
+    'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_sent_at TIMESTAMP WITH TIME ZONE)');
+  add_column_if_missing('OUTDATED_WEBHOOK_CLAIMED_AT',
+    'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_claimed_at TIMESTAMP WITH TIME ZONE)');
+END;
+/
+
+DECLARE
+  v_count NUMBER;
   PROCEDURE add_constraint_if_missing(p_name VARCHAR2, p_sql VARCHAR2) IS
   BEGIN
     SELECT COUNT(*) INTO v_count FROM user_constraints WHERE constraint_name = UPPER(p_name);
@@ -74,6 +91,10 @@ BEGIN
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_SECURITY_POSTURE_DB_UPLOAD';
   IF v_count = 0 THEN
     EXECUTE IMMEDIATE 'CREATE INDEX ix_security_posture_db_upload ON app_security_posture_reports (database_id, uploaded_at DESC)';
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_SECURITY_POSTURE_OUTDATED_NOTIFY';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'CREATE INDEX ix_security_posture_outdated_notify ON app_security_posture_reports (is_active, outdated_webhook_sent_at, uploaded_at)';
   END IF;
 END;
 /

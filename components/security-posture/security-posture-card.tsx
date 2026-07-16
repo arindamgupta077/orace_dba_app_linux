@@ -1,26 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bot, Download, FileUp, Loader2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Clock3, Download, FileUp, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SECURITY_POSTURE_OUTDATED_AFTER_MS } from "@/lib/security-posture-policy";
-import { cn, formatAppDateTime } from "@/lib/utils";
+import { formatAppDateTime } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { SecurityPostureProcessingStatus, SecurityPostureReport } from "@/types/dba";
 
-const statusStyles: Record<SecurityPostureProcessingStatus, string> = {
-  UPLOADED: "border-slate-400/30 bg-slate-400/10 text-slate-300",
-  PROCESSING: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
-  COMPLETED: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  FAILED: "border-red-400/30 bg-red-500/10 text-red-300"
+const statusIcon: Record<SecurityPostureProcessingStatus, { Icon: typeof Clock3; className: string; label: string }> = {
+  UPLOADED: { Icon: Clock3, className: "text-slate-400", label: "Report uploaded" },
+  PROCESSING: { Icon: Loader2, className: "animate-spin text-cyan-400", label: "Processing report" },
+  COMPLETED: { Icon: CheckCircle2, className: "text-emerald-400", label: "Report processing completed" },
+  FAILED: { Icon: XCircle, className: "text-red-400", label: "Report processing failed" }
 };
+
+function ProcessingStatusIcon({ status }: { status: SecurityPostureProcessingStatus }) {
+  const { Icon, className, label } = statusIcon[status];
+  return <span className="shrink-0" aria-label={label} title={label}><Icon className={`h-4 w-4 ${className}`} /></span>;
+}
 
 function formatDate(value?: string) {
   return value ? formatAppDateTime(value) : "—";
@@ -131,7 +135,7 @@ export function SecurityPostureCard() {
         <div className="flex min-w-0 shrink items-center gap-2">
           <span className="shrink-0 rounded-md border border-violet-400/25 bg-violet-400/10 p-1 text-violet-300"><ShieldCheck className="h-3.5 w-3.5" /></span>
           <div className="min-w-0 leading-tight"><p className="text-xs font-semibold text-foreground">Security Posture</p><p className="text-[10px] text-muted-foreground">Nessus scan report</p></div>
-          {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : report ? <Badge variant="outline" className={cn("h-5 shrink-0 text-[10px] font-bold", statusStyles[report.processing_status])}>{report.processing_status === "PROCESSING" && <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />}{report.processing_status}</Badge> : <span className="truncate text-[11px] text-muted-foreground">No active report</span>}
+          {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : report ? <ProcessingStatusIcon status={report.processing_status} /> : <span className="truncate text-[11px] text-muted-foreground">No active report</span>}
           {report && isOutdated && <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-400/60 bg-red-500/20 px-1.5 text-[9px] font-bold text-red-200 shadow-[0_0_10px_rgba(239,68,68,0.4)] motion-safe:animate-pulse"><AlertTriangle className="h-2.5 w-2.5 motion-safe:animate-bounce" />Outdated</span>}
         </div>
         <div className="min-w-0 flex-1 text-[10px] text-muted-foreground sm:order-2">

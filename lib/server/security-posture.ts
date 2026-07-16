@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { getServerEnv } from "@/lib/server/env";
+import type { OutdatedSecurityPostureNotification } from "@/lib/server/repository";
 
 const PDF_SIGNATURE = Buffer.from("%PDF-");
 
@@ -67,6 +68,30 @@ export async function triggerSecurityPostureProcessing(input: { reportId: number
       ...(env.adminWebhookSecret ? { "X-Admin-Webhook-Secret": env.adminWebhookSecret } : {})
     },
     body: JSON.stringify({ action: "process_pdf", document_id: input.reportId, database_id: input.databaseId, file_path: input.filePath }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`n8n webhook failed (${response.status}).`);
+}
+
+/** Sends the one-time overdue-report notification to the configured n8n webhook. */
+export async function triggerSecurityPostureOutdatedNotification(input: OutdatedSecurityPostureNotification) {
+  const env = getServerEnv();
+  if (!env.securityPostureWebhookUrl) throw new Error("SECURITY_POSTURE_N8N_WEBHOOK_URL is not configured.");
+  const response = await fetch(env.securityPostureWebhookUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(env.securityPostureWebhookToken ? { "X-Security-Posture-Token": env.securityPostureWebhookToken } : {}),
+      ...(env.adminWebhookSecret ? { "X-Admin-Webhook-Secret": env.adminWebhookSecret } : {})
+    },
+    body: JSON.stringify({
+      action: "posture_outdated",
+      database_name: input.databaseName,
+      database_owner_name: input.databaseOwnerName,
+      database_owner_email: input.databaseOwnerEmail,
+      last_upload_date: input.lastUploadDate
+    }),
     cache: "no-store",
     signal: AbortSignal.timeout(10_000)
   });

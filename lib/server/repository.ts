@@ -684,6 +684,86 @@ export async function updateSecurityPostureProcessingFailure(reportId: number, m
   });
 }
 
+export interface OutdatedSecurityPostureNotification {
+  reportId: number;
+  databaseName: string;
+  databaseOwnerName: string;
+  databaseOwnerEmail: string;
+  lastUploadDate: string;
+}
+
+/**
+ * Atomically claims overdue active reports that have not yet notified n8n.
+ * Claims expire after five minutes so a terminated app process cannot block a retry.
+ */
+export async function claimOutdatedSecurityPostureNotifications(): Promise<OutdatedSecurityPostureNotification[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT r.report_id, d.database_name, u.username AS owner_name,
+              u.email AS owner_email, r.uploaded_at
+       FROM app_security_posture_reports r
+       JOIN database_inventory d ON d.id = r.database_id
+       LEFT JOIN app_users u ON u.user_id = d.owner_id
+       WHERE r.is_active = 'Y'
+         AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
+         AND r.outdated_webhook_sent_at IS NULL
+         AND (r.outdated_webhook_claimed_at IS NULL
+              OR r.outdated_webhook_claimed_at < SYSTIMESTAMP - INTERVAL '5' MINUTE)`,
+    );
+
+    const notifications: OutdatedSecurityPostureNotification[] = [];
+    for (const row of result.rows || []) {
+      const reportId = Number(row.REPORT_ID);
+      const claimed = await connection.execute(
+        `UPDATE app_security_posture_reports
+         SET outdated_webhook_claimed_at = SYSTIMESTAMP
+         WHERE report_id = :reportId
+           AND is_active = 'Y'
+           AND outdated_webhook_sent_at IS NULL
+           AND (outdated_webhook_claimed_at IS NULL
+                OR outdated_webhook_claimed_at < SYSTIMESTAMP - INTERVAL '5' MINUTE)`,
+        { reportId },
+        { autoCommit: true }
+      );
+      if (!claimed.rowsAffected) continue;
+      notifications.push({
+        reportId,
+        databaseName: String(row.DATABASE_NAME || ""),
+        databaseOwnerName: String(row.OWNER_NAME || ""),
+        databaseOwnerEmail: String(row.OWNER_EMAIL || ""),
+        lastUploadDate: toIsoString(row.UPLOADED_AT)
+      });
+    }
+    return notifications;
+  });
+}
+
+export async function markSecurityPostureOutdatedWebhookSent(reportId: number) {
+  return executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_security_posture_reports
+       SET outdated_webhook_sent_at = SYSTIMESTAMP,
+           outdated_webhook_claimed_at = NULL
+       WHERE report_id = :reportId`,
+      { reportId },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function releaseSecurityPostureOutdatedWebhookClaim(reportId: number) {
+  return executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_security_posture_reports
+       SET outdated_webhook_claimed_at = NULL
+       WHERE report_id = :reportId
+         AND outdated_webhook_sent_at IS NULL`,
+      { reportId },
+      { autoCommit: true }
+    );
+  });
+}
+
 export async function findUserForLogin(username: string): Promise<UserLoginRecord | null> {
   const normalized = normalizeUsername(username);
   return executeOne(async (connection) => {
