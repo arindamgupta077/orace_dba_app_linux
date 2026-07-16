@@ -38,7 +38,7 @@ function SummaryContent({ summary }: { summary?: string }) {
         <span className="h-1.5 w-1.5 rounded-full bg-violet-500 dark:bg-violet-300" />
         <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-800 dark:text-violet-200">AI findings</p>
       </div>
-      <div className="max-h-[46vh] overflow-y-auto p-4 text-sm leading-6 text-foreground/90">
+      <div className="max-h-[65vh] overflow-y-auto p-4 text-sm leading-6 text-foreground/90">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -149,7 +149,7 @@ export function SecurityPostureCard() {
       </section>
 
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Bot className="h-5 w-5 text-violet-300" />AI Security Posture Summary</DialogTitle><DialogDescription>{selectedDb} · {report?.original_filename}</DialogDescription></DialogHeader>
           {report?.processing_status === "COMPLETED" ? <div className="space-y-4"><SummaryContent summary={report.ai_summary} /><div className="grid grid-cols-2 gap-3 rounded-lg border border-border/50 bg-background/30 p-3 text-xs"><div><p className="text-muted-foreground">AI model</p><p className="mt-0.5 font-medium text-foreground">{report.ai_model || "Not reported"}</p></div><div><p className="text-muted-foreground">Generated</p><p className="mt-0.5 font-medium text-foreground">{formatDate(report.summary_generated_at)}</p></div></div></div> : report?.processing_status === "FAILED" ? <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-300">{report.error_message || "AI summary generation failed."}</div> : <div className="flex items-center gap-2 rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-4 text-sm text-cyan-200"><Loader2 className="h-4 w-4 animate-spin" />Processing AI Summary...</div>}
         </DialogContent>

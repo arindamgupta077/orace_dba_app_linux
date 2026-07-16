@@ -69,7 +69,9 @@ export async function triggerSecurityPostureProcessing(input: { reportId: number
     },
     body: JSON.stringify({ action: "process_pdf", document_id: input.reportId, database_id: input.databaseId, file_path: input.filePath }),
     cache: "no-store",
-    signal: AbortSignal.timeout(10_000)
+    // PDF extraction and AI analysis can take longer than the default webhook
+    // acknowledgement window, especially for larger Nessus reports.
+    signal: AbortSignal.timeout(120_000)
   });
   if (!response.ok) throw new Error(`n8n webhook failed (${response.status}).`);
 }
