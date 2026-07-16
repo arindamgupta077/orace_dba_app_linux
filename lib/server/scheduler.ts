@@ -2,6 +2,7 @@ import "server-only";
 
 import cron, { type ScheduledTask } from "node-cron";
 
+import { SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES } from "@/lib/security-posture-policy";
 import { getServerEnv } from "@/lib/server/env";
 import {
   claimOutdatedSecurityPostureNotifications,
@@ -32,6 +33,7 @@ interface ManagedJob {
 interface SchedulerGlobal {
   jobs: Map<number, ManagedJob>;
   syncTask: ScheduledTask | null;
+  outdatedPostureTask: ScheduledTask | null;
   started: boolean;
 }
 
@@ -44,6 +46,7 @@ function getState(): SchedulerGlobal {
     globalThis.__dashboardScheduler = {
       jobs: new Map(),
       syncTask: null,
+      outdatedPostureTask: null,
       started: false,
     };
   }
@@ -273,10 +276,16 @@ export async function startScheduler(): Promise<void> {
     syncSchedules().catch((e) =>
       console.warn("[scheduler] Periodic sync error:", e)
     );
-    notifyOutdatedSecurityPostures();
   });
 
-  console.log(`[scheduler] Scheduler running. Re-syncs from Oracle every ${SYNC_INTERVAL_MIN}m.`);
+  state.outdatedPostureTask = cron.schedule(
+    toCronExpression(SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES),
+    () => notifyOutdatedSecurityPostures()
+  );
+
+  console.log(
+    `[scheduler] Scheduler running. Re-syncs schedules every ${SYNC_INTERVAL_MIN}m; checks overdue security posture every ${SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES}m.`
+  );
 }
 
 /**

@@ -8,6 +8,7 @@ WHENEVER SQLERROR EXIT FAILURE ROLLBACK;
 
 DECLARE
   v_count NUMBER;
+  v_columns VARCHAR2(1000);
 BEGIN
   SELECT COUNT(*) INTO v_count FROM user_sequences WHERE sequence_name = 'APP_SECURITY_POSTURE_REPORTS_SEQ';
   IF v_count = 0 THEN
@@ -57,8 +58,28 @@ BEGIN
     'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_sent_at TIMESTAMP WITH TIME ZONE)');
   add_column_if_missing('OUTDATED_WEBHOOK_CLAIMED_AT',
     'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_claimed_at TIMESTAMP WITH TIME ZONE)');
+  add_column_if_missing('OUTDATED_WEBHOOK_SEND_COUNT',
+    'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_send_count NUMBER DEFAULT 0 NOT NULL)');
+  add_column_if_missing('OUTDATED_WEBHOOK_NEXT_SEND_AT',
+    'ALTER TABLE app_security_posture_reports ADD (outdated_webhook_next_send_at TIMESTAMP WITH TIME ZONE)');
 END;
 /
+
+-- A previously delivered one-time notification counts as the first of the
+-- seven scheduled sends. New reports begin at zero and are sent immediately
+-- after they cross the outdated threshold.
+UPDATE app_security_posture_reports
+SET outdated_webhook_send_count = CASE
+      WHEN outdated_webhook_sent_at IS NOT NULL AND NVL(outdated_webhook_send_count, 0) = 0 THEN 1
+      ELSE NVL(outdated_webhook_send_count, 0)
+    END,
+    outdated_webhook_next_send_at = CASE
+      WHEN outdated_webhook_sent_at IS NOT NULL
+           AND outdated_webhook_next_send_at IS NULL
+           AND NVL(outdated_webhook_send_count, 0) = 0
+        THEN outdated_webhook_sent_at + NUMTODSINTERVAL(24, 'HOUR')
+      ELSE outdated_webhook_next_send_at
+    END;
 
 DECLARE
   v_count NUMBER;
@@ -93,8 +114,15 @@ BEGIN
     EXECUTE IMMEDIATE 'CREATE INDEX ix_security_posture_db_upload ON app_security_posture_reports (database_id, uploaded_at DESC)';
   END IF;
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_SECURITY_POSTURE_OUTDATED_NOTIFY';
-  IF v_count = 0 THEN
-    EXECUTE IMMEDIATE 'CREATE INDEX ix_security_posture_outdated_notify ON app_security_posture_reports (is_active, outdated_webhook_sent_at, uploaded_at)';
+  IF v_count > 0 THEN
+    SELECT LISTAGG(column_name, ',') WITHIN GROUP (ORDER BY column_position)
+    INTO v_columns
+    FROM user_ind_columns
+    WHERE index_name = 'IX_SECURITY_POSTURE_OUTDATED_NOTIFY';
+  END IF;
+  IF v_count = 0 OR v_columns <> 'IS_ACTIVE,OUTDATED_WEBHOOK_SEND_COUNT,OUTDATED_WEBHOOK_NEXT_SEND_AT' THEN
+    IF v_count > 0 THEN EXECUTE IMMEDIATE 'DROP INDEX ix_security_posture_outdated_notify'; END IF;
+    EXECUTE IMMEDIATE 'CREATE INDEX ix_security_posture_outdated_notify ON app_security_posture_reports (is_active, outdated_webhook_send_count, outdated_webhook_next_send_at)';
   END IF;
 END;
 /

@@ -2,7 +2,11 @@ import "server-only";
 
 import oracledb, { type BindParameters, type Connection } from "oracledb";
 
-import { SECURITY_POSTURE_OUTDATED_AFTER_MINUTES } from "@/lib/security-posture-policy";
+import {
+  SECURITY_POSTURE_OUTDATED_AFTER_MINUTES,
+  SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS,
+  SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS
+} from "@/lib/security-posture-policy";
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
@@ -693,7 +697,7 @@ export interface OutdatedSecurityPostureNotification {
 }
 
 /**
- * Atomically claims overdue active reports that have not yet notified n8n.
+ * Atomically claims overdue active reports that are due for another n8n notification.
  * Claims expire after five minutes so a terminated app process cannot block a retry.
  */
 export async function claimOutdatedSecurityPostureNotifications(): Promise<OutdatedSecurityPostureNotification[]> {
@@ -706,7 +710,9 @@ export async function claimOutdatedSecurityPostureNotifications(): Promise<Outda
        LEFT JOIN app_users u ON u.user_id = d.owner_id
        WHERE r.is_active = 'Y'
          AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
-         AND r.outdated_webhook_sent_at IS NULL
+         AND NVL(r.outdated_webhook_send_count, 0) < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}
+         AND (r.outdated_webhook_next_send_at IS NULL
+              OR r.outdated_webhook_next_send_at <= SYSTIMESTAMP)
          AND (r.outdated_webhook_claimed_at IS NULL
               OR r.outdated_webhook_claimed_at < SYSTIMESTAMP - INTERVAL '5' MINUTE)`,
     );
@@ -742,7 +748,13 @@ export async function markSecurityPostureOutdatedWebhookSent(reportId: number) {
   return executeOne(async (connection) => {
     await connection.execute(
       `UPDATE app_security_posture_reports
-       SET outdated_webhook_sent_at = SYSTIMESTAMP,
+       SET outdated_webhook_send_count = NVL(outdated_webhook_send_count, 0) + 1,
+           outdated_webhook_next_send_at = CASE
+             WHEN NVL(outdated_webhook_send_count, 0) + 1 < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}
+               THEN SYSTIMESTAMP + NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS}, 'HOUR')
+             ELSE NULL
+           END,
+           outdated_webhook_sent_at = SYSTIMESTAMP,
            outdated_webhook_claimed_at = NULL
        WHERE report_id = :reportId`,
       { reportId },
@@ -757,7 +769,7 @@ export async function releaseSecurityPostureOutdatedWebhookClaim(reportId: numbe
       `UPDATE app_security_posture_reports
        SET outdated_webhook_claimed_at = NULL
        WHERE report_id = :reportId
-         AND outdated_webhook_sent_at IS NULL`,
+         AND NVL(outdated_webhook_send_count, 0) < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}`,
       { reportId },
       { autoCommit: true }
     );
