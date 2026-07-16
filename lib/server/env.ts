@@ -13,6 +13,10 @@ interface ServerEnv {
   sessionCookieName: string;
   sessionTtlHours: number;
   rememberSessionTtlDays: number;
+  securityPostureUploadDir: string;
+  securityPostureWebhookUrl: string;
+  securityPostureWebhookToken: string;
+  securityPostureMaxUploadBytes: number;
 }
 
 let cached: ServerEnv | null = null;
@@ -61,7 +65,11 @@ export function getServerEnv(): ServerEnv {
     authSecret: readRequired("APP_AUTH_SECRET"),
     sessionCookieName: process.env.APP_SESSION_COOKIE_NAME?.trim() || "dba_session",
     sessionTtlHours: parsePositiveNumber("APP_SESSION_TTL_HOURS", 8),
-    rememberSessionTtlDays: parsePositiveNumber("APP_SESSION_REMEMBER_TTL_DAYS", 30)
+    rememberSessionTtlDays: parsePositiveNumber("APP_SESSION_REMEMBER_TTL_DAYS", 30),
+    securityPostureUploadDir: process.env.SECURITY_POSTURE_UPLOAD_DIR?.trim() || "./uploads/nessus-reports",
+    securityPostureWebhookUrl: process.env.SECURITY_POSTURE_N8N_WEBHOOK_URL?.trim() || "",
+    securityPostureWebhookToken: process.env.SECURITY_POSTURE_N8N_WEBHOOK_TOKEN?.trim() || "",
+    securityPostureMaxUploadBytes: parsePositiveNumber("SECURITY_POSTURE_MAX_UPLOAD_MB", 25) * 1024 * 1024
   };
 
   return cached;

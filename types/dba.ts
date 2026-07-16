@@ -415,6 +415,25 @@ export interface DatabaseTarget {
   zone?: string;
 }
 
+export type SecurityPostureProcessingStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";
+
+/** The active Nessus document displayed for the currently selected database. */
+export interface SecurityPostureReport {
+  id: number;
+  database_id: number;
+  database_name: string;
+  original_filename: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_by: string;
+  uploaded_at: string;
+  processing_status: SecurityPostureProcessingStatus;
+  ai_summary?: string;
+  ai_model?: string;
+  summary_generated_at?: string;
+  error_message?: string;
+}
+
 export interface DatabaseOwnerSummary {
   userId: number;
   username: string;

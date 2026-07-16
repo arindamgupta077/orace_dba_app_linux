@@ -27,6 +27,7 @@ import { ActiveDbaPill } from "@/components/layout/active-dba-pill";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DatabaseSelector } from "@/components/visual/database-selector";
+import { SecurityPostureCard } from "@/components/security-posture/security-posture-card";
 import { useTheme } from "@/components/providers/theme-provider";
 import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -340,8 +341,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {isDbSelectorVisible && (
-            <div className="px-4 py-3 lg:px-6 border-t border-border/70 bg-background/40 flex items-center gap-3">
+            <div className="px-4 py-3 lg:px-6 border-t border-border/70 bg-background/40 flex flex-wrap items-center gap-3">
               <DatabaseSelector />
+              <SecurityPostureCard />
               {/* Active DBA on-shift indicator — shown in db selector row when database view is active */}
               <div className="ml-auto">
                 <ActiveDbaPill />

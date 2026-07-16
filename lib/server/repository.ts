@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { BindParameters, Connection } from "oracledb";
+import oracledb, { type BindParameters, type Connection } from "oracledb";
 
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
@@ -38,6 +38,8 @@ import type {
   ShiftReportData,
   ShiftReportFilters,
   ShiftSession,
+  SecurityPostureProcessingStatus,
+  SecurityPostureReport,
   ThemePreference,
   UserSession
 } from "@/types/dba";
@@ -510,6 +512,171 @@ function mapAlertNotificationRow(row: DbRow): AlertNotification {
 
 async function executeOne<T>(fn: (connection: Connection) => Promise<T>) {
   return withOracleConnection(fn);
+}
+
+function mapSecurityPostureReport(row: DbRow): SecurityPostureReport {
+  return {
+    id: Number(row.REPORT_ID),
+    database_id: Number(row.DATABASE_ID),
+    database_name: String(row.DATABASE_NAME || ""),
+    original_filename: String(row.ORIGINAL_FILENAME || ""),
+    file_size: Number(row.FILE_SIZE_BYTES || 0),
+    mime_type: String(row.MIME_TYPE || "application/pdf"),
+    uploaded_by: String(row.UPLOADED_BY || ""),
+    uploaded_at: toIstIsoString(row.UPLOADED_AT),
+    processing_status: String(row.PROCESSING_STATUS || "UPLOADED").toUpperCase() as SecurityPostureProcessingStatus,
+    ai_summary: row.AI_SUMMARY ? String(row.AI_SUMMARY) : undefined,
+    ai_model: row.AI_MODEL ? String(row.AI_MODEL) : undefined,
+    summary_generated_at: row.SUMMARY_GENERATED_AT ? toIstIsoString(row.SUMMARY_GENERATED_AT) : undefined,
+    error_message: row.ERROR_MESSAGE ? String(row.ERROR_MESSAGE) : undefined
+  };
+}
+
+function securityPostureAccessFilter(role?: UserRole, userId?: number) {
+  if (role === "client" && userId) return "AND d.owner_id = :userId";
+  return "";
+}
+
+export async function getActiveSecurityPostureReport(
+  databaseName: string,
+  access: { role?: UserRole; userId?: number } = {}
+): Promise<SecurityPostureReport | null> {
+  return executeOne(async (connection) => {
+    const normalizedName = databaseName.trim();
+    if (!normalizedName) return null;
+    const ownerFilter = securityPostureAccessFilter(access.role, access.userId);
+    const binds: BindParameters = { databaseName: normalizedName };
+    if (ownerFilter) binds.userId = access.userId;
+    const result = await connection.execute<DbRow>(
+      `SELECT r.report_id, r.database_id, d.database_name, r.original_filename,
+              r.file_size_bytes, r.mime_type, r.uploaded_by, r.uploaded_at,
+              r.processing_status, r.ai_summary, r.ai_model,
+              r.summary_generated_at, r.error_message
+       FROM app_security_posture_reports r
+       JOIN database_inventory d ON d.id = r.database_id
+       WHERE UPPER(d.database_name) = UPPER(:databaseName)
+         AND r.is_active = 'Y'
+         ${ownerFilter}`,
+      binds
+    );
+    const row = result.rows?.[0];
+    return row ? mapSecurityPostureReport(row) : null;
+  });
+}
+
+export async function createSecurityPostureReport(input: {
+  databaseName: string;
+  originalFilename: string;
+  storedFilename: string;
+  filePath: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedBy: string;
+  uploaderUserId: number;
+  uploaderRole: UserRole;
+}): Promise<SecurityPostureReport> {
+  return executeOne(async (connection) => {
+    const target = await connection.execute<DbRow>(
+      `SELECT id, database_name, owner_id FROM database_inventory
+       WHERE UPPER(database_name) = UPPER(:databaseName)`,
+      { databaseName: input.databaseName.trim() }
+    );
+    const database = target.rows?.[0];
+    if (!database) throw new Error("Selected database was not found.");
+    if (input.uploaderRole === "client" && Number(database.OWNER_ID) !== input.uploaderUserId) {
+      throw new Error("You are not authorized to upload a report for this database.");
+    }
+
+    // One current document per database; the previous document remains as history.
+    await connection.execute(
+      `UPDATE app_security_posture_reports
+       SET is_active = 'N', replaced_at = SYSTIMESTAMP
+       WHERE database_id = :databaseId AND is_active = 'Y'`,
+      { databaseId: Number(database.ID) }
+    );
+    const inserted = await connection.execute<DbRow>(
+      `INSERT INTO app_security_posture_reports
+       (database_id, original_filename, stored_filename, file_path, file_size_bytes,
+        mime_type, uploaded_by, uploaded_by_user_id, uploaded_at, processing_status, is_active)
+       VALUES
+       (:databaseId, :originalFilename, :storedFilename, :filePath, :fileSize,
+        :mimeType, :uploadedBy, :uploaderUserId, SYSTIMESTAMP, 'UPLOADED', 'Y')
+       RETURNING report_id, database_id, original_filename, file_size_bytes, mime_type,
+                 uploaded_by, uploaded_at, processing_status, ai_summary, ai_model,
+                 summary_generated_at, error_message INTO
+                 :reportId, :returnedDatabaseId, :returnedFilename, :returnedFileSize,
+                 :returnedMimeType, :returnedUploadedBy, :returnedUploadedAt,
+                 :returnedStatus, :returnedSummary, :returnedModel, :returnedSummaryAt,
+                 :returnedError`,
+      {
+        databaseId: Number(database.ID),
+        originalFilename: input.originalFilename,
+        storedFilename: input.storedFilename,
+        filePath: input.filePath,
+        fileSize: input.fileSize,
+        mimeType: input.mimeType,
+        uploadedBy: input.uploadedBy,
+        uploaderUserId: input.uploaderUserId,
+        reportId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        returnedDatabaseId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        returnedFilename: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 255 },
+        returnedFileSize: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+        returnedMimeType: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 100 },
+        returnedUploadedBy: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 128 },
+        returnedUploadedAt: { dir: oracledb.BIND_OUT, type: oracledb.DATE },
+        returnedStatus: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 20 },
+        returnedSummary: { dir: oracledb.BIND_OUT, type: oracledb.CLOB },
+        returnedModel: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 200 },
+        returnedSummaryAt: { dir: oracledb.BIND_OUT, type: oracledb.DATE },
+        returnedError: { dir: oracledb.BIND_OUT, type: oracledb.CLOB }
+      },
+      { autoCommit: true }
+    );
+    const output = inserted.outBinds as Record<string, unknown[]>;
+    return {
+      id: Number(output.reportId?.[0]),
+      database_id: Number(output.returnedDatabaseId?.[0]),
+      database_name: String(database.DATABASE_NAME),
+      original_filename: String(output.returnedFilename?.[0] || input.originalFilename),
+      file_size: Number(output.returnedFileSize?.[0] || input.fileSize),
+      mime_type: String(output.returnedMimeType?.[0] || input.mimeType),
+      uploaded_by: String(output.returnedUploadedBy?.[0] || input.uploadedBy),
+      uploaded_at: toIstIsoString(output.returnedUploadedAt?.[0]),
+      processing_status: String(output.returnedStatus?.[0] || "UPLOADED") as SecurityPostureProcessingStatus
+    };
+  });
+}
+
+export async function getSecurityPostureReportFile(reportId: number, access: { role?: UserRole; userId?: number } = {}) {
+  return executeOne(async (connection) => {
+    const ownerFilter = securityPostureAccessFilter(access.role, access.userId);
+    const binds: BindParameters = { reportId };
+    if (ownerFilter) binds.userId = access.userId;
+    const result = await connection.execute<DbRow>(
+      `SELECT r.report_id, r.file_path, r.original_filename, r.mime_type
+       FROM app_security_posture_reports r
+       JOIN database_inventory d ON d.id = r.database_id
+       WHERE r.report_id = :reportId AND r.is_active = 'Y' ${ownerFilter}`,
+      binds
+    );
+    const row = result.rows?.[0];
+    return row ? {
+      id: Number(row.REPORT_ID), filePath: String(row.FILE_PATH),
+      originalFilename: String(row.ORIGINAL_FILENAME), mimeType: String(row.MIME_TYPE || "application/pdf")
+    } : null;
+  });
+}
+
+export async function updateSecurityPostureProcessingFailure(reportId: number, message: string) {
+  return executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_security_posture_reports
+       SET processing_status = 'FAILED', error_message = :message
+       WHERE report_id = :reportId AND is_active = 'Y'`,
+      { reportId, message: message.slice(0, 4000) },
+      { autoCommit: true }
+    );
+  });
 }
 
 export async function findUserForLogin(username: string): Promise<UserLoginRecord | null> {
