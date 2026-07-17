@@ -10,6 +10,7 @@ import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { getShiftLabel } from "@/lib/server/shift-utils";
+import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,8 @@ export async function POST(request: Request) {
       username: handover.author_username,
       email: session.user.username,
       shift: getShiftLabel(active.shift_number),
-      handover_text: handoverText
+      handover_text: handoverText,
+      timestamp: formatIstIsoString(handover.created_at)
     });
 
     emitGlobalNotification({
@@ -84,7 +86,7 @@ export async function POST(request: Request) {
       severity: "warning",
       db: getShiftLabel(active.shift_number),
       title: `Handover Submitted: ${handover.author_username}`,
-      message: `${handover.author_username} submitted a handover for ${getShiftLabel(active.shift_number)}. Pending acknowledgement.`,
+      message: `${handover.author_username} submitted a handover for ${getShiftLabel(active.shift_number)} at ${formatAppDateTime(handover.created_at)} IST. Pending acknowledgement.`,
       timestamp: handover.created_at || new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });

@@ -150,9 +150,21 @@ export function DailyChecklistSection() {
 
   const responsibleBackupTemplates = useMemo(() => {
     const selectedShift = Number(shiftNumber);
-    return backupTemplates.filter(
+    const filtered = backupTemplates.filter(
       (t) => t.is_active && getBackupResponsibleShift(t.scheduled_time) === selectedShift
     );
+    return [...filtered].sort((a, b) => {
+      const timeA = a.scheduled_time || "";
+      const timeB = b.scheduled_time || "";
+      if (timeA !== timeB) {
+        if (!timeA) return 1;
+        if (!timeB) return -1;
+        return timeA.localeCompare(timeB);
+      }
+      const dbCompare = a.database_name.localeCompare(b.database_name);
+      if (dbCompare !== 0) return dbCompare;
+      return a.backup_name.localeCompare(b.backup_name);
+    });
   }, [backupTemplates, shiftNumber]);
 
   const filteredTemplates = useMemo(() => {

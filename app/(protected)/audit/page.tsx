@@ -35,6 +35,7 @@ export default function AuditPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [actorFilter, setActorFilter] = useState("all");
   const [dbFilter, setDbFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(() => toIstDateString());
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,11 +96,12 @@ export default function AuditPage() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, actorFilter, dbFilter, fromDate, toDate]);
+  }, [searchTerm, statusFilter, actorFilter, dbFilter, actionFilter, fromDate, toDate]);
 
   const uniqueStatuses = Array.from(new Set(auditLogs.map((l) => l.status)));
   const uniqueActors = Array.from(new Set(auditLogs.map((l) => l.actor).filter((actor): actor is string => !!actor)));
   const uniqueDbs = Array.from(new Set(auditLogs.map((l) => l.db).filter((db): db is string => !!db))).sort();
+  const uniqueActions = Array.from(new Set(auditLogs.map((l) => l.action).filter((action): action is string => !!action))).sort();
 
   const filteredLogs = auditLogs.filter((item) => {
     const matchesSearch =
@@ -110,6 +112,7 @@ export default function AuditPage() {
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesActor = actorFilter === "all" || item.actor === actorFilter;
     const matchesDb = dbFilter === "all" || item.db === dbFilter;
+    const matchesAction = actionFilter === "all" || item.action === actionFilter;
 
     let matchesDateRange = true;
     if (fromDate || toDate) {
@@ -122,7 +125,7 @@ export default function AuditPage() {
       }
     }
 
-    return matchesSearch && matchesStatus && matchesActor && matchesDb && matchesDateRange;
+    return matchesSearch && matchesStatus && matchesActor && matchesDb && matchesAction && matchesDateRange;
   });
 
   const [sqlCommandOpen, setSqlCommandOpen] = useState<AuditLogItem | null>(null);
@@ -157,6 +160,7 @@ export default function AuditPage() {
     if (statusFilter !== "all") activeFilters.push(`Status: ${statusFilter}`);
     if (actorFilter !== "all") activeFilters.push(`Actor: ${actorFilter}`);
     if (dbFilter !== "all") activeFilters.push(`DB: ${dbFilter}`);
+    if (actionFilter !== "all") activeFilters.push(`Action: ${actionFilter}`);
     if (searchTerm) activeFilters.push(`Search: "${searchTerm}"`);
     const filterLabel = activeFilters.join(", ") || "None";
 
@@ -241,6 +245,23 @@ export default function AuditPage() {
             </div>
 
             <div className="w-full sm:w-[160px] space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Action</label>
+              <Select value={actionFilter} onValueChange={setActionFilter}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="All Actions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Actions</SelectItem>
+                  {uniqueActions.map((action) => (
+                    <SelectItem key={action} value={action}>
+                      {action}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-[160px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">From Date</label>
               <Input
                 type="date"
@@ -260,7 +281,7 @@ export default function AuditPage() {
               />
             </div>
 
-            {(searchTerm || statusFilter !== "all" || actorFilter !== "all" || dbFilter !== "all" || fromDate || toDate !== toIstDateString()) && (
+            {(searchTerm || statusFilter !== "all" || actorFilter !== "all" || dbFilter !== "all" || actionFilter !== "all" || fromDate || toDate !== toIstDateString()) && (
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -268,6 +289,7 @@ export default function AuditPage() {
                   setStatusFilter("all");
                   setActorFilter("all");
                   setDbFilter("all");
+                  setActionFilter("all");
                   setFromDate("");
                   setToDate(toIstDateString());
                 }}
@@ -334,7 +356,7 @@ export default function AuditPage() {
               ) : null}
               {currentLogs.map((item) => (
                 <TableRow key={item.id} className="hover:bg-muted/20">
-                  <TableCell className="whitespace-nowrap font-medium text-indigo-600 dark:text-indigo-400">
+                  <TableCell className="whitespace-nowrap font-medium text-muted-foreground">
                     {formatDateTime(item.timestamp)}
                   </TableCell>
                   <TableCell className="font-semibold text-foreground/90">{item.actor}</TableCell>
@@ -345,7 +367,7 @@ export default function AuditPage() {
                   </TableCell>
                   <TableCell>
                     {item.db ? (
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">
                         {item.db}
                       </span>
                     ) : (

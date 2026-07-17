@@ -11,6 +11,7 @@ import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
+import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
       action: "dba_logout",
       username: closed.username,
       email: closed.email,
-      logout_time: closed.logout_at,
+      logout_time: formatIstIsoString(closed.logout_at),
       handover_text: handover?.handover_text || "",
       shift: getShiftLabel(closed.shift_number)
     });
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
       severity: "info",
       db: getShiftLabel(closed.shift_number),
       title: `DBA Logout: ${closed.username}`,
-      message: `${closed.username} logged out from ${getShiftLabel(closed.shift_number)} at ${closed.logout_at}.`,
+      message: `${closed.username} logged out from ${getShiftLabel(closed.shift_number)} at ${formatAppDateTime(closed.logout_at)} IST.`,
       timestamp: closed.logout_at || new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });

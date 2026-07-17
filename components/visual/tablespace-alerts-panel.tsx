@@ -471,7 +471,7 @@ export function TablespaceAlertsPanel() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sqlReviewAlert, setSqlReviewAlert] = useState<AlertNotification | null>(null);
   const [sqlDraft, setSqlDraft] = useState("");
@@ -673,7 +673,8 @@ export function TablespaceAlertsPanel() {
   const emptyStatusLabel = statusFilter === "pending_approval" ? "active" : statusFilter === "all" ? "any" : statusDescription;
   const canGoPrevious = page > 1;
   const canGoNext = page < pageCount;
-  const isUpdating = (alert: AlertNotification) => updatingId === alert.id;
+  const isUpdatingAny = (alert: AlertNotification) => updatingKey?.startsWith(`${alert.id}:`) ?? false;
+  const isUpdatingAction = (alert: AlertNotification, action: string) => updatingKey === `${alert.id}:${action}`;
 
   const handleStatusFilterChange = (value: string) => {
     setStatusFilter(value as StatusFilter);
@@ -681,7 +682,7 @@ export function TablespaceAlertsPanel() {
   };
 
   const updateStatus = async (alert: AlertNotification, status: AlertNotificationStatus) => {
-    setUpdatingId(alert.id);
+    setUpdatingKey(`${alert.id}:${status}`);
     try {
       await updateAlertNotificationStatus(alert.id, status, undefined, user?.username);
       toast.success(`Alert ${status.replace(/_/g, " ")}`);
@@ -695,7 +696,7 @@ export function TablespaceAlertsPanel() {
       const message = updateError instanceof Error ? updateError.message : "Could not update alert.";
       toast.error("Alert update failed", { description: message });
     } finally {
-      setUpdatingId(null);
+      setUpdatingKey(null);
     }
   };
 
@@ -834,12 +835,22 @@ export function TablespaceAlertsPanel() {
                       ) : null}
                       {alert.status === "pending_approval" ? (
                         <>
-                          <Button variant="outline" size="sm" onClick={() => updateStatus(alert, "approved")} disabled={isUpdating(alert)}>
-                            {isUpdating(alert) ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          <Button
+                            size="sm"
+                            className="border border-emerald-500/40 bg-emerald-600/90 text-white shadow-sm hover:bg-emerald-500"
+                            onClick={() => updateStatus(alert, "approved")}
+                            disabled={isUpdatingAny(alert)}
+                          >
+                            {isUpdatingAction(alert, "approved") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                             Approve
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => updateStatus(alert, "rejected")} disabled={isUpdating(alert)}>
-                            {isUpdating(alert) ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                          <Button
+                            size="sm"
+                            className="border border-red-500/40 bg-red-600/90 text-white shadow-sm hover:bg-red-500"
+                            onClick={() => updateStatus(alert, "rejected")}
+                            disabled={isUpdatingAny(alert)}
+                          >
+                            {isUpdatingAction(alert, "rejected") ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                             Reject
                           </Button>
                         </>
@@ -1043,11 +1054,19 @@ export function TablespaceAlertsPanel() {
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => handleSqlDecision("rejected")} disabled={Boolean(sqlDecisionLoading)}>
+            <Button
+              className="border border-red-500/40 bg-red-600/90 text-white shadow-sm hover:bg-red-500"
+              onClick={() => handleSqlDecision("rejected")}
+              disabled={Boolean(sqlDecisionLoading)}
+            >
               {sqlDecisionLoading === "rejected" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
               Reject SQL
             </Button>
-            <Button onClick={() => handleSqlDecision("approved")} disabled={Boolean(sqlDecisionLoading) || !sqlDraft.trim()}>
+            <Button
+              className="border border-emerald-500/40 bg-emerald-600/90 text-white shadow-sm hover:bg-emerald-500"
+              onClick={() => handleSqlDecision("approved")}
+              disabled={Boolean(sqlDecisionLoading) || !sqlDraft.trim()}
+            >
               {sqlDecisionLoading === "approved" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Approve SQL
             </Button>

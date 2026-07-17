@@ -66,6 +66,20 @@ export function formatAppDateTime(value: string | number | Date | null | undefin
   }
 }
 
+export function formatIstIsoString(value: string | number | Date | null | undefined): string {
+  if (value == null || value === "") return "";
+  try {
+    const date = parseAppTimestamp(value);
+    const offsetMs = 330 * 60 * 1000; // +5:30
+    const istDate = new Date(date.getTime() + offsetMs);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${istDate.getUTCFullYear()}-${pad(istDate.getUTCMonth() + 1)}-${pad(istDate.getUTCDate())}T${pad(istDate.getUTCHours())}:${pad(istDate.getUTCMinutes())}:${pad(istDate.getUTCSeconds())}+05:30`;
+  } catch {
+    return String(value);
+  }
+}
+
+
 /**
  * Returns the IST calendar date (YYYY-MM-DD) for the given Date (or now).
  * Works on the client regardless of the browser's local timezone.

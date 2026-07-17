@@ -5,6 +5,8 @@ import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { getSelectableShifts, getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
+import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
+
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
       action: "dba_login",
       username: created.username,
       email: created.email,
-      login_time: created.login_at,
+      login_time: formatIstIsoString(created.login_at),
       shift: getShiftLabel(shiftNumber)
     });
 
@@ -91,7 +93,7 @@ export async function POST(request: Request) {
       severity: "info",
       db: getShiftLabel(shiftNumber),
       title: `DBA Login: ${created.username}`,
-      message: `${created.username} logged in to ${getShiftLabel(shiftNumber)} at ${created.login_at}.`,
+      message: `${created.username} logged in to ${getShiftLabel(shiftNumber)} at ${formatAppDateTime(created.login_at)} IST.`,
       timestamp: created.login_at,
       targetPath: "/dba-console/shift-management"
     });

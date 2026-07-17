@@ -5,6 +5,7 @@ import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { getShiftLabel } from "@/lib/server/shift-utils";
+import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
       username: session.user.username,
       email: session.user.username,
       shift: getShiftLabel(handover.shift_number),
-      author: handover.author_username
+      author: handover.author_username,
+      timestamp: formatIstIsoString(handover.ack_at)
     });
 
     emitGlobalNotification({
@@ -59,7 +61,7 @@ export async function POST(request: Request) {
       severity: "info",
       db: getShiftLabel(handover.shift_number),
       title: `Handover Acknowledged: ${session.user.username}`,
-      message: `${session.user.username} acknowledged the handover from ${handover.author_username} for ${getShiftLabel(handover.shift_number)}.`,
+      message: `${session.user.username} acknowledged the handover from ${handover.author_username} for ${getShiftLabel(handover.shift_number)} at ${formatAppDateTime(handover.ack_at)} IST.`,
       timestamp: handover.ack_at || new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });
