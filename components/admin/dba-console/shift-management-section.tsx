@@ -334,7 +334,7 @@ export function ShiftManagementSection() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid items-stretch gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="grid items-stretch gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
           <Card className="h-full">
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <Skeleton className="h-6 w-40" />
@@ -378,7 +378,7 @@ export function ShiftManagementSection() {
 
   return (
     <div className="dba-fade-in space-y-6">
-      <div className="grid items-stretch gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid items-stretch gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
       {/* Current Shift Panel — visible to ALL roles */}
       <Card className="h-full min-w-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -443,31 +443,31 @@ export function ShiftManagementSection() {
               </div>
             </div>
           ) : (
-            <Table>
+            <Table className="min-w-[760px] whitespace-nowrap text-xs [&_td]:px-2 [&_th]:px-2 [&_td:nth-child(5)]:pr-1 [&_td:nth-child(6)]:pl-1 [&_th:nth-child(5)]:pr-1 [&_th:nth-child(6)]:pl-1">
               <TableHeader>
                 <TableRow>
-                  <TableHead>DBA</TableHead>
-                  <TableHead>Shift</TableHead>
-                  <TableHead>Login Time</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Handover</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[13.5rem]">DBA</TableHead>
+                  <TableHead className="w-[4.75rem]">Shift</TableHead>
+                  <TableHead className="w-[5.25rem]">Login Time</TableHead>
+                  <TableHead className="w-[5.5rem]">Status</TableHead>
+                  <TableHead className="w-[8.5rem]">Handover</TableHead>
+                  <TableHead className="w-[9rem] text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sessions.map((session) => (
                   <TableRow key={session.session_id}>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex min-w-[12.5rem] items-center gap-2">
                         <DbaAvatar name={session.username} />
                         <div className="flex flex-col">
-                          <span>
+                          <span className="text-sm leading-5">
                             {session.username}
                             {session.username === user?.username && (
                               <span className="ml-2 text-xs text-cyan-400">(You)</span>
                             )}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs leading-4 text-muted-foreground">
                             {SHIFT_LABELS[session.shift_number] || `Shift ${session.shift_number}`}
                           </span>
                         </div>
@@ -478,7 +478,7 @@ export function ShiftManagementSection() {
                         Shift {session.shift_number}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="text-xs text-muted-foreground">
                       {formatTime(session.login_at)}
                     </TableCell>
                     <TableCell>
@@ -488,8 +488,8 @@ export function ShiftManagementSection() {
                       </Badge>
                     </TableCell>
                     <TableCell>{handoverBadge(session)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1.5">
                         {session.handover_text && (
                           canManageShift &&
                           session.username !== user?.username &&
