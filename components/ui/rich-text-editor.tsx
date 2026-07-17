@@ -162,7 +162,7 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         class: "tiptap-content prose prose-sm prose-invert max-w-none focus:outline-none px-3 py-2 text-sm",
-        style: `min-height: ${fullscreen ? "calc(100vh - 12rem)" : `${minHeight}px`};`,
+        style: `min-height: ${fullscreen ? "100%" : `${minHeight}px`};`,
         "data-placeholder": placeholder
       }
     },
@@ -192,7 +192,7 @@ export function RichTextEditor({
         editorProps: {
           attributes: {
             class: "tiptap-content prose prose-sm prose-invert max-w-none focus:outline-none px-3 py-2 text-sm",
-            style: `min-height: ${fullscreen ? "calc(100vh - 12rem)" : `${minHeight}px`};`,
+            style: `min-height: ${fullscreen ? "100%" : `${minHeight}px`};`,
             "data-placeholder": placeholder
           }
         }
@@ -221,164 +221,183 @@ export function RichTextEditor({
     );
   }
 
-  const editorContent = (
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-0.5 border-b border-border/60 px-1.5 py-1">
+      <ToolbarButton
+        icon={Bold}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+        isActive={editor.isActive("bold")}
+        disabled={disabled}
+        title="Bold"
+      />
+      <ToolbarButton
+        icon={Italic}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+        isActive={editor.isActive("italic")}
+        disabled={disabled}
+        title="Italic"
+      />
+      <ToolbarButton
+        icon={UnderlineIcon}
+        onClick={() => editor.chain().focus().toggleUnderline().run()}
+        isActive={editor.isActive("underline")}
+        disabled={disabled}
+        title="Underline"
+      />
+      <ToolbarButton
+        icon={Strikethrough}
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+        isActive={editor.isActive("strike")}
+        disabled={disabled}
+        title="Strikethrough"
+      />
+
+      <div className="mx-1 h-5 w-px bg-border/60" />
+
+      <ToolbarButton
+        icon={List}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        isActive={editor.isActive("bulletList")}
+        disabled={disabled}
+        title="Bullet List"
+      />
+      <ToolbarButton
+        icon={ListOrdered}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        isActive={editor.isActive("orderedList")}
+        disabled={disabled}
+        title="Numbered List"
+      />
+
+      <div className="mx-1 h-5 w-px bg-border/60" />
+
+      <ToolbarButton
+        icon={AlignLeft}
+        onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        isActive={editor.isActive({ textAlign: "left" })}
+        disabled={disabled}
+        title="Align Left"
+      />
+      <ToolbarButton
+        icon={AlignCenter}
+        onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        isActive={editor.isActive({ textAlign: "center" })}
+        disabled={disabled}
+        title="Align Center"
+      />
+      <ToolbarButton
+        icon={AlignRight}
+        onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        isActive={editor.isActive({ textAlign: "right" })}
+        disabled={disabled}
+        title="Align Right"
+      />
+
+      <div className="mx-1 h-5 w-px bg-border/60" />
+
+      <ColorPickerButton
+        icon={Palette}
+        colors={TEXT_COLORS}
+        onPick={(color) => editor.chain().focus().setColor(color || "").run()}
+        disabled={disabled}
+        title="Text Color"
+      />
+      <ColorPickerButton
+        icon={Highlighter}
+        colors={HIGHLIGHT_COLORS}
+        onPick={(color) => {
+          if (color) {
+            editor.chain().focus().setHighlight({ color }).run();
+          } else {
+            editor.chain().focus().unsetHighlight().run();
+          }
+        }}
+        disabled={disabled}
+        title="Highlight"
+      />
+
+      <div className="mx-1 h-5 w-px bg-border/60" />
+
+      <ToolbarButton
+        icon={Undo2}
+        onClick={() => editor.chain().focus().undo().run()}
+        disabled={disabled || !editor.can().undo()}
+        title="Undo"
+      />
+      <ToolbarButton
+        icon={Redo2}
+        onClick={() => editor.chain().focus().redo().run()}
+        disabled={disabled || !editor.can().redo()}
+        title="Redo"
+      />
+      <ToolbarButton
+        icon={RemoveFormatting}
+        onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}
+        disabled={disabled}
+        title="Clear Formatting"
+      />
+
+      <div className="mx-1 h-5 w-px bg-border/60" />
+
+      <ToolbarButton
+        icon={fullscreen ? Minimize2 : Expand}
+        onClick={() => setFullscreen((v) => !v)}
+        disabled={disabled}
+        title={fullscreen ? "Close expanded editor" : "Expand editor"}
+      />
+    </div>
+  );
+
+  // Inline (non-expanded) editor
+  const inlineEditor = (
+    <div className={cn("rounded-md border border-input bg-background/50", className)}>
+      {toolbar}
+      <EditorContent editor={editor} />
+    </div>
+  );
+
+  // Expanded modal editor — rendered via portal as a centered modal overlay
+  const modalEditor = createPortal(
     <div
-      className={cn(
-        "rounded-md border border-input bg-background/50",
-        fullscreen && "fixed inset-0 z-[100] flex flex-col rounded-none border-0 bg-popover p-5 shadow-glass",
-        className
-      )}
-      role={fullscreen ? "dialog" : undefined}
-      aria-modal={fullscreen || undefined}
-      aria-label={fullscreen ? "Full screen rich text editor" : undefined}
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+      role="dialog"
+      aria-modal
+      aria-label="Expanded rich text editor"
     >
-      {fullscreen && (
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-muted-foreground">Handover Notes — Full Screen Editor</span>
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={() => setFullscreen(false)}
+      />
+      {/* Modal */}
+      <div
+        className="relative z-10 flex flex-col rounded-xl border border-border/70 bg-popover shadow-2xl"
+        style={{ width: "90vw", maxWidth: "1100px", height: "80vh", maxHeight: "800px" }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+          <span className="text-sm font-medium text-muted-foreground">Handover Notes — Expanded Editor</span>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setFullscreen((v) => !v)}
-            title="Exit full screen (Esc)"
+            onClick={() => setFullscreen(false)}
+            title="Close expanded editor (Esc)"
           >
             <Minimize2 className="h-4 w-4" />
           </Button>
         </div>
-      )}
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-border/60 px-1.5 py-1">
-        <ToolbarButton
-          icon={Bold}
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          isActive={editor.isActive("bold")}
-          disabled={disabled}
-          title="Bold"
-        />
-        <ToolbarButton
-          icon={Italic}
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          isActive={editor.isActive("italic")}
-          disabled={disabled}
-          title="Italic"
-        />
-        <ToolbarButton
-          icon={UnderlineIcon}
-          onClick={() => editor.chain().focus().toggleUnderline().run()}
-          isActive={editor.isActive("underline")}
-          disabled={disabled}
-          title="Underline"
-        />
-        <ToolbarButton
-          icon={Strikethrough}
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-          isActive={editor.isActive("strike")}
-          disabled={disabled}
-          title="Strikethrough"
-        />
-
-        <div className="mx-1 h-5 w-px bg-border/60" />
-
-        <ToolbarButton
-          icon={List}
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          isActive={editor.isActive("bulletList")}
-          disabled={disabled}
-          title="Bullet List"
-        />
-        <ToolbarButton
-          icon={ListOrdered}
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          isActive={editor.isActive("orderedList")}
-          disabled={disabled}
-          title="Numbered List"
-        />
-
-        <div className="mx-1 h-5 w-px bg-border/60" />
-
-        <ToolbarButton
-          icon={AlignLeft}
-          onClick={() => editor.chain().focus().setTextAlign("left").run()}
-          isActive={editor.isActive({ textAlign: "left" })}
-          disabled={disabled}
-          title="Align Left"
-        />
-        <ToolbarButton
-          icon={AlignCenter}
-          onClick={() => editor.chain().focus().setTextAlign("center").run()}
-          isActive={editor.isActive({ textAlign: "center" })}
-          disabled={disabled}
-          title="Align Center"
-        />
-        <ToolbarButton
-          icon={AlignRight}
-          onClick={() => editor.chain().focus().setTextAlign("right").run()}
-          isActive={editor.isActive({ textAlign: "right" })}
-          disabled={disabled}
-          title="Align Right"
-        />
-
-        <div className="mx-1 h-5 w-px bg-border/60" />
-
-        <ColorPickerButton
-          icon={Palette}
-          colors={TEXT_COLORS}
-          onPick={(color) => editor.chain().focus().setColor(color || "").run()}
-          disabled={disabled}
-          title="Text Color"
-        />
-        <ColorPickerButton
-          icon={Highlighter}
-          colors={HIGHLIGHT_COLORS}
-          onPick={(color) => {
-            if (color) {
-              editor.chain().focus().setHighlight({ color }).run();
-            } else {
-              editor.chain().focus().unsetHighlight().run();
-            }
-          }}
-          disabled={disabled}
-          title="Highlight"
-        />
-
-        <div className="mx-1 h-5 w-px bg-border/60" />
-
-        <ToolbarButton
-          icon={Undo2}
-          onClick={() => editor.chain().focus().undo().run()}
-          disabled={disabled || !editor.can().undo()}
-          title="Undo"
-        />
-        <ToolbarButton
-          icon={Redo2}
-          onClick={() => editor.chain().focus().redo().run()}
-          disabled={disabled || !editor.can().redo()}
-          title="Redo"
-        />
-        <ToolbarButton
-          icon={RemoveFormatting}
-          onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}
-          disabled={disabled}
-          title="Clear Formatting"
-        />
-
-        <div className="mx-1 h-5 w-px bg-border/60" />
-
-        <ToolbarButton
-          icon={fullscreen ? Minimize2 : Expand}
-          onClick={() => setFullscreen((v) => !v)}
-          disabled={disabled}
-          title={fullscreen ? "Exit full screen" : "Expand to full screen"}
-        />
+        {/* Toolbar */}
+        {toolbar}
+        {/* Editor content */}
+        <div className="flex-1 overflow-y-auto">
+          <EditorContent editor={editor} />
+        </div>
       </div>
-
-      {/* Editor content */}
-      <div className={cn(fullscreen && "flex-1 overflow-y-auto")}>
-        <EditorContent editor={editor} />
-      </div>
-    </div>
+    </div>,
+    document.body
   );
 
-  return fullscreen ? createPortal(editorContent, document.body) : editorContent;
+  return fullscreen ? modalEditor : inlineEditor;
 }

@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Copy,
   FileText,
   History,
   LogIn,
@@ -302,6 +303,9 @@ export function ShiftManagementSection() {
     try {
       await acknowledgeHandover(session.handover_id);
       toast.success(`Acknowledged ${session.username}'s handover.`);
+      if (viewHandover?.session_id === session.session_id) {
+        setViewHandover(null);
+      }
       await load();
       await loadHistory(5);
     } catch (error) {
@@ -450,8 +454,8 @@ export function ShiftManagementSection() {
                   <TableHead className="w-[4.75rem]">Shift</TableHead>
                   <TableHead className="w-[5.25rem]">Login Time</TableHead>
                   <TableHead className="w-[5.5rem]">Status</TableHead>
-                  <TableHead className="w-[8.5rem]">Handover</TableHead>
-                  <TableHead className="w-[9rem] text-center">Actions</TableHead>
+                  <TableHead className="w-[6.5rem]">Handover</TableHead>
+                  <TableHead className="w-[7.5rem] text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -659,14 +663,32 @@ export function ShiftManagementSection() {
                       minHeight={120}
                       disabled={actionLoading}
                     />
-                    <Button
-                      size="sm"
-                      onClick={() => void handleSubmitHandover()}
-                      disabled={actionLoading || !handoverText.trim() || handoverText === "<p></p>"}
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      Submit Handover
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void handleSubmitHandover()}
+                        disabled={actionLoading || !handoverText.trim() || handoverText === "<p></p>"}
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        Submit Handover
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const lastHandover = handoverHistory[0];
+                          if (lastHandover?.handover_text) {
+                            setHandoverText(lastHandover.handover_text);
+                            toast.success("Copied last handover notes to editor.");
+                          }
+                        }}
+                        disabled={actionLoading || !handoverHistory.length}
+                        title={handoverHistory.length ? `Copy handover from ${handoverHistory[0]?.author_username ?? "previous shift"}` : "No previous handovers available"}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy Last Handover
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -922,6 +944,28 @@ export function ShiftManagementSection() {
           <div className="max-h-[400px] overflow-y-auto rounded-md border border-border/70 bg-background/40 p-4">
             <HandoverContent html={viewHandover?.handover_text || ""} />
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewHandover(null)}>
+              Close
+            </Button>
+            {viewHandover &&
+              canManageShift &&
+              viewHandover.username !== user?.username &&
+              viewHandover.handover_status === "PENDING" &&
+              viewHandover.handover_id && (
+                <Button
+                  onClick={() => void handleAcknowledge(viewHandover)}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <UserCheck className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Acknowledge Handover
+                </Button>
+              )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
