@@ -1484,6 +1484,11 @@ export async function deleteDatabaseInventory(id: number): Promise<void> {
         { id }
       );
       await connection.execute(
+        `DELETE FROM app_db_status_checks
+         WHERE database_id = :id`,
+        { id }
+      );
+      await connection.execute(
         `DELETE FROM database_inventory
          WHERE id = :id`,
         { id }
@@ -1959,7 +1964,7 @@ export async function insertAuditLog(input: {
 
   // Only meaningful lifecycle transitions (acknowledged/approved/rejected/
   // completed/failed) are persisted. "pending_approval" and other interim
-  // states are skipped — they represent alert creation/refresh, not a
+  // states are skipped â€” they represent alert creation/refresh, not a
   // user action worth auditing.
   if (!APP_AUDITED_STATUSES.has(statusValue)) {
     console.log(
@@ -2724,10 +2729,10 @@ export async function getLatestTablespaceRuns(db?: string): Promise<TablespaceRu
 }
 
 // ================================================================
-// DBA Alert Log — dba_alert_log table
+// DBA Alert Log â€” dba_alert_log table
 // ================================================================
 
-/** P1 ORA error codes — database-critical. */
+/** P1 ORA error codes â€” database-critical. */
 const P1_CODES = new Set([
   "ORA-00600",
   "ORA-07445",
@@ -2739,7 +2744,7 @@ const P1_CODES = new Set([
   "ORA-27072"
 ]);
 
-/** P2 ORA error codes — high severity. */
+/** P2 ORA error codes â€” high severity. */
 const P2_CODES = new Set([
   "ORA-04031",
   "ORA-01555",
@@ -2805,7 +2810,7 @@ export interface ListDbaAlertLogResult {
 export async function insertDbaAlertLog(input: InsertDbaAlertInput): Promise<{ inserted: boolean; alert_id?: number }> {
   const severity = computeAlertSeverity(input.error_code);
 
-  // Normalise timestamp — accept string or Date.
+  // Normalise timestamp â€” accept string or Date.
   const ts =
     input.originating_timestamp instanceof Date
       ? input.originating_timestamp
@@ -2854,7 +2859,7 @@ export async function insertDbaAlertLog(input: InsertDbaAlertInput): Promise<{ i
       const alertId = sel.rows?.[0]?.ALERT_ID;
       return { inserted: true, alert_id: alertId };
     } catch (err) {
-      // ORA-00001 = unique constraint violation → duplicate, ignore silently.
+      // ORA-00001 = unique constraint violation â†’ duplicate, ignore silently.
       const oraErr = err as { errorNum?: number };
       if (oraErr?.errorNum === 1) {
         return { inserted: false };
@@ -3248,7 +3253,7 @@ export async function getLatestDashboardHistory(dbName: string): Promise<Dashboa
 }
 
 // ============================================================
-// Performance Run All History — performance_run_all_hist
+// Performance Run All History â€” performance_run_all_hist
 // ============================================================
 
 export interface PerformanceRunAllRow {
@@ -3305,7 +3310,7 @@ export async function getLatestPerformanceRunAll(
 }
 
 // ============================================================
-// DBA Console — Shift Management
+// DBA Console â€” Shift Management
 // ============================================================
 
 interface ShiftSessionRow extends DbRow {
@@ -3437,7 +3442,7 @@ export async function listActiveShiftSessions(): Promise<ShiftSession[]> {
 /**
  * Returns the set of time-based shift numbers (1,2,3) that already have an
  * active DBA logged in. Used by the login API to block duplicate shift logins.
- * General Shift (4) is excluded — multiple DBAs can be on general shift.
+ * General Shift (4) is excluded â€” multiple DBAs can be on general shift.
  */
 export async function getTakenShifts(): Promise<number[]> {
   return executeOne(async (connection) => {
@@ -3549,6 +3554,8 @@ export async function setDatabaseAccess(id: number, enableAccess: boolean, actor
   });
 }
 
+
+
 /**
  * Calculates the Daily Checklist work required for a time-based shift to
  * logout. Shift 2 inherits Shift 1's checks and Shift 3 inherits both prior
@@ -3658,7 +3665,7 @@ export async function getLogoutChecklistReadiness(
 }
 
 // ============================================================
-// DBA Console — Handovers
+// DBA Console â€” Handovers
 // ============================================================
 
 interface HandoverRow extends DbRow {
@@ -3909,7 +3916,7 @@ export async function listHandoverHistory(limit = 20): Promise<Handover[]> {
 }
 
 // ============================================================
-// DBA Console — Backup Template (app_admin maintained)
+// DBA Console â€” Backup Template (app_admin maintained)
 // ============================================================
 
 interface BackupTemplateRow extends DbRow {
@@ -4053,7 +4060,7 @@ export async function deleteBackupTemplate(backupId: number): Promise<void> {
 }
 
 // ============================================================
-// DBA Console — Daily Checklist (DB status + Backup status)
+// DBA Console â€” Daily Checklist (DB status + Backup status)
 // ============================================================
 
 interface DbStatusRow extends DbRow {
@@ -4332,7 +4339,7 @@ export async function upsertBackupStatusCheck(input: {
 }
 
 // ============================================================
-// DBA Console — Shift Report (app_admin only)
+// DBA Console â€” Shift Report (app_admin only)
 // ============================================================
 
 export async function getShiftReport(filters: ShiftReportFilters): Promise<ShiftReportData> {
@@ -4625,7 +4632,7 @@ async function fetchChecklistCompletion(
   filters: ShiftReportFilters,
   type: "db" | "backup"
 ): Promise<ChecklistCompletion> {
-  // Filter scope for the CHECKS tables (no table alias — these are un-aliased).
+  // Filter scope for the CHECKS tables (no table alias â€” these are un-aliased).
   const checkBinds: BindParameters = {};
   const checkConditions: string[] = [];
   if (filters.fromDate) {
@@ -4772,7 +4779,7 @@ async function fetchChecklistCompletion(
     )
   ]);
 
-  // Expected checks = active inventory × (day, shift) opportunities that ran.
+  // Expected checks = active inventory Ã— (day, shift) opportunities that ran.
   // A (day, shift) where a DBA logged in but no checks were performed counts toward
   // expected (and not completed), so neglected shifts reduce the rate instead of being masked.
   const inventoryCount = Number(invResult.rows?.[0]?.TOTAL ?? 0);
@@ -4808,7 +4815,7 @@ function combineCompletion(db: ChecklistCompletion, backup: ChecklistCompletion)
 }
 
 // ============================================================
-// Shift Report — detailed audit datasets (for PDF/Excel export)
+// Shift Report â€” detailed audit datasets (for PDF/Excel export)
 // Each row carries the DBA username + timestamp for audit purposes.
 // ============================================================
 
@@ -4985,7 +4992,7 @@ async function fetchShiftCoverage(
 }
 
 // ============================================================
-// User Profile / Preferences — theme toggling
+// User Profile / Preferences â€” theme toggling
 // ============================================================
 //
 // The app_user_preferences table stores per-user UI preferences.  Today the
@@ -5075,7 +5082,7 @@ export async function getUserThemePreference(userId: number): Promise<ThemePrefe
       if (!row) return "dark";
       return mapThemePreference(row.THEME_PREFERENCE);
     } catch (error) {
-      // Table missing (schema not migrated yet) — degrade gracefully.
+      // Table missing (schema not migrated yet) â€” degrade gracefully.
       if (isOracleMissingTableError(error)) return "dark";
       throw error;
     }
@@ -5103,7 +5110,7 @@ export async function upsertUserThemePreference(
         { autoCommit: true }
       );
     } catch (error) {
-      // Table missing — swallow so the UI toggle still works locally.
+      // Table missing â€” swallow so the UI toggle still works locally.
       if (isOracleMissingTableError(error)) return;
       throw error;
     }

@@ -751,10 +751,10 @@ export function DbInventory() {
       );
       case "environment": {
         const envColors: Record<string, string> = {
-          PROD: "border-red-500/40 bg-red-500/10 text-red-300",
-          DR:   "border-orange-500/40 bg-orange-500/10 text-orange-300",
-          UAT:  "border-blue-500/40 bg-blue-500/10 text-blue-300",
-          DEV:  "border-slate-500/40 bg-slate-500/15 text-slate-300",
+          PROD: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+          DR:   "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+          UAT:  "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+          DEV:  "border-slate-500/40 bg-slate-500/15 text-slate-700 dark:text-slate-300",
         };
         return (
           <Badge variant="outline" className={cn("font-semibold text-[10px] uppercase tracking-wider px-2", envColors[database.env_label] ?? "border-border/50 bg-muted/30 text-muted-foreground")}>
