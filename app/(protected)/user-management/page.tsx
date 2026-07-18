@@ -12,7 +12,7 @@ export default function UserManagementPage() {
     <div className="space-y-6">
       <PageHeader
         title="User Management"
-        description="Manage Oracle database users, profiles, and privileges. All operations are executed via n8n with automatic confirmation queries."
+        description="Manage Oracle database users, profiles, and privileges."
         icon={UserCog}
       />
 

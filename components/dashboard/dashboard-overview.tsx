@@ -11,7 +11,6 @@ import {
   Clock,
   Cpu,
   Database,
-  Download,
   FileDown,
   HardDrive,
   Info,
@@ -41,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScheduleModal } from "@/components/dashboard/schedule-modal";
 import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
-import { downloadText, formatAppDateTime, toCsv } from "@/lib/utils";
+import { formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type {
@@ -741,8 +740,6 @@ export function DashboardOverview() {
     return `${reasonsStr}Status Rules:\n• CRITICAL: Tablespace > 95%, FRA > 90%, Blocking sessions > 0, or negative DB/Listener/Remote connection\n• WARNING: Expiring users in 15 days or Failed logins > 50\n• HEALTHY: None of the above`;
   };
 
-  const csvData = tablespaces.map((t) => ({ tablespace: t.tablespace_name, total_mb: t.total_mb, used_mb: t.used_mb, free_mb: t.free_mb, pct_used: t.pct_used }));
-
   // ── No databases assigned (client role) ─────────────────────────────────
 
   if (isClientWithNoDatabases) {
@@ -860,10 +857,6 @@ export function DashboardOverview() {
             Schedule
           </Button>
 
-          <Button variant="outline" size="sm" onClick={() => downloadText("dashboard-tablespaces.csv", toCsv(csvData), "text/csv")} disabled={!m}>
-            <Download className="h-3.5 w-3.5" />
-            CSV
-          </Button>
           <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m}>
             <FileDown className="h-3.5 w-3.5" />
             PDF
@@ -1185,16 +1178,18 @@ export function DashboardOverview() {
               </div>
             </div>
 
-            <Card className="xl:col-start-3">
+            <Card className="flex flex-col h-full xl:col-start-3">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <ArchiveRestore className="h-4 w-4 text-emerald-300" />
                   Data Pump Exports
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">Latest 5</span>
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">
+                    {datapumpExports.length > 0 ? `${datapumpExports.length} job${datapumpExports.length !== 1 ? "s" : ""}` : "Latest 5"}
+                  </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="max-h-[430px] space-y-2 overflow-y-auto pr-1">
+              <CardContent className="flex-1 min-h-0 flex flex-col">
+                <div className="max-h-[300px] xl:max-h-[295px] flex-1 overflow-y-auto pr-1 space-y-2">
                   {datapumpExports.length > 0 ? datapumpExports.map((job, i) => (
                     <div key={`${job.owner_name}-${job.job_name}-${i}`} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">

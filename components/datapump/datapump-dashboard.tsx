@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import {
@@ -195,7 +195,7 @@ export function DataPumpDashboard() {
           <ActionCard
             section="expdp"
             subtitle="Action"
-            title="Take Export Backup"
+            title="Export"
             description="Configure and trigger an Oracle EXPDP export. Dynamically builds the expdp command with your selected parameters and executes it on the database server via n8n SSH automation. Supports schema filtering, compression, parallelism, and automatic dump transfer."
             features={[
               { icon: Zap, label: "Dynamic command builder" },
@@ -206,7 +206,7 @@ export function DataPumpDashboard() {
             actions={[
               {
                 id: "btn-launch-expdp",
-                label: "Take Export Backup",
+                label: "Export",
                 icon: ArrowUpFromLine,
                 onClick: () => setExpdpOpen(true),
                 primary: true
@@ -254,7 +254,7 @@ export function DataPumpDashboard() {
             <ActionCard
               section="impdp"
               subtitle="Action"
-              title="Take Import"
+              title="Import"
               description="Launch a guided 2-step import wizard. Step 1 auto-fetches the latest dump file from the server for confirmation. Step 2 configures all IMPDP parameters including remap schema, tablespace, content type, and optional pre-import user drop. Supports templates for repeated imports."
               features={[
                 { icon: FileInput, label: "Auto-fetch latest dump" },
@@ -265,7 +265,7 @@ export function DataPumpDashboard() {
               actions={[
                 {
                   id: "btn-launch-impdp",
-                  label: "Take Import",
+                  label: "Import",
                   icon: ArrowDownToLine,
                   onClick: () => setImpdpOpen(true),
                   primary: true

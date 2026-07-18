@@ -64,7 +64,12 @@ export default function AuditPage() {
           return 7;
         };
 
-        const sorted = (response.items || []).sort((a, b) => {
+        const mappedItems = (response.items || []).map(item => ({
+          ...item,
+          actor: item.actor === "n8n" ? "Monitoring Agent" : item.actor
+        }));
+
+        const sorted = mappedItems.sort((a, b) => {
           const dateA = formatDateTime(a.timestamp);
           const dateB = formatDateTime(b.timestamp);
           if (dateA === dateB) {
@@ -108,7 +113,8 @@ export default function AuditPage() {
       item.actor.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.db?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      item.detail.toLowerCase().includes(searchTerm.toLowerCase());
+      item.detail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.sql_command?.toLowerCase() || "").includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesActor = actorFilter === "all" || item.actor === actorFilter;
     const matchesDb = dbFilter === "all" || item.db === dbFilter;
@@ -178,8 +184,8 @@ export default function AuditPage() {
       <Card>
         <CardContent className="space-y-6 pt-6">
           {/* Filters Bar */}
-          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4">
-            <div className="flex-1 min-w-[240px] space-y-1.5">
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
+            <div className="flex-1 min-w-[180px] xl:min-w-[240px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Search</label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -193,7 +199,7 @@ export default function AuditPage() {
               </div>
             </div>
             
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Status</label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="bg-background">
@@ -210,7 +216,7 @@ export default function AuditPage() {
               </Select>
             </div>
 
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Actor</label>
               <Select value={actorFilter} onValueChange={setActorFilter}>
                 <SelectTrigger className="bg-background">
@@ -227,7 +233,7 @@ export default function AuditPage() {
               </Select>
             </div>
 
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Database</label>
               <Select value={dbFilter} onValueChange={setDbFilter}>
                 <SelectTrigger className="bg-background">
@@ -244,7 +250,7 @@ export default function AuditPage() {
               </Select>
             </div>
 
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Action</label>
               <Select value={actionFilter} onValueChange={setActionFilter}>
                 <SelectTrigger className="bg-background">
@@ -261,7 +267,7 @@ export default function AuditPage() {
               </Select>
             </div>
 
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">From Date</label>
               <Input
                 type="date"
@@ -271,7 +277,7 @@ export default function AuditPage() {
               />
             </div>
 
-            <div className="w-full sm:w-[160px] space-y-1.5">
+            <div className="w-[calc(50%-0.375rem)] sm:w-[130px] xl:w-[150px] space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">To Date</label>
               <Input
                 type="date"
@@ -300,7 +306,7 @@ export default function AuditPage() {
               </Button>
             )}
 
-            <div className="ml-auto">
+            <div className="ml-auto w-full sm:w-auto flex justify-end mt-2 sm:mt-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="h-10 bg-background">
@@ -359,7 +365,15 @@ export default function AuditPage() {
                   <TableCell className="whitespace-nowrap font-medium text-muted-foreground">
                     {formatDateTime(item.timestamp)}
                   </TableCell>
-                  <TableCell className="font-semibold text-foreground/90">{item.actor}</TableCell>
+                  <TableCell className="font-semibold">
+                    {item.actor === "Monitoring Agent" ? (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {item.actor}
+                      </span>
+                    ) : (
+                      <span className="text-foreground/90">{item.actor}</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted border border-border/40 text-foreground/80 font-medium">
                       {item.action}
@@ -377,7 +391,7 @@ export default function AuditPage() {
                   <TableCell>
                     <StatusBadge status={getStatusType(item.status)}>{item.status}</StatusBadge>
                   </TableCell>
-                  <TableCell className="max-w-lg text-muted-foreground leading-relaxed">{item.detail}</TableCell>
+                  <TableCell className="max-w-[200px] lg:max-w-[300px] xl:max-w-lg text-muted-foreground leading-relaxed break-words">{item.detail}</TableCell>
                   <TableCell>
                     {item.sql_command && item.status.toLowerCase() !== "pending_approval" ? (
                       <Button
