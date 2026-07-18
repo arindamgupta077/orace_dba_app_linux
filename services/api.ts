@@ -164,8 +164,12 @@ export async function toggleAppUserStatus(userId: number) {
   });
 }
 
-export async function fetchDatabases(options: { selectorOnly?: boolean } = {}) {
-  return requestJson<{ databases: DatabaseInventoryItem[] }>(`/api/databases${options.selectorOnly ? "?selector=1" : ""}`);
+export async function fetchDatabases(options: { selectorOnly?: boolean; logicalOnly?: boolean } = {}) {
+  const query = new URLSearchParams();
+  if (options.selectorOnly) query.set("selector", "1");
+  if (options.logicalOnly) query.set("logical", "1");
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return requestJson<{ databases: DatabaseInventoryItem[] }>(`/api/databases${suffix}`);
 }
 
 export async function createDatabase(input: DatabaseInventoryInput) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import type { DatabaseTarget } from "@/types/dba";
 import { DatabaseZap, Terminal, Cpu, ShieldAlert } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -12,7 +14,16 @@ export function DatabaseSelector() {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const setSelectedDb = useAppStore((state) => state.setSelectedDb);
   const setDatabases = useAppStore((state) => state.setDatabases);
-  const selected = databases.find((db) => db.name === selectedDb);
+  const logicalDatabases = useMemo(() => {
+    const seenNames = new Set<string>();
+    return databases.filter((database) => {
+      const key = database.name.trim().toUpperCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    });
+  }, [databases]);
+  const selected = logicalDatabases.find((db) => db.name === selectedDb);
 
   const refreshDatabaseStatuses = async () => {
     try {
@@ -61,7 +72,7 @@ export function DatabaseSelector() {
         onOpenChange={(open) => {
           if (open) void refreshDatabaseStatuses();
         }}
-        disabled={!databases.length}
+        disabled={!logicalDatabases.length}
       >
         <SelectTrigger className="h-10 min-w-[210px] rounded-xl border border-cyan-500/20 bg-background/20 backdrop-blur-md px-3 py-2 text-sm font-medium text-foreground shadow-[0_0_12px_rgba(6,182,212,0.05)] hover:border-cyan-500/40 hover:bg-background/40 hover:shadow-[0_0_15px_rgba(6,182,212,0.15)] transition-all duration-300 focus:ring-cyan-500/30 focus:ring-1">
           <div className="flex w-full items-center justify-between gap-2.5">
@@ -87,7 +98,7 @@ export function DatabaseSelector() {
           </div>
         </SelectTrigger>
         <SelectContent className="max-h-[300px] w-[260px] rounded-xl border border-border/80 bg-background/95 backdrop-blur-xl p-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-          {databases.map((db) => (
+          {logicalDatabases.map((db) => (
             <SelectItem 
               key={db.name} 
               value={db.name} 
@@ -131,7 +142,7 @@ export function DatabaseSelector() {
               </div>
             </SelectItem>
           ))}
-          {!databases.length && (
+          {!logicalDatabases.length && (
             <div className="p-3 text-center text-xs text-muted-foreground">
               No databases available
             </div>

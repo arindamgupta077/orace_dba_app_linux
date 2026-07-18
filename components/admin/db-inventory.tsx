@@ -201,16 +201,22 @@ export function DbInventory() {
   const [form, setForm] = useState<InventoryFormState>(emptyForm);
   const [ownerId, setOwnerId] = useState("");
 
+  const refreshSelectorDatabases = useCallback(async () => {
+    const response = await fetchDatabases({ selectorOnly: true });
+    setDatabases(response.databases);
+  }, [setDatabases]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dbResponse, clientResponse, columnResponse] = await Promise.all([
+      const [dbResponse, clientResponse, columnResponse, selectorResponse] = await Promise.all([
         fetchDatabases(),
         fetchUsersByRole("client"),
-        fetchDatabaseInventoryColumns()
+        fetchDatabaseInventoryColumns(),
+        fetchDatabases({ selectorOnly: true })
       ]);
       setLocalDatabases(dbResponse.databases);
-      setDatabases(dbResponse.databases);
+      setDatabases(selectorResponse.databases);
       setClients(clientResponse.users.filter((user) => user.isActive));
       const validColumns = columnResponse.columns.filter((column): column is InventoryColumnKey =>
         INVENTORY_COLUMNS.some(([key]) => key === column)
@@ -351,7 +357,7 @@ export function DbInventory() {
       ? databases.map((item) => (item.id === database.id ? database : item))
       : [database, ...databases];
     setLocalDatabases(next);
-    setDatabases(next);
+    void refreshSelectorDatabases();
   };
 
   const handleCreate = async (event: FormEvent) => {
@@ -412,7 +418,7 @@ export function DbInventory() {
       await removeDatabase(deleting.id);
       const next = databases.filter((item) => item.id !== deleting.id);
       setLocalDatabases(next);
-      setDatabases(next);
+      await refreshSelectorDatabases();
       setDeleteOpen(false);
       setDeleting(null);
       toast.success("Database removed from inventory");
@@ -446,7 +452,13 @@ export function DbInventory() {
     setSaving(true);
     try {
       const response = await updateDatabaseAccess(database.id, !database.enable_access);
-      applyDatabaseUpdate(response.database);
+      const next = databases.map((item) =>
+        item.database_name.trim().toUpperCase() === response.database.database_name.trim().toUpperCase()
+          ? { ...item, enable_access: response.database.enable_access }
+          : item
+      );
+      setLocalDatabases(next);
+      await refreshSelectorDatabases();
       toast.success(`Selector access ${response.database.enable_access ? "enabled" : "disabled"} for ${database.database_name}`);
     } catch (error) {
       toast.error("Access update failed", { description: error instanceof Error ? error.message : undefined });

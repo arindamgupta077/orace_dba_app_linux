@@ -1037,7 +1037,7 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
   return row ? mapDatabaseInventoryRow(row) : null;
 }
 
-export async function listDatabaseInventory(input: { role?: UserRole; userId?: number; selectorOnly?: boolean } = {}): Promise<DatabaseInventoryItem[]> {
+export async function listDatabaseInventory(input: { role?: UserRole; userId?: number; selectorOnly?: boolean; logicalOnly?: boolean } = {}): Promise<DatabaseInventoryItem[]> {
   return executeOne(async (connection) => {
     const binds: BindParameters = {};
     const filters: string[] = [];
@@ -1088,11 +1088,23 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
        FROM database_inventory d
        LEFT JOIN app_users u ON u.user_id = d.owner_id
        ${whereClause}
-       ORDER BY d.division, UPPER(d.database_name)`,
+       ORDER BY d.division, UPPER(d.database_name), d.id`,
       binds
     );
 
-    return (result.rows || []).map(mapDatabaseInventoryRow);
+    const databases = (result.rows || []).map(mapDatabaseInventoryRow);
+    if (!input.logicalOnly && !input.selectorOnly) return databases;
+
+    // Inventory rows represent RAC instances. Everywhere outside the inventory
+    // page, operate at the logical-database level and retain one deterministic
+    // representative (the lowest inventory ID) for each database name.
+    const seenNames = new Set<string>();
+    return databases.filter((database) => {
+      const key = database.database_name.trim().toUpperCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    });
   });
 }
 
@@ -3516,8 +3528,8 @@ export async function setDatabaseAccess(id: number, enableAccess: boolean, actor
         `UPDATE database_inventory
          SET enable_access = :enableAccess,
              updated_by = :actor
-         WHERE id = :id`,
-        { id, enableAccess: enableAccess ? "Y" : "N", actor }
+         WHERE UPPER(database_name) = UPPER(:databaseName)`,
+        { databaseName: existing.database_name, enableAccess: enableAccess ? "Y" : "N", actor }
       );
       await connection.commit();
 

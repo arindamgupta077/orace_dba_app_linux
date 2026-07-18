@@ -32,6 +32,7 @@ function readInventoryBody(body: Partial<DatabaseInventoryInput>): DatabaseInven
     server_type: body.server_type ? String(body.server_type) : undefined,
     db_version: body.db_version ? String(body.db_version) : undefined,
     db_edition: body.db_edition ? String(body.db_edition) : undefined,
+    database_instance: body.database_instance ? String(body.database_instance) : undefined,
     db_port: body.db_port !== undefined && body.db_port !== null && String(body.db_port).trim() !== "" ? Number(body.db_port) : undefined,
     division: body.division ? String(body.division) : undefined
   };

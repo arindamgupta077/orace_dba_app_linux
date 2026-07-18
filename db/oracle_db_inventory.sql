@@ -260,9 +260,28 @@ END;
 DECLARE
   v_count NUMBER;
 BEGIN
+  SELECT COUNT(*) INTO v_count FROM user_constraints
+  WHERE table_name = 'DATABASE_INVENTORY'
+    AND constraint_name = 'UX_DATABASE_INVENTORY_NAME';
+  IF v_count > 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE database_inventory DROP CONSTRAINT ux_database_inventory_name';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM user_constraints
+  WHERE table_name = 'DATABASE_INVENTORY'
+    AND constraint_name = 'UQ_DB_INVENTORY_NAME_CIS';
+  IF v_count > 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE database_inventory DROP CONSTRAINT uq_db_inventory_name_cis';
+  END IF;
+
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'UX_DATABASE_INVENTORY_NAME';
   IF v_count > 0 THEN
     EXECUTE IMMEDIATE 'DROP INDEX ux_database_inventory_name';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'UQ_DB_INVENTORY_NAME_CIS';
+  IF v_count > 0 THEN
+    EXECUTE IMMEDIATE 'DROP INDEX uq_db_inventory_name_cis';
   END IF;
 
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'UX_DATABASE_INVENTORY_NAME_INSTANCE';

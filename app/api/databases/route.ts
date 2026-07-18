@@ -27,6 +27,7 @@ function readInventoryBody(body: Partial<DatabaseInventoryInput>): DatabaseInven
     server_type: body.server_type ? String(body.server_type) : undefined,
     db_version: body.db_version ? String(body.db_version) : undefined,
     db_edition: body.db_edition ? String(body.db_edition) : undefined,
+    database_instance: body.database_instance ? String(body.database_instance) : undefined,
     db_port: body.db_port !== undefined && body.db_port !== null && String(body.db_port).trim() !== "" ? Number(body.db_port) : undefined,
     division: body.division ? String(body.division) : undefined
   };
@@ -53,7 +54,8 @@ export async function GET(request: Request) {
     const databases = await listDatabaseInventory({
       role: session.user.role,
       userId: session.userId,
-      selectorOnly: new URL(request.url).searchParams.get("selector") === "1"
+      selectorOnly: new URL(request.url).searchParams.get("selector") === "1",
+      logicalOnly: new URL(request.url).searchParams.get("logical") === "1"
     });
     return NextResponse.json({ databases });
   } catch (error) {

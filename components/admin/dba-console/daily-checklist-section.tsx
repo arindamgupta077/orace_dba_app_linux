@@ -112,7 +112,7 @@ export function DailyChecklistSection() {
   const load = useCallback(async () => {
     try {
       const [dbResult, tplResult, dbCheckResult, bkCheckResult] = await Promise.all([
-        fetchDatabases(),
+        fetchDatabases({ logicalOnly: true }),
         fetchBackupTemplates(),
         fetchDbStatusChecks(Number(shiftNumber), shiftDate),
         fetchBackupStatusChecks(Number(shiftNumber), shiftDate)
