@@ -4074,6 +4074,7 @@ interface DbStatusRow extends DbRow {
   CHECKED_USERNAME: string;
   CHECKED_AT: Date;
   COMMENT_TEXT?: string;
+  IS_REALTIME_CHECK?: string;
 }
 
 function mapDbStatusCheck(row: DbStatusRow): DbStatusCheck {
@@ -4087,7 +4088,8 @@ function mapDbStatusCheck(row: DbStatusRow): DbStatusCheck {
     checked_by: Number(row.CHECKED_BY),
     checked_username: String(row.CHECKED_USERNAME),
     checked_at: toIstIsoString(row.CHECKED_AT),
-    comment_text: row.COMMENT_TEXT ? String(row.COMMENT_TEXT) : undefined
+    comment_text: row.COMMENT_TEXT ? String(row.COMMENT_TEXT) : undefined,
+    is_realtime_check: row.IS_REALTIME_CHECK === "Y"
   };
 }
 
@@ -4096,7 +4098,7 @@ export async function listDbStatusChecks(shiftNumber: number, shiftDate: string)
     const result = await connection.execute<DbStatusRow>(
       `SELECT c.check_id, c.database_id, d.database_name, c.shift_number,
               c.shift_date, c.status, c.checked_by, c.checked_username,
-              c.checked_at, c.comment_text
+              c.checked_at, c.comment_text, c.is_realtime_check
        FROM app_db_status_checks c
        JOIN database_inventory d ON d.id = c.database_id
        WHERE c.shift_number = :shiftNumber
@@ -4119,6 +4121,7 @@ export async function upsertDbStatusCheck(input: {
   checkedUsername: string;
   commentText?: string;
   actor: string;
+  isRealtimeCheck?: boolean;
 }): Promise<DbStatusCheck> {
   return executeOne(async (connection) => {
     try {
@@ -4157,6 +4160,7 @@ export async function upsertDbStatusCheck(input: {
                checked_username = :checkedUsername,
                checked_at = SYSTIMESTAMP,
                comment_text = :commentText,
+               is_realtime_check = :isRealtimeCheck,
                updated_by = :actor
            WHERE check_id = :checkId`,
           {
@@ -4165,6 +4169,7 @@ export async function upsertDbStatusCheck(input: {
             checkedBy: input.checkedBy,
             checkedUsername: input.checkedUsername,
             commentText: input.commentText || null,
+            isRealtimeCheck: input.isRealtimeCheck ? "Y" : "N",
             actor: input.actor
           }
         );
@@ -4177,11 +4182,11 @@ export async function upsertDbStatusCheck(input: {
         `INSERT INTO app_db_status_checks (
            database_id, shift_number, shift_date, status,
            checked_by, checked_username, checked_at, comment_text,
-           created_by, updated_by
+           is_realtime_check, created_by, updated_by
          ) VALUES (
            :databaseId, :shiftNumber, TO_DATE(:shiftDate, 'YYYY-MM-DD'), :status,
            :checkedBy, :checkedUsername, SYSTIMESTAMP, :commentText,
-           :actor, :actor
+           :isRealtimeCheck, :actor, :actor
          )`,
         {
           databaseId: input.databaseId,
@@ -4191,6 +4196,7 @@ export async function upsertDbStatusCheck(input: {
           checkedBy: input.checkedBy,
           checkedUsername: input.checkedUsername,
           commentText: input.commentText || null,
+          isRealtimeCheck: input.isRealtimeCheck ? "Y" : "N",
           actor: input.actor
         }
       );

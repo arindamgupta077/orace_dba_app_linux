@@ -7,7 +7,7 @@ import type { DbStatusValue } from "@/types/dba";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATUSES: DbStatusValue[] = ["UP", "DOWN", "PARTIAL", "MAINTENANCE"];
+const VALID_STATUSES: DbStatusValue[] = ["UP", "DOWN"];
 
 async function requireDbaRole() {
   const session = await requireAuthenticatedSession();
@@ -55,6 +55,7 @@ export async function POST(request: Request) {
       shiftDate?: string;
       status?: DbStatusValue;
       commentText?: string;
+      isRealtimeCheck?: boolean;
     };
 
     const databaseId = Number(body.databaseId);
@@ -87,7 +88,8 @@ export async function POST(request: Request) {
       checkedBy: session.userId,
       checkedUsername: session.user.username,
       commentText,
-      actor: session.user.username
+      actor: session.user.username,
+      isRealtimeCheck: body.isRealtimeCheck === true
     });
 
     await insertAuditLog({

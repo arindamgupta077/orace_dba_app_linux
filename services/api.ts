@@ -112,6 +112,15 @@ export async function executeDBAAction(
   });
 }
 
+export async function testDbConnection(
+  db: string
+): Promise<{ remote_connection: "UP" | "DOWN" }> {
+  return requestJson<{ remote_connection: "UP" | "DOWN" }>("/api/dba/test-connection", {
+    method: "POST",
+    body: JSON.stringify({ db })
+  });
+}
+
 export async function fetchCurrentSession() {
   return requestJson<{ user: UserSession; expiresAt: string }>("/api/auth/session");
 }
@@ -556,6 +565,7 @@ export async function saveDbStatusCheck(input: {
   shiftDate?: string;
   status: DbStatusValue;
   commentText?: string;
+  isRealtimeCheck?: boolean;
 }): Promise<{ check: DbStatusCheck }> {
   return requestJson<{ check: DbStatusCheck }>("/api/checklist/database-status", {
     method: "POST",

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Wifi,
   X
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +42,7 @@ import {
   fetchDbStatusChecks,
   saveBackupStatusCheck,
   saveDbStatusCheck,
+  testDbConnection,
   updateBackupTemplateApi
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -55,7 +57,7 @@ import type {
   DbStatusValue
 } from "@/types/dba";
 
-const DB_STATUS_OPTIONS: DbStatusValue[] = ["UP", "DOWN", "PARTIAL", "MAINTENANCE"];
+const DB_STATUS_OPTIONS: DbStatusValue[] = ["UP", "DOWN"];
 const BACKUP_STATUS_OPTIONS: BackupStatusValue[] = ["SUCCESS", "FAILED", "RUNNING", "NOT_STARTED", "UNKNOWN"];
 const BACKUP_TYPE_OPTIONS = ["RMAN backup", "Export backup", "Hot backup", "Cold backup"];
 
@@ -524,6 +526,7 @@ export function DailyChecklistSection() {
                         <TableHead>Checked By</TableHead>
                         <TableHead>Check Time</TableHead>
                         <TableHead>Comment</TableHead>
+                        <TableHead>Manual Test</TableHead>
                         {canManage && <TableHead className="text-right">Action</TableHead>}
                       </TableRow>
                     </TableHeader>
@@ -540,6 +543,9 @@ export function DailyChecklistSection() {
                             selected={selectedDbIds.has(db.id)}
                             onToggleSelect={() => toggleDbSelection(db.id)}
                             onSave={(status, comment) => void handleSaveDbStatus(db.id, status, comment)}
+                            shiftNumber={shiftNumber}
+                            shiftDate={shiftDate}
+                            onReload={load}
                           />
                         );
                       })}
@@ -735,7 +741,10 @@ function DbStatusRow({
   saving,
   selected,
   onToggleSelect,
-  onSave
+  onSave,
+  shiftNumber,
+  shiftDate,
+  onReload
 }: {
   database: DatabaseInventoryItem;
   check?: DbStatusCheck;
@@ -744,14 +753,41 @@ function DbStatusRow({
   selected: boolean;
   onToggleSelect: () => void;
   onSave: (status: DbStatusValue, comment?: string) => void;
+  shiftNumber: string;
+  shiftDate: string;
+  onReload: () => Promise<void>;
 }) {
   const [status, setStatus] = useState<DbStatusValue>(check?.status || "UP");
   const [comment, setComment] = useState(check?.comment_text || "");
+  const [pinging, setPinging] = useState(false);
 
   useEffect(() => {
     setStatus(check?.status || "UP");
     setComment(check?.comment_text || "");
   }, [check]);
+
+  const handlePing = async () => {
+    setPinging(true);
+    try {
+      const result = await testDbConnection(database.database_name);
+      const newStatus: DbStatusValue = result.remote_connection === "UP" ? "UP" : "DOWN";
+      // Auto-save the detected status
+      await saveDbStatusCheck({
+        databaseId: database.id,
+        shiftNumber: Number(shiftNumber),
+        shiftDate,
+        status: newStatus,
+        commentText: `Realtime check: ${newStatus}`,
+        isRealtimeCheck: true
+      });
+      toast.success(`${database.database_name} is ${newStatus}`);
+      await onReload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Connection test failed.");
+    } finally {
+      setPinging(false);
+    }
+  };
 
   return (
     <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
@@ -779,6 +815,7 @@ function DbStatusRow({
       <TableCell className="text-sm text-muted-foreground">{check?.checked_username || "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check ? formatTime(check.checked_at) : "—"}</TableCell>
       <TableCell className="text-sm text-muted-foreground">{check?.comment_text || "—"}</TableCell>
+      <TableCell className="text-center">{check?.is_realtime_check ? <Badge className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">Yes</Badge> : <span className="text-sm text-muted-foreground">—</span>}</TableCell>
       {canManage && (
         <TableCell>
           <div className="flex items-center gap-1.5">
@@ -805,6 +842,16 @@ function DbStatusRow({
               disabled={saving}
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handlePing()}
+              disabled={pinging}
+              title="database remote connection test"
+              className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+            >
+              {pinging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
             </Button>
           </div>
         </TableCell>

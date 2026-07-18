@@ -265,7 +265,8 @@ export function ShiftReportSection() {
           { header: "Status", value: (r) => r.status },
           { header: "DBA (Username)", value: (r) => r.checked_username },
           { header: "Checked At", value: (r) => r.checked_at },
-          { header: "Comment", value: (r) => r.comment_text || "" }
+          { header: "Comment", value: (r) => r.comment_text || "" },
+          { header: "Realtime Check", value: (r) => r.is_realtime_check ? "Yes" : "No" }
         ];
         exportDataset(format, cols, report.dbStatusChecks, baseMeta("PROD Database Availability Checklist"));
         break;

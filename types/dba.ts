@@ -890,6 +890,7 @@ export interface DbStatusCheck {
   checked_username: string;
   checked_at: string;
   comment_text?: string;
+  is_realtime_check?: boolean;
 }
 
 export interface BackupTemplate {

@@ -418,6 +418,7 @@ BEGIN
   add_column_if_missing('checked_username', 'checked_username VARCHAR2(128 CHAR)');
   add_column_if_missing('checked_at',       'checked_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP');
   add_column_if_missing('comment_text',     'comment_text VARCHAR2(1000 CHAR)');
+  add_column_if_missing('is_realtime_check','is_realtime_check VARCHAR2(1 CHAR) DEFAULT ''N''');
   add_column_if_missing('created_by',       'created_by VARCHAR2(128 CHAR)');
   add_column_if_missing('created_at',       'created_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP');
   add_column_if_missing('updated_by',       'updated_by VARCHAR2(128 CHAR)');
