@@ -1037,7 +1037,7 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
   return row ? mapDatabaseInventoryRow(row) : null;
 }
 
-export async function listDatabaseInventory(input: { role?: UserRole; userId?: number; selectorOnly?: boolean; logicalOnly?: boolean } = {}): Promise<DatabaseInventoryItem[]> {
+export async function listDatabaseInventory(input: { role?: UserRole; userId?: number; selectorOnly?: boolean; logicalOnly?: boolean; prodOnly?: boolean } = {}): Promise<DatabaseInventoryItem[]> {
   return executeOne(async (connection) => {
     const binds: BindParameters = {};
     const filters: string[] = [];
@@ -1047,6 +1047,9 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
     }
     if (input.selectorOnly && (input.role === "dba_admin" || input.role === "client")) {
       filters.push("d.enable_access = 'Y'");
+    }
+    if (input.prodOnly) {
+      filters.push("d.environment_label = 'PROD'");
     }
     const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
@@ -1098,12 +1101,15 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
     // Inventory rows represent RAC instances. Everywhere outside the inventory
     // page, operate at the logical-database level and retain one deterministic
     // representative (the lowest inventory ID) for each database name.
-    const seenNames = new Set<string>();
+    const representatives = new Map<string, DatabaseInventoryItem>();
+    for (const database of databases) {
+      const key = database.database_name.trim().toUpperCase();
+      const existing = representatives.get(key);
+      if (!existing || database.id < existing.id) representatives.set(key, database);
+    }
     return databases.filter((database) => {
       const key = database.database_name.trim().toUpperCase();
-      if (seenNames.has(key)) return false;
-      seenNames.add(key);
-      return true;
+      return representatives.get(key)?.id === database.id;
     });
   });
 }
@@ -3570,10 +3576,12 @@ export async function getLogoutChecklistReadiness(
   return executeOne(async (connection) => {
     const [databaseResult, templateResult, dbCheckResult, backupCheckResult] = await Promise.all([
       connection.execute<DbRow>(
-        `SELECT id
+        `SELECT MIN(id) AS id,
+                UPPER(TRIM(database_name)) AS database_key
          FROM database_inventory
          WHERE status = 'active'
-           AND environment_label = 'PROD'`
+           AND environment_label = 'PROD'
+         GROUP BY UPPER(TRIM(database_name))`
       ),
       connection.execute<DbRow>(
         `SELECT backup_id, scheduled_time
@@ -3581,7 +3589,7 @@ export async function getLogoutChecklistReadiness(
          WHERE is_active = 'Y'`
       ),
       connection.execute<DbRow>(
-        `SELECT DISTINCT c.database_id, c.shift_number
+        `SELECT DISTINCT UPPER(TRIM(d.database_name)) AS database_key, c.shift_number
          FROM app_db_status_checks c
          JOIN database_inventory d ON d.id = c.database_id
          WHERE d.status = 'active'
@@ -3601,8 +3609,8 @@ export async function getLogoutChecklistReadiness(
       )
     ]);
 
-    const activeDatabaseIds = new Set(
-      (databaseResult.rows || []).map((row) => Number(row.ID))
+    const activeDatabaseKeys = new Set(
+      (databaseResult.rows || []).map((row) => String(row.DATABASE_KEY))
     );
     const backupIdsByShift = new Map<number, Set<number>>();
     for (const shift of requiredShifts) backupIdsByShift.set(shift, new Set());
@@ -3617,8 +3625,8 @@ export async function getLogoutChecklistReadiness(
 
     const completedDbChecks = new Set(
       (dbCheckResult.rows || [])
-        .filter((row) => activeDatabaseIds.has(Number(row.DATABASE_ID)))
-        .map((row) => `${Number(row.SHIFT_NUMBER)}:${Number(row.DATABASE_ID)}`)
+        .filter((row) => activeDatabaseKeys.has(String(row.DATABASE_KEY)))
+        .map((row) => `${Number(row.SHIFT_NUMBER)}:${String(row.DATABASE_KEY)}`)
     );
     const completedBackupChecks = new Set(
       (backupCheckResult.rows || [])
@@ -3626,7 +3634,7 @@ export async function getLogoutChecklistReadiness(
         .map((row) => `${Number(row.SHIFT_NUMBER)}:${Number(row.BACKUP_ID)}`)
     );
 
-    const databaseTotal = activeDatabaseIds.size * requiredShifts.length;
+    const databaseTotal = activeDatabaseKeys.size * requiredShifts.length;
     const backupTotal = Array.from(backupIdsByShift.values()).reduce((total, ids) => total + ids.size, 0);
     const databaseCompleted = completedDbChecks.size;
     const backupCompleted = completedBackupChecks.size;
@@ -4736,15 +4744,15 @@ async function fetchChecklistCompletion(
     };
   }
 
-  const invTable = type === "db" ? "database_inventory" : "app_backup_template";
-  const invFilter = type === "db" ? "status = 'active'" : "is_active = 'Y'";
-  const checksTable = type === "db" ? "app_db_status_checks" : "app_backup_status_checks";
-  const idCol = type === "db" ? "database_id" : "backup_id";
-
-  // Run the three counting queries in parallel so we don't add latency.
+  // Database Availability Check is intentionally limited to active PROD
+  // inventory records, matching the Daily Checklist and logout requirement.
+  // Backup checks are handled above from all active backup templates.
   const [invResult, slotsResult, doneResult] = await Promise.all([
     connection.execute<DbRow>(
-      `SELECT COUNT(*) AS total FROM ${invTable} WHERE ${invFilter}`,
+      `SELECT COUNT(DISTINCT UPPER(TRIM(database_name))) AS total
+       FROM database_inventory
+       WHERE status = 'active'
+         AND environment_label = 'PROD'`,
       {}
     ),
     connection.execute<DbRow>(
@@ -4754,9 +4762,12 @@ async function fetchChecklistCompletion(
       sessBinds
     ),
     connection.execute<DbRow>(
-      `SELECT COUNT(DISTINCT ${idCol} || '-' || shift_number || '-' || TRUNC(shift_date)) AS completed
-       FROM ${checksTable}
-       ${checkWhere}`,
+      `SELECT COUNT(DISTINCT UPPER(TRIM(d.database_name)) || '-' || c.shift_number || '-' || TRUNC(c.shift_date)) AS completed
+       FROM app_db_status_checks c
+       JOIN database_inventory d ON d.id = c.database_id
+       ${checkWhere}
+       ${checkWhere ? "AND" : "WHERE"} d.status = 'active'
+         AND d.environment_label = 'PROD'`,
       checkBinds
     )
   ]);
@@ -4829,13 +4840,15 @@ async function fetchDbStatusChecksForReport(
   filters: ShiftReportFilters
 ): Promise<ShiftReportData["dbStatusChecks"]> {
   const { binds, whereClause } = reportChecklistBinds(filters);
+  const prodWhereClause = `${whereClause}${whereClause ? " AND" : "WHERE"} d.status = 'active'
+       AND d.environment_label = 'PROD'`;
   const result = await connection.execute<DbStatusRow>(
     `SELECT c.check_id, c.database_id, d.database_name, c.shift_number,
             c.shift_date, c.status, c.checked_by, c.checked_username,
             c.checked_at, c.comment_text
      FROM app_db_status_checks c
      JOIN database_inventory d ON d.id = c.database_id
-     ${whereClause}
+     ${prodWhereClause}
      ORDER BY c.shift_date DESC, UPPER(d.database_name)`,
     binds
   );

@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       if (!checklist.is_complete) {
         return NextResponse.json(
           {
-            message: `Logout blocked: Daily Checklist is incomplete for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}. Database status: ${checklist.database_status.completed}/${checklist.database_status.total}; backup status: ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+            message: `Logout blocked: Daily Checklist is incomplete for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}. PROD database availability: ${checklist.database_status.completed}/${checklist.database_status.total}; backup status: ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
           },
           { status: 409 }
         );

@@ -232,7 +232,7 @@ export function ShiftManagementSection() {
   const canLogout = isMySessionGeneral || (myHandoverAcknowledged && checklistReady);
   const checklist = state?.logout_checklist;
   const checklistSummary = checklist
-    ? `Daily Checklist required for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: Database status ${checklist.database_status.completed}/${checklist.database_status.total}; backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+    ? `Daily Checklist required for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: PROD database availability ${checklist.database_status.completed}/${checklist.database_status.total}; backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
     : "Daily Checklist completion is being checked.";
 
   // Pagination for handover history dialog.

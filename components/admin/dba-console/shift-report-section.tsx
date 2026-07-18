@@ -267,7 +267,7 @@ export function ShiftReportSection() {
           { header: "Checked At", value: (r) => r.checked_at },
           { header: "Comment", value: (r) => r.comment_text || "" }
         ];
-        exportDataset(format, cols, report.dbStatusChecks, baseMeta("Database Status Checklist"));
+        exportDataset(format, cols, report.dbStatusChecks, baseMeta("PROD Database Availability Checklist"));
         break;
       }
       case "backupChecks": {
@@ -489,7 +489,7 @@ export function ShiftReportSection() {
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <CompletionCard
-          title="Database Status Completion"
+          title="PROD Database Availability Completion"
           data={report.dbStatusCompletion}
         />
         <CompletionCard
@@ -744,7 +744,7 @@ export function ShiftReportSection() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <ExportTile
               icon={ClipboardCheck}
-              title="Database Status Checklist"
+              title="PROD Database Availability Checklist"
               count={report.dbStatusChecks.length}
               onExport={(fmt) => handleExport("dbChecks", fmt)}
             />

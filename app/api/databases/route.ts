@@ -55,7 +55,8 @@ export async function GET(request: Request) {
       role: session.user.role,
       userId: session.userId,
       selectorOnly: new URL(request.url).searchParams.get("selector") === "1",
-      logicalOnly: new URL(request.url).searchParams.get("logical") === "1"
+      logicalOnly: new URL(request.url).searchParams.get("logical") === "1",
+      prodOnly: new URL(request.url).searchParams.get("prod") === "1"
     });
     return NextResponse.json({ databases });
   } catch (error) {

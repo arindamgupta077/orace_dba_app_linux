@@ -112,7 +112,7 @@ export function DailyChecklistSection() {
   const load = useCallback(async () => {
     try {
       const [dbResult, tplResult, dbCheckResult, bkCheckResult] = await Promise.all([
-        fetchDatabases({ logicalOnly: true }),
+        fetchDatabases({ logicalOnly: true, prodOnly: true }),
         fetchBackupTemplates(),
         fetchDbStatusChecks(Number(shiftNumber), shiftDate),
         fetchBackupStatusChecks(Number(shiftNumber), shiftDate)
@@ -189,9 +189,9 @@ export function DailyChecklistSection() {
 
   const dbCompletion = useMemo(() => {
     const total = activeDatabases.length;
-    const completed = dbChecks.length;
+    const completed = activeDatabases.filter((database) => dbCheckMap.has(database.id)).length;
     return { total, completed, pct: total > 0 ? Math.round((completed / total) * 100) : 0 };
-  }, [activeDatabases, dbChecks]);
+  }, [activeDatabases, dbCheckMap]);
 
   const backupCompletion = useMemo(() => {
     const total = responsibleBackupTemplates.length;
