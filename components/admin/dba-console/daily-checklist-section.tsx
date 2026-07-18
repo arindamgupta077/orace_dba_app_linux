@@ -757,6 +757,7 @@ function DbStatusRow({
   shiftDate: string;
   onReload: () => Promise<void>;
 }) {
+  const user = useAppStore((s) => s.user);
   const [status, setStatus] = useState<DbStatusValue>(check?.status || "UP");
   const [comment, setComment] = useState(check?.comment_text || "");
   const [pinging, setPinging] = useState(false);
@@ -843,16 +844,18 @@ function DbStatusRow({
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handlePing()}
-              disabled={pinging}
-              title="database remote connection test"
-              className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
-            >
-              {pinging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
-            </Button>
+            {!(user?.role === "dba_admin" && !database.enable_access) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handlePing()}
+                disabled={pinging}
+                title="database remote connection test"
+                className="ml-3 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+              >
+                {pinging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+              </Button>
+            )}
           </div>
         </TableCell>
       )}
