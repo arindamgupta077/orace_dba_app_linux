@@ -33,12 +33,16 @@ import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/a
 import { useAppStore } from "@/store/use-app-store";
 import { useNotificationStream } from "@/hooks/use-notification-stream";
 import { cn } from "@/lib/utils";
+
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
 const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
 
 function PortalBrand() {
+  const user = useAppStore((state) => state.user);
+  const targetHref = user?.role === "dba_admin" ? "/dba-console/shift-management" : "/dashboard";
+
   return (
-    <Link href="/dashboard" className="group flex shrink-0 items-center gap-2.5" aria-label="ITSS DBA Portal dashboard">
+    <Link href={targetHref} className="group flex shrink-0 items-center gap-2.5" aria-label="ITSS DBA Portal dashboard">
       <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 via-rose-600 to-orange-500 text-white shadow-[0_0_10px_rgba(225,29,72,0.3)] transition-all duration-300 group-hover:scale-105">
         <DatabaseZap className="h-4.5 w-4.5 drop-shadow-sm" />
       </div>
@@ -71,6 +75,7 @@ const navItems: Array<{
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const user = useAppStore((state) => state.user);
+  const targetHref = user?.role === "dba_admin" ? "/dba-console/shift-management" : "/dashboard";
   const visibleNavItems = navItems.filter((item) => {
     if (user?.role === "client") return item.clientAllowed === true;
     if (item.adminOnly) return user?.role === "app_admin";
@@ -80,7 +85,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border/70 p-5 bg-gradient-to-b from-background/50 to-transparent">
-        <div className="group flex cursor-pointer items-center gap-3">
+        <Link href={targetHref} onClick={onNavigate} className="group flex cursor-pointer items-center gap-3">
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 via-rose-600 to-orange-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.4)] transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_0_25px_rgba(225,29,72,0.6)]">
             <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 mix-blend-overlay transition-opacity duration-300 group-hover:opacity-100" />
             <DatabaseZap className="relative h-[22px] w-[22px] drop-shadow-md transition-transform duration-300 group-hover:scale-110 group-hover:rotate-[15deg]" />
@@ -93,7 +98,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               Operations Portal
             </p>
           </div>
-        </div>
+        </Link>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {visibleNavItems.map((item) => {

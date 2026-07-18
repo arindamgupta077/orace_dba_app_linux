@@ -501,7 +501,7 @@ export function DailyChecklistSection() {
                   )}
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="border-b border-border/40 hover:bg-transparent">
                         {canManage && (
                           <TableHead className="w-10">
                             <input
@@ -521,13 +521,13 @@ export function DailyChecklistSection() {
                             />
                           </TableHead>
                         )}
-                        <TableHead>Database</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Checked By</TableHead>
-                        <TableHead>Check Time</TableHead>
-                        <TableHead>Comment</TableHead>
-                        <TableHead>Manual Test</TableHead>
-                        {canManage && <TableHead className="text-right">Action</TableHead>}
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Database</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Checked By</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Check Time</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Comment</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">Manual Test</TableHead>
+                        {canManage && <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Action</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -651,7 +651,7 @@ export function DailyChecklistSection() {
                   )}
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="border-b border-border/40 hover:bg-transparent">
                         {canManage && (
                           <TableHead className="w-10">
                             <input
@@ -671,14 +671,14 @@ export function DailyChecklistSection() {
                             />
                           </TableHead>
                         )}
-                        <TableHead>Backup Name</TableHead>
-                        <TableHead>Database</TableHead>
-                        <TableHead>Scheduled Finish</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Checked By</TableHead>
-                        <TableHead>Check Time</TableHead>
-                        <TableHead>Comment</TableHead>
-                        {canManage && <TableHead className="text-right">Action</TableHead>}
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Backup Name</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Database</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Finish</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Checked By</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Check Time</TableHead>
+                        <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Comment</TableHead>
+                        {canManage && <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Action</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -790,8 +790,17 @@ function DbStatusRow({
     }
   };
 
+  // Determine row indicator color based on status
+  let borderClass = "border-l-2 border-l-transparent";
+  if (check) {
+    if (check.status === "UP") borderClass = "border-l-2 border-l-green-500/80 bg-green-500/5";
+    else if (check.status === "DOWN") borderClass = "border-l-2 border-l-red-500/80 bg-red-500/5";
+    else if (check.status === "PARTIAL") borderClass = "border-l-2 border-l-amber-500/80 bg-amber-500/5";
+    else if (check.status === "MAINTENANCE") borderClass = "border-l-2 border-l-blue-500/80 bg-blue-500/5";
+  }
+
   return (
-    <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+    <TableRow className={cn("relative transition-colors hover:bg-muted/30", borderClass)}>
       {canManage && (
         <TableCell className="w-10">
           <input
@@ -834,7 +843,7 @@ function DbStatusRow({
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Comment..."
-              className="h-8 w-32"
+              className="h-8 w-40"
             />
             <Button
               size="sm"
@@ -889,8 +898,17 @@ function BackupStatusRow({
     setComment(check?.comment_text || "");
   }, [check]);
 
+  // Determine row indicator color based on status
+  let borderClass = "border-l-2 border-l-transparent";
+  if (check) {
+    if (check.status === "SUCCESS") borderClass = "border-l-2 border-l-green-500/80 bg-green-500/5";
+    else if (check.status === "FAILED") borderClass = "border-l-2 border-l-red-500/80 bg-red-500/5";
+    else if (check.status === "RUNNING") borderClass = "border-l-2 border-l-blue-500/80 bg-blue-500/5";
+    else if (check.status === "UNKNOWN") borderClass = "border-l-2 border-l-amber-500/80 bg-amber-500/5";
+  }
+
   return (
-    <TableRow className={check ? "dba-row-checked" : "dba-row-unchecked"}>
+    <TableRow className={cn("relative transition-colors hover:bg-muted/30", borderClass)}>
       {canManage && (
         <TableCell className="w-10">
           <input
@@ -921,7 +939,7 @@ function BackupStatusRow({
         <TableCell>
           <div className="flex items-center gap-1.5">
             <Select value={status} onValueChange={(v) => setStatus(v as BackupStatusValue)}>
-              <SelectTrigger className="h-8 w-32">
+              <SelectTrigger className="h-8 w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -934,7 +952,7 @@ function BackupStatusRow({
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Comment..."
-              className="h-8 w-32"
+              className="h-8 w-40"
             />
             <Button
               size="sm"

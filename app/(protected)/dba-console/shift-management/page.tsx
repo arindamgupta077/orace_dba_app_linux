@@ -9,7 +9,7 @@ export default function ShiftManagementPage() {
     <>
       <PageHeader
         title="Shift Management"
-        description="Login to your shift, write handover notes, and acknowledge handovers from fellow DBAs. The current shift is determined automatically from server time."
+        description="Login to your shift, write handover notes, get acknowledgement from fellow DBA and logout "
         icon={ClipboardCheck}
       />
       <ShiftManagementSection />
