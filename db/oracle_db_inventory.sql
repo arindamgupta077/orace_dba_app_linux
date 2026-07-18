@@ -86,6 +86,8 @@ BEGIN
   add_column_if_missing('server_type', q'[server_type VARCHAR2(10 CHAR) DEFAULT 'Physical']');
   add_column_if_missing('db_version', 'db_version VARCHAR2(40 CHAR)');
   add_column_if_missing('db_edition', 'db_edition VARCHAR2(40 CHAR)');
+  add_column_if_missing('database_instance', 'database_instance VARCHAR2(512 CHAR)');
+  add_column_if_missing('enable_access', q'[enable_access CHAR(1 CHAR) DEFAULT 'Y']');
   add_column_if_missing('db_port', 'db_port NUMBER DEFAULT 1521');
   add_column_if_missing('division', q'[division VARCHAR2(10 CHAR) DEFAULT 'PCPB']');
 END;
@@ -100,6 +102,7 @@ UPDATE database_inventory SET zone = 'SZ1' WHERE zone IS NULL;
 UPDATE database_inventory SET server_type = 'Physical' WHERE server_type IS NULL OR server_type NOT IN ('Physical', 'Virtual');
 UPDATE database_inventory SET db_port = 1521 WHERE db_port IS NULL;
 UPDATE database_inventory SET division = 'PCPB' WHERE division IS NULL OR division NOT IN ('PCPB', 'ITD', 'FBD', 'HOTEL', 'ILTD', 'CORP', 'ITSS');
+UPDATE database_inventory SET enable_access = 'Y' WHERE enable_access IS NULL OR enable_access NOT IN ('Y', 'N');
 
 DECLARE
   PROCEDURE modify_ignore_existing(p_sql VARCHAR2) IS
@@ -124,6 +127,7 @@ BEGIN
   modify_ignore_existing('ALTER TABLE database_inventory MODIFY (owner_id NOT NULL)');
   modify_ignore_existing('ALTER TABLE database_inventory MODIFY (created_at NOT NULL)');
   modify_ignore_existing('ALTER TABLE database_inventory MODIFY (updated_at NOT NULL)');
+  modify_ignore_existing('ALTER TABLE database_inventory MODIFY (enable_access NOT NULL)');
 END;
 /
 
@@ -221,6 +225,8 @@ BEGIN
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_zone');
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_server_type');
     drop_constraint_if_exists('database_inventory', 'ck_db_inventory_division');
+    drop_constraint_if_exists('database_inventory', 'ck_db_inventory_type');
+    drop_constraint_if_exists('database_inventory', 'ck_db_inventory_enable_access');
   END;
 
   -- Set default active status for rows matching old statuses (for upgrade safety)
@@ -234,7 +240,8 @@ BEGIN
   add_constraint_ignore_exists('ALTER TABLE database_inventory ADD CONSTRAINT fk_db_inventory_owner FOREIGN KEY (owner_id) REFERENCES app_users (user_id)');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_os CHECK (operating_system IN ('Linux', 'Windows'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_role CHECK (database_role IN ('Primary', 'Standby', 'Reporting'))]');
-  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_type CHECK (database_type IN ('Standalone', 'RAC', 'Dataguard', 'Active Dataguard'))]');
+  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_type CHECK (database_type IN ('Standalone', 'RAC', 'Dataguard', 'Active Dataguard', 'RAC & Datagaurd'))]');
+  add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_enable_access CHECK (enable_access IN ('Y', 'N'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_status CHECK (status IN ('active', 'inactive', 'decomissioned'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_env_label CHECK (environment_label IN ('PROD', 'DEV', 'UAT', 'DR'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_location CHECK (location IN ('SDC', 'KDC'))]');
@@ -254,8 +261,13 @@ DECLARE
   v_count NUMBER;
 BEGIN
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'UX_DATABASE_INVENTORY_NAME';
+  IF v_count > 0 THEN
+    EXECUTE IMMEDIATE 'DROP INDEX ux_database_inventory_name';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'UX_DATABASE_INVENTORY_NAME_INSTANCE';
   IF v_count = 0 THEN
-    EXECUTE IMMEDIATE 'CREATE UNIQUE INDEX ux_database_inventory_name ON database_inventory (UPPER(database_name))';
+    EXECUTE IMMEDIATE 'CREATE UNIQUE INDEX ux_database_inventory_name_instance ON database_inventory (UPPER(database_name), UPPER(database_instance))';
   END IF;
 
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_DB_INVENTORY_OWNER';

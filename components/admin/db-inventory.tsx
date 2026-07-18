@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { DatabaseZap, Edit3, Loader2, Plus, Search, Trash2, UserRoundCog, SlidersHorizontal, X, RotateCcw } from "lucide-react";
+import { DatabaseZap, Edit3, Loader2, Plus, Search, Trash2, SlidersHorizontal, X, RotateCcw, Columns3, Power } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +22,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   changeDatabaseOwner,
   createDatabase,
+  fetchDatabaseInventoryColumns,
   fetchDatabases,
   fetchUsersByRole,
   removeDatabase,
+  updateDatabaseAccess,
+  updateDatabaseInventoryColumns,
   updateDatabase
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -35,7 +38,7 @@ import { DB_DIVISION_OPTIONS, DB_EDITION_OPTIONS } from "@/types/dba";
 const ENVIRONMENT_OPTIONS = ["Production", "non-production", "DR"];
 const OS_OPTIONS: DbOs[] = ["Linux", "Windows"];
 const ROLE_OPTIONS = ["Primary", "Standby", "Reporting"];
-const DB_TYPE_OPTIONS: DbType[] = ["Standalone", "RAC", "Dataguard", "Active Dataguard"];
+const DB_TYPE_OPTIONS: DbType[] = ["Standalone", "RAC", "Dataguard", "Active Dataguard", "RAC & Datagaurd"];
 const STATUS_OPTIONS = ["active", "inactive", "decomissioned"];
 const ENV_LABEL_OPTIONS: DbEnvironment[] = ["PROD", "DEV", "UAT", "DR"];
 const LOCATION_OPTIONS = ["SDC", "KDC"];
@@ -44,6 +47,34 @@ const SERVER_TYPE_OPTIONS: DbServerType[] = ["Physical", "Virtual"];
 const DIVISION_OPTIONS: DbDivision[] = DB_DIVISION_OPTIONS;
 const DB_EDITION_OPTIONS_LIST: readonly DbEdition[] = DB_EDITION_OPTIONS;
 const DEFAULT_DB_PORT = 1521;
+
+const INVENTORY_COLUMNS = [
+  ["division", "Division"],
+  ["database_name", "Database Name"],
+  ["database_instance", "Database Instance"],
+  ["environment", "Environment"],
+  ["db_version", "DB Version"],
+  ["db_edition", "DB Edition"],
+  ["server_type", "Server Type"],
+  ["server_name", "Host Name"],
+  ["server_ip", "Server IP"],
+  ["db_port", "DB Port"],
+  ["zone", "Zone"],
+  ["location", "Location"],
+  ["operating_system", "Operating System"],
+  ["owner", "Owner"],
+  ["database_role", "Database Role"],
+  ["database_type", "Database Type"],
+  ["status", "Status"],
+  ["enable_access", "Enable Access"]
+] as const;
+
+type InventoryColumnKey = (typeof INVENTORY_COLUMNS)[number][0];
+const DEFAULT_VISIBLE_COLUMNS: InventoryColumnKey[] = [
+  "division", "database_name", "database_instance", "environment", "db_version",
+  "server_name", "server_ip", "db_port", "zone", "location", "operating_system",
+  "database_role", "database_type"
+];
 
 interface InventoryFormState {
   database_name: string;
@@ -61,6 +92,7 @@ interface InventoryFormState {
   server_type: string;
   db_version: string;
   db_edition: string;
+  database_instance: string;
   db_port: string;
   division: string;
 }
@@ -81,6 +113,7 @@ const emptyForm: InventoryFormState = {
   server_type: "Physical",
   db_version: "",
   db_edition: "Enterprise Edition",
+  database_instance: "",
   db_port: String(DEFAULT_DB_PORT),
   division: "PCPB"
 };
@@ -107,6 +140,7 @@ function toForm(database: DatabaseInventoryItem): InventoryFormState {
     server_type: database.server_type,
     db_version: database.db_version || "",
     db_edition: database.db_edition || "",
+    database_instance: database.database_instance || "",
     db_port: String(database.db_port ?? DEFAULT_DB_PORT),
     division: database.division
   };
@@ -129,6 +163,7 @@ function toInput(form: InventoryFormState): DatabaseInventoryInput {
     server_type: form.server_type,
     db_version: form.db_version.trim() || undefined,
     db_edition: form.db_edition.trim() || undefined,
+    database_instance: form.database_instance.trim() || undefined,
     db_port: form.db_port.trim() !== "" ? Number(form.db_port) : undefined,
     division: form.division
   };
@@ -154,6 +189,8 @@ export function DbInventory() {
   const [selectedDivision, setSelectedDivision] = useState<string>("all");
   const [selectedServerType, setSelectedServerType] = useState<string>("all");
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<InventoryColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
@@ -167,13 +204,18 @@ export function DbInventory() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dbResponse, clientResponse] = await Promise.all([
+      const [dbResponse, clientResponse, columnResponse] = await Promise.all([
         fetchDatabases(),
-        fetchUsersByRole("client")
+        fetchUsersByRole("client"),
+        fetchDatabaseInventoryColumns()
       ]);
       setLocalDatabases(dbResponse.databases);
       setDatabases(dbResponse.databases);
       setClients(clientResponse.users.filter((user) => user.isActive));
+      const validColumns = columnResponse.columns.filter((column): column is InventoryColumnKey =>
+        INVENTORY_COLUMNS.some(([key]) => key === column)
+      );
+      setVisibleColumns(validColumns.length ? validColumns : DEFAULT_VISIBLE_COLUMNS);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load DB inventory.";
       toast.error("DB inventory unavailable", { description: message });
@@ -205,6 +247,7 @@ export function DbInventory() {
           database.server_type,
           database.db_version,
           database.db_edition,
+          database.database_instance,
           String(database.db_port ?? ""),
           database.division
         ]
@@ -381,6 +424,37 @@ export function DbInventory() {
     }
   };
 
+  const handleColumnVisibilityChange = async (column: InventoryColumnKey, checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...visibleColumns, column]))
+      : visibleColumns.filter((item) => item !== column);
+    if (!next.length) {
+      toast.error("Select at least one inventory column.");
+      return;
+    }
+    setVisibleColumns(next);
+    try {
+      const response = await updateDatabaseInventoryColumns(next);
+      setVisibleColumns(response.columns.filter((item): item is InventoryColumnKey => INVENTORY_COLUMNS.some(([key]) => key === item)));
+    } catch (error) {
+      setVisibleColumns(visibleColumns);
+      toast.error("Column preference was not saved", { description: error instanceof Error ? error.message : undefined });
+    }
+  };
+
+  const handleAccessToggle = async (database: DatabaseInventoryItem) => {
+    setSaving(true);
+    try {
+      const response = await updateDatabaseAccess(database.id, !database.enable_access);
+      applyDatabaseUpdate(response.database);
+      toast.success(`Selector access ${response.database.enable_access ? "enabled" : "disabled"} for ${database.database_name}`);
+    } catch (error) {
+      toast.error("Access update failed", { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const renderForm = (mode: "create" | "edit") => (
     <form onSubmit={mode === "create" ? handleCreate : handleEdit} className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -391,7 +465,6 @@ export function DbInventory() {
             value={form.database_name}
             onChange={(event) => updateFormField("database_name", event.target.value)}
             maxLength={128}
-            disabled={mode === "edit"}
             required
           />
         </div>
@@ -471,6 +544,18 @@ export function DbInventory() {
             maxLength={45}
             placeholder="e.g. 192.168.1.50"
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${mode}-database-instance`}>Database Instance</Label>
+          <Input
+            id={`${mode}-database-instance`}
+            value={form.database_instance}
+            onChange={(event) => updateFormField("database_instance", event.target.value)}
+            maxLength={128}
+            placeholder="e.g. ORCL1"
+            required
+          />
+          <p className="text-xs text-muted-foreground">Create one inventory record per RAC instance.</p>
         </div>
       </div>
 
@@ -583,6 +668,29 @@ export function DbInventory() {
     </form>
   );
 
+  const renderInventoryCell = (database: DatabaseInventoryItem, column: InventoryColumnKey) => {
+    switch (column) {
+      case "division": return <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-200 font-semibold">{database.division}</Badge>;
+      case "database_name": return <span className="font-medium">{database.database_name}</span>;
+      case "database_instance": return database.database_instance || "-";
+      case "environment": return <Badge variant={database.env_label === "PROD" ? "destructive" : "secondary"}>{database.env_label}</Badge>;
+      case "db_version": return database.db_version || "-";
+      case "db_edition": return database.db_edition || "-";
+      case "server_type": return database.server_type;
+      case "server_name": return database.server_name || "-";
+      case "server_ip": return database.server_ip || "-";
+      case "db_port": return <span className="font-mono">{database.db_port ?? "-"}</span>;
+      case "zone": return database.zone || "-";
+      case "location": return <span className="text-muted-foreground">{database.location || "-"}</span>;
+      case "operating_system": return database.os;
+      case "owner": return database.owner?.username || "-";
+      case "database_role": return database.role;
+      case "database_type": return database.db_type;
+      case "status": return <Badge variant="outline" className={database.status === "active" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : database.status === "inactive" ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : "border-red-500/30 bg-red-500/10 text-red-400"}>{database.status}</Badge>;
+      case "enable_access": return <Badge variant="outline" className={database.enable_access ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-amber-500/30 bg-amber-500/10 text-amber-400"}>{database.enable_access ? "Yes" : "No"}</Badge>;
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -675,6 +783,16 @@ export function DbInventory() {
                     }
                   </Badge>
                 )}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-10 border-border/80 bg-background/40 hover:bg-background/80"
+                onClick={() => setColumnsOpen(true)}
+              >
+                <Columns3 className="h-4 w-4" />
+                Columns
               </Button>
 
               {hasActiveFilters && (
@@ -889,77 +1007,37 @@ export function DbInventory() {
               Loading DB inventory
             </div>
           ) : (
-            <Table className="min-w-[1500px]">
+            <Table className="min-w-[1300px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="font-bold uppercase tracking-wider text-cyan-300">Division</TableHead>
-                  <TableHead>Database Name</TableHead>
-                  <TableHead>Environment</TableHead>
-                  <TableHead>DB Version</TableHead>
-                  <TableHead>DB Edition</TableHead>
-                  <TableHead>Server Type</TableHead>
-                  <TableHead>Host Name</TableHead>
-                  <TableHead>Server IP</TableHead>
-                  <TableHead>DB Port</TableHead>
-                  <TableHead>Zone</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Operating System</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Database Role</TableHead>
-                  <TableHead>Database Type</TableHead>
-                  <TableHead>Status</TableHead>
+                  {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key, label]) => (
+                    <TableHead key={key} className={key === "division" ? "font-bold uppercase tracking-wider text-cyan-300" : undefined}>{label}</TableHead>
+                  ))}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredDatabases.map((database) => (
                   <TableRow key={database.id}>
-                    <TableCell>
-                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-200 font-semibold">
-                        {database.division}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{database.database_name}</TableCell>
-                    <TableCell>
-                      <Badge variant={database.env_label === "PROD" ? "destructive" : "secondary"}>{database.env_label}</Badge>
-                    </TableCell>
-                    <TableCell>{database.db_version || "-"}</TableCell>
-                    <TableCell>{database.db_edition || "-"}</TableCell>
-                    <TableCell>{database.server_type}</TableCell>
-                    <TableCell>{database.server_name || "-"}</TableCell>
-                    <TableCell>{database.server_ip || "-"}</TableCell>
-                    <TableCell className="font-mono">{database.db_port ?? "-"}</TableCell>
-                    <TableCell>{database.zone || "-"}</TableCell>
-                    <TableCell className="text-muted-foreground">{database.location || "-"}</TableCell>
-                    <TableCell>{database.os}</TableCell>
-                    <TableCell>
-                      {database.owner?.username || "-"}
-                    </TableCell>
-                    <TableCell>{database.role}</TableCell>
-                    <TableCell>{database.db_type}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          database.status === "active"
-                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                            : database.status === "inactive"
-                              ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                              : "border-red-500/30 bg-red-500/10 text-red-400"
-                        }
-                      >
-                        {database.status}
-                      </Badge>
-                    </TableCell>
+                    {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key]) => (
+                      <TableCell key={key}>{renderInventoryCell(database, key)}</TableCell>
+                    ))}
                     <TableCell>
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => openEdit(database)} disabled={saving}>
                           <Edit3 className="h-4 w-4" />
                           Edit
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => openOwner(database)} disabled={saving}>
-                          <UserRoundCog className="h-4 w-4" />
-                          Change Owner
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleAccessToggle(database)}
+                          disabled={saving}
+                          className={database.enable_access ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"}
+                          title={database.enable_access ? "Disable non-admin selector access" : "Enable non-admin selector access"}
+                        >
+                          <Power className="h-4 w-4" />
+                          {database.enable_access ? "Access on" : "Access off"}
                         </Button>
                         <Button variant="destructive" size="sm" onClick={() => openDelete(database)} disabled={saving}>
                           <Trash2 className="h-4 w-4" />
@@ -971,7 +1049,7 @@ export function DbInventory() {
                 ))}
                 {!filteredDatabases.length && (
                   <TableRow>
-                    <TableCell colSpan={17} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={visibleColumns.length + 1} className="h-24 text-center text-muted-foreground">
                       No databases found.
                     </TableCell>
                   </TableRow>
@@ -981,6 +1059,31 @@ export function DbInventory() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Visible inventory columns</DialogTitle>
+            <DialogDescription>Your choices are saved to your user profile.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {INVENTORY_COLUMNS.map(([key, label]) => (
+              <label key={key} className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 p-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={visibleColumns.includes(key)}
+                  onChange={(event) => void handleColumnVisibilityChange(key, event.target.checked)}
+                  className="h-4 w-4 accent-cyan-500"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setColumnsOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-3xl">

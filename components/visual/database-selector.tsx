@@ -16,7 +16,7 @@ export function DatabaseSelector() {
 
   const refreshDatabaseStatuses = async () => {
     try {
-      const response = await fetch("/api/databases", { cache: "no-store" });
+      const response = await fetch("/api/databases?selector=1", { cache: "no-store" });
       if (!response.ok) return;
       const { databases: refreshedDatabases } = await response.json() as { databases?: DatabaseTarget[] };
       if (refreshedDatabases) setDatabases(refreshedDatabases);

@@ -169,7 +169,7 @@ export interface DbaActionDefinition {
 
 export type DbEnvironment = "PROD" | "DEV" | "UAT" | "DR";
 export type DbOs = "Linux" | "Windows";
-export type DbType = "Standalone" | "RAC" | "Dataguard" | "Active Dataguard";
+export type DbType = "Standalone" | "RAC" | "Dataguard" | "Active Dataguard" | "RAC & Datagaurd";
 
 export interface DbaRequestPayload {
   action: DbaAction;
@@ -450,10 +450,9 @@ export const DB_DIVISION_OPTIONS: DbDivision[] = ["PCPB", "ITD", "FBD", "HOTEL",
 
 export const DB_EDITION_OPTIONS = [
   "Enterprise Edition",
-  "Standard Edition",
-  "Standard Edition One",
-  "Personal Edition",
-  "Express Edition"
+  "Standard Edition 2",
+  "Express Edition",
+  "Personal Edition"
 ] as const;
 
 export type DbEdition = (typeof DB_EDITION_OPTIONS)[number];
@@ -467,6 +466,8 @@ export interface DatabaseInventoryItem extends DatabaseTarget {
   server_type: DbServerType;
   db_version?: string;
   db_edition?: string;
+  database_instance?: string;
+  enable_access: boolean;
   db_port: number;
   division: DbDivision;
   created_at: string;
@@ -491,6 +492,7 @@ export interface DatabaseInventoryInput {
   server_type?: string;
   db_version?: string;
   db_edition?: string;
+  database_instance?: string;
   db_port?: number;
   division?: string;
 }

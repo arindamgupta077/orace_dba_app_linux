@@ -256,6 +256,7 @@ function normalizeDatabaseType(value: unknown): DatabaseTarget["db_type"] {
   if (normalized === "rac") return "RAC";
   if (normalized === "dataguard" || normalized === "data_guard") return "Dataguard";
   if (normalized === "active_dataguard" || normalized === "active_data_guard") return "Active Dataguard";
+  if (normalized === "rac_datagaurd" || normalized === "rac_dataguard") return "RAC & Datagaurd";
   return "Standalone";
 }
 
@@ -305,6 +306,10 @@ function normalizeDbEdition(value: unknown): string {
   return normalized.slice(0, 40);
 }
 
+function normalizeEnableAccess(value: unknown): boolean {
+  return String(value ?? "Y").trim().toUpperCase() !== "N";
+}
+
 function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
   const databaseName = String(row.DATABASE_NAME || "");
   const environment = String(row.ENVIRONMENT || "");
@@ -330,6 +335,8 @@ function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
     server_type: normalizeServerType(row.SERVER_TYPE),
     db_version: row.DB_VERSION ? String(row.DB_VERSION) : undefined,
     db_edition: row.DB_EDITION ? String(row.DB_EDITION) : undefined,
+    database_instance: row.DATABASE_INSTANCE ? String(row.DATABASE_INSTANCE) : undefined,
+    enable_access: normalizeEnableAccess(row.ENABLE_ACCESS),
     db_port: normalizeDbPort(row.DB_PORT),
     division: normalizeDivision(row.DIVISION),
     owner_id: ownerId,
@@ -363,6 +370,7 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
   const serverType = normalizeServerType(input.server_type);
   const dbVersion = normalizeDbVersion(input.db_version);
   const dbEdition = normalizeDbEdition(input.db_edition);
+  const databaseInstance = String(input.database_instance || "").trim();
   const dbPort = normalizeDbPort(input.db_port);
   const division = normalizeDivision(input.division);
 
@@ -396,6 +404,9 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
   if (dbEdition.length > 40) {
     throw new Error("DB edition must be 40 characters or fewer.");
   }
+  if (!databaseInstance || databaseInstance.length > 128) {
+    throw new Error("Database instance is required and must be 128 characters or fewer.");
+  }
   if (!Number.isInteger(dbPort) || dbPort < 1 || dbPort > 65535) {
     throw new Error("DB port must be between 1 and 65535.");
   }
@@ -416,6 +427,7 @@ function normalizeDatabaseInventoryInput(input: DatabaseInventoryInput) {
     serverType,
     dbVersion,
     dbEdition,
+    databaseInstance,
     dbPort,
     division
   };
@@ -447,6 +459,10 @@ function parseJson<T>(raw: unknown): T | undefined {
 
 function isOracleMissingTableError(error: unknown) {
   return error instanceof Error && error.message.includes("ORA-00942");
+}
+
+function isOracleMissingColumnError(error: unknown) {
+  return error instanceof Error && error.message.includes("ORA-00904");
 }
 
 function nullableNumber(value?: number) {
@@ -1000,6 +1016,8 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
        d.server_type,
        d.db_version,
        d.db_edition,
+       d.database_instance,
+       d.enable_access,
        d.db_port,
        d.division,
        d.owner_id,
@@ -1019,11 +1037,18 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
   return row ? mapDatabaseInventoryRow(row) : null;
 }
 
-export async function listDatabaseInventory(input: { role?: UserRole; userId?: number } = {}): Promise<DatabaseInventoryItem[]> {
+export async function listDatabaseInventory(input: { role?: UserRole; userId?: number; selectorOnly?: boolean } = {}): Promise<DatabaseInventoryItem[]> {
   return executeOne(async (connection) => {
     const binds: BindParameters = {};
-    const ownerFilter = input.role === "client" && input.userId ? "WHERE d.owner_id = :ownerId" : "";
-    if (ownerFilter) binds.ownerId = input.userId;
+    const filters: string[] = [];
+    if (input.role === "client" && input.userId) {
+      filters.push("d.owner_id = :ownerId");
+      binds.ownerId = input.userId;
+    }
+    if (input.selectorOnly && (input.role === "dba_admin" || input.role === "client")) {
+      filters.push("d.enable_access = 'Y'");
+    }
+    const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
     const result = await connection.execute<DbRow>(
       `SELECT
@@ -1049,6 +1074,8 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
          d.server_type,
          d.db_version,
          d.db_edition,
+         d.database_instance,
+         d.enable_access,
          d.db_port,
          d.division,
          d.owner_id,
@@ -1060,7 +1087,7 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
          d.updated_by
        FROM database_inventory d
        LEFT JOIN app_users u ON u.user_id = d.owner_id
-       ${ownerFilter}
+       ${whereClause}
        ORDER BY d.division, UPPER(d.database_name)`,
       binds
     );
@@ -1078,11 +1105,23 @@ export async function getDatabaseInventory(id: number, input: { role?: UserRole;
   });
 }
 
-export async function getDatabaseTargetByName(name: string): Promise<DatabaseTarget | undefined> {
+export async function getDatabaseTargetByName(
+  name: string,
+  input: { role?: UserRole; userId?: number; enforceAccess?: boolean } = {}
+): Promise<DatabaseTarget | undefined> {
   const normalizedName = name.trim();
   if (!normalizedName) return undefined;
 
   return executeOne(async (connection) => {
+    const binds: BindParameters = { name: normalizedName };
+    const filters = ["UPPER(d.database_name) = UPPER(:name)"];
+    if (input.enforceAccess && (input.role === "dba_admin" || input.role === "client")) {
+      filters.push("d.enable_access = 'Y'");
+    }
+    if (input.enforceAccess && input.role === "client" && input.userId) {
+      filters.push("d.owner_id = :ownerId");
+      binds.ownerId = input.userId;
+    }
     const result = await connection.execute<DbRow>(
       `SELECT
          d.id,
@@ -1100,6 +1139,8 @@ d.server_name,
         d.server_type,
         d.db_version,
         d.db_edition,
+        d.database_instance,
+        d.enable_access,
         d.db_port,
         d.division,
         d.owner_id,
@@ -1111,9 +1152,9 @@ d.server_name,
         d.updated_by
       FROM database_inventory d
       LEFT JOIN app_users u ON u.user_id = d.owner_id
-      WHERE UPPER(d.database_name) = UPPER(:name)
+      WHERE ${filters.join(" AND ")}
       FETCH FIRST 1 ROW ONLY`,
-      { name: normalizedName }
+      binds
     );
 
     const row = result.rows?.[0];
@@ -1132,11 +1173,12 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
         `SELECT id
          FROM database_inventory
          WHERE UPPER(database_name) = UPPER(:databaseName)
+           AND UPPER(database_instance) = UPPER(:databaseInstance)
          FETCH FIRST 1 ROW ONLY`,
-        { databaseName: normalized.databaseName }
+        { databaseName: normalized.databaseName, databaseInstance: normalized.databaseInstance }
       );
       if (duplicate.rows?.length) {
-        throw new Error("A database with that name already exists.");
+        throw new Error("A database with that name and instance already exists.");
       }
 
       const idResult = await connection.execute<DbRow>(
@@ -1161,6 +1203,7 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
            server_type,
            db_version,
            db_edition,
+           database_instance,
            db_port,
            division,
            owner_id,
@@ -1182,6 +1225,7 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
            :serverType,
            :dbVersion,
            :dbEdition,
+           :databaseInstance,
            :dbPort,
            :division,
            :ownerId,
@@ -1204,6 +1248,7 @@ export async function createDatabaseInventory(input: DatabaseInventoryInput, act
           serverType: normalized.serverType,
           dbVersion: normalized.dbVersion || null,
           dbEdition: normalized.dbEdition || null,
+          databaseInstance: normalized.databaseInstance || null,
           dbPort: normalized.dbPort,
           division: normalized.division,
           ownerId: normalized.ownerId,
@@ -1256,11 +1301,12 @@ export async function updateDatabaseInventory(id: number, input: DatabaseInvento
          FROM database_inventory
          WHERE id <> :id
            AND UPPER(database_name) = UPPER(:databaseName)
+           AND UPPER(database_instance) = UPPER(:databaseInstance)
          FETCH FIRST 1 ROW ONLY`,
-        { id, databaseName: normalized.databaseName }
+        { id, databaseName: normalized.databaseName, databaseInstance: normalized.databaseInstance }
       );
       if (duplicate.rows?.length) {
-        throw new Error("Another database already has that name.");
+        throw new Error("Another database already has that name and instance.");
       }
 
       await connection.execute(
@@ -1279,6 +1325,7 @@ export async function updateDatabaseInventory(id: number, input: DatabaseInvento
              server_type = :serverType,
              db_version = :dbVersion,
              db_edition = :dbEdition,
+             database_instance = :databaseInstance,
              db_port = :dbPort,
              division = :division,
              owner_id = :ownerId,
@@ -1300,6 +1347,7 @@ export async function updateDatabaseInventory(id: number, input: DatabaseInvento
           serverType: normalized.serverType,
           dbVersion: normalized.dbVersion || null,
           dbEdition: normalized.dbEdition || null,
+          databaseInstance: normalized.databaseInstance || null,
           dbPort: normalized.dbPort,
           division: normalized.division,
           ownerId: normalized.ownerId,
@@ -3458,6 +3506,31 @@ export async function getCurrentShiftState(): Promise<CurrentShiftState> {
   };
 }
 
+export async function setDatabaseAccess(id: number, enableAccess: boolean, actor: string): Promise<DatabaseInventoryItem> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await fetchDatabaseInventoryById(connection, id);
+      if (!existing) throw new Error("Database not found.");
+
+      await connection.execute(
+        `UPDATE database_inventory
+         SET enable_access = :enableAccess,
+             updated_by = :actor
+         WHERE id = :id`,
+        { id, enableAccess: enableAccess ? "Y" : "N", actor }
+      );
+      await connection.commit();
+
+      const updated = await fetchDatabaseInventoryById(connection, id);
+      if (!updated) throw new Error("Updated database was not found.");
+      return updated;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
 /**
  * Calculates the Daily Checklist work required for a time-based shift to
  * logout. Shift 2 inherits Shift 1's checks and Shift 3 inherits both prior
@@ -4877,6 +4950,67 @@ async function fetchShiftCoverage(
 // the navbar theme toggle.  The functions below are defensive: if the table
 // has not been created yet (ORA-00942) they fall back to 'dark' so the rest
 // of the app keeps working.
+
+const DEFAULT_DB_INVENTORY_COLUMNS = [
+  "division", "database_name", "database_instance", "environment", "db_version", "server_name",
+  "server_ip", "db_port", "zone", "location", "operating_system",
+  "database_role", "database_type"
+] as const;
+
+const DB_INVENTORY_COLUMNS = new Set([
+  ...DEFAULT_DB_INVENTORY_COLUMNS,
+  "database_instance", "db_edition", "server_type", "owner", "status", "enable_access"
+]);
+
+function normalizeDatabaseInventoryColumns(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_DB_INVENTORY_COLUMNS];
+  const columns = Array.from(new Set(value.filter((item): item is string => typeof item === "string" && DB_INVENTORY_COLUMNS.has(item))));
+  return columns.length ? columns : [...DEFAULT_DB_INVENTORY_COLUMNS];
+}
+
+export async function getUserDatabaseInventoryColumns(userId: number): Promise<string[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT db_inventory_columns FROM app_user_preferences WHERE user_id = :userId`,
+        { userId }
+      );
+      const value = result.rows?.[0]?.DB_INVENTORY_COLUMNS;
+      if (!value) return [...DEFAULT_DB_INVENTORY_COLUMNS];
+      try {
+        return normalizeDatabaseInventoryColumns(JSON.parse(String(value)));
+      } catch {
+        return [...DEFAULT_DB_INVENTORY_COLUMNS];
+      }
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) return [...DEFAULT_DB_INVENTORY_COLUMNS];
+      throw error;
+    }
+  });
+}
+
+export async function upsertUserDatabaseInventoryColumns(userId: number, columns: unknown): Promise<string[]> {
+  const normalized = normalizeDatabaseInventoryColumns(columns);
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `MERGE INTO app_user_preferences dst
+         USING (SELECT :userId AS user_id FROM dual) src
+         ON (dst.user_id = src.user_id)
+         WHEN MATCHED THEN UPDATE SET dst.db_inventory_columns = :columns
+         WHEN NOT MATCHED THEN
+           INSERT (user_id, theme_preference, db_inventory_columns)
+           VALUES (src.user_id, 'dark', :columns2)`,
+        { userId, columns: JSON.stringify(normalized), columns2: JSON.stringify(normalized) },
+        { autoCommit: true }
+      );
+      return normalized;
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) return normalized;
+      throw error;
+    }
+  });
+}
 
 function mapThemePreference(value: unknown): ThemePreference {
   const normalized = String(value || "dark").trim().toLowerCase();

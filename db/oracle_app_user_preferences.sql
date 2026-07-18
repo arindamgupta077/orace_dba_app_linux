@@ -60,6 +60,7 @@ PROMPT Dropped any previous app_user_preferences objects.
 CREATE TABLE app_user_preferences (
   user_id           NUMBER          NOT NULL,
   theme_preference  VARCHAR2(10)    DEFAULT 'dark' NOT NULL,
+  db_inventory_columns CLOB,
   created_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,
   updated_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,
   CONSTRAINT app_user_preferences_pk        PRIMARY KEY (user_id),

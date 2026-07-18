@@ -43,7 +43,12 @@ export async function POST(request: Request) {
       throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
     }
 
-    const dbTarget = await getDatabaseTargetByName(db);
+    const dbTarget = await getDatabaseTargetByName(db, {
+      role: session.user.role,
+      userId: session.userId,
+      enforceAccess: true
+    });
+    if (!dbTarget) return NextResponse.json({ message: "Database is unavailable." }, { status: 404 });
     const payload: DbaRequestPayload = {
       action: "tablespace_check",
       db,

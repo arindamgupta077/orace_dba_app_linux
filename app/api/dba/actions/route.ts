@@ -250,7 +250,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: `Unsupported action: ${action}` }, { status: 400 });
     }
 
-    const dbTarget = await getDatabaseTargetByName(db);
+    const dbTarget = await getDatabaseTargetByName(db, {
+      role: session.user.role,
+      userId: session.userId,
+      enforceAccess: true
+    });
+    if (!dbTarget) return NextResponse.json({ message: "Database is unavailable." }, { status: 404 });
     payload = {
       action,
       db,

@@ -172,7 +172,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (session.user.themePreference) {
           setTheme(session.user.themePreference, { persistRemote: false });
         }
-        fetchDatabases()
+        fetchDatabases({ selectorOnly: true })
           .then((response) => {
             if (active) setDatabases(response.databases);
           })

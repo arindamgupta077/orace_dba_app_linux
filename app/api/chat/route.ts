@@ -42,7 +42,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const dbTarget = await getDatabaseTargetByName(db);
+  const dbTarget = await getDatabaseTargetByName(db, {
+    role: session.user.role,
+    userId: session.userId,
+    enforceAccess: true
+  });
+  if (!dbTarget) return NextResponse.json({ message: "Database is unavailable." }, { status: 404 });
 
   const payload: ChatBotPayload = {
     action: "chat_bot",

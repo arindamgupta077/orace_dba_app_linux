@@ -11,4 +11,4 @@ export const SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS = 7;
 export const SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS = 24;
 
 /** How often the scheduler checks for reports due to send an overdue notification. */
-export const SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES = 1;
+export const SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES = 240;

@@ -164,8 +164,8 @@ export async function toggleAppUserStatus(userId: number) {
   });
 }
 
-export async function fetchDatabases() {
-  return requestJson<{ databases: DatabaseInventoryItem[] }>("/api/databases");
+export async function fetchDatabases(options: { selectorOnly?: boolean } = {}) {
+  return requestJson<{ databases: DatabaseInventoryItem[] }>(`/api/databases${options.selectorOnly ? "?selector=1" : ""}`);
 }
 
 export async function createDatabase(input: DatabaseInventoryInput) {
@@ -192,6 +192,24 @@ export async function changeDatabaseOwner(id: number, ownerId: number) {
   return requestJson<{ database: DatabaseInventoryItem }>(`/api/databases/${id}/owner`, {
     method: "PUT",
     body: JSON.stringify({ owner_id: ownerId })
+  });
+}
+
+export async function updateDatabaseAccess(id: number, enableAccess: boolean) {
+  return requestJson<{ database: DatabaseInventoryItem }>(`/api/databases/${id}/access`, {
+    method: "PUT",
+    body: JSON.stringify({ enable_access: enableAccess })
+  });
+}
+
+export async function fetchDatabaseInventoryColumns() {
+  return requestJson<{ columns: string[] }>("/api/preferences/database-inventory-columns");
+}
+
+export async function updateDatabaseInventoryColumns(columns: string[]) {
+  return requestJson<{ columns: string[] }>("/api/preferences/database-inventory-columns", {
+    method: "PUT",
+    body: JSON.stringify({ columns })
   });
 }
 

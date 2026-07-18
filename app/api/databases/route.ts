@@ -43,7 +43,7 @@ async function requireAppAdmin() {
   return { session, response: null };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await requireAuthenticatedSession();
     if (!session) {
@@ -52,7 +52,8 @@ export async function GET() {
 
     const databases = await listDatabaseInventory({
       role: session.user.role,
-      userId: session.userId
+      userId: session.userId,
+      selectorOnly: new URL(request.url).searchParams.get("selector") === "1"
     });
     return NextResponse.json({ databases });
   } catch (error) {
