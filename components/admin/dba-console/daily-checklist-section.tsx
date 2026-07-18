@@ -138,7 +138,7 @@ export function DailyChecklistSection() {
   }, [shiftNumber, shiftDate]);
 
   const activeDatabases = useMemo(
-    () => databases.filter((d) => d.status === "active"),
+    () => databases.filter((d) => d.status === "active" && d.env_label === "PROD"),
     [databases]
   );
 
@@ -461,8 +461,8 @@ export function DailyChecklistSection() {
                     <Database className="h-6 w-6 text-muted-foreground/50" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">No active databases found</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground/70">Add databases to the inventory to begin tracking.</p>
+                    <p className="text-sm font-medium text-muted-foreground">No active PROD databases found</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground/70">Add active PROD databases to the inventory to begin tracking.</p>
                   </div>
                 </div>
               ) : (

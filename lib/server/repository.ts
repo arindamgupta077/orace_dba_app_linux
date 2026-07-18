@@ -3570,7 +3570,10 @@ export async function getLogoutChecklistReadiness(
   return executeOne(async (connection) => {
     const [databaseResult, templateResult, dbCheckResult, backupCheckResult] = await Promise.all([
       connection.execute<DbRow>(
-        `SELECT id FROM database_inventory WHERE status = 'active'`
+        `SELECT id
+         FROM database_inventory
+         WHERE status = 'active'
+           AND environment_label = 'PROD'`
       ),
       connection.execute<DbRow>(
         `SELECT backup_id, scheduled_time
@@ -3582,6 +3585,7 @@ export async function getLogoutChecklistReadiness(
          FROM app_db_status_checks c
          JOIN database_inventory d ON d.id = c.database_id
          WHERE d.status = 'active'
+           AND d.environment_label = 'PROD'
            AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
            AND c.shift_number IN (${shiftList})`,
         { shiftDate: session.shift_date }
@@ -4081,6 +4085,8 @@ export async function listDbStatusChecks(shiftNumber: number, shiftDate: string)
        FROM app_db_status_checks c
        JOIN database_inventory d ON d.id = c.database_id
        WHERE c.shift_number = :shiftNumber
+         AND d.status = 'active'
+         AND d.environment_label = 'PROD'
          AND TRUNC(c.shift_date) = TO_DATE(:shiftDate, 'YYYY-MM-DD')
        ORDER BY UPPER(d.database_name)`,
       { shiftNumber, shiftDate }
@@ -4101,6 +4107,18 @@ export async function upsertDbStatusCheck(input: {
 }): Promise<DbStatusCheck> {
   return executeOne(async (connection) => {
     try {
+      const eligibleDatabase = await connection.execute<DbRow>(
+        `SELECT id
+         FROM database_inventory
+         WHERE id = :databaseId
+           AND status = 'active'
+           AND environment_label = 'PROD'`,
+        { databaseId: input.databaseId }
+      );
+      if (!eligibleDatabase.rows?.[0]) {
+        throw new Error("Database availability checks are only available for active PROD databases.");
+      }
+
       const existing = await connection.execute<DbRow>(
         `SELECT check_id FROM app_db_status_checks
          WHERE database_id = :databaseId
