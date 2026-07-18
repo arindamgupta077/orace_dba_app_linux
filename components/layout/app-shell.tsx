@@ -294,7 +294,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     pathname.startsWith("/admin-panel") && "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20"
                   )}
                 >
-                  <Link href="/admin-panel/app-users">
+                  <Link href="/admin-panel/database-inventory">
                     <ShieldCheck className="h-4 w-4" />
                     <span className="hidden sm:inline">Admin Panel</span>
                   </Link>

@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { DatabaseZap, Edit3, Loader2, Plus, Search, Trash2, SlidersHorizontal, X, RotateCcw, Columns3, Power } from "lucide-react";
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { DatabaseZap, Edit3, FileDown, FlaskConical, Loader2, Plus, Search, Trash2, SlidersHorizontal, X, RotateCcw, Columns3, Power, Server, Users, ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,8 +73,8 @@ const INVENTORY_COLUMNS = [
 type InventoryColumnKey = (typeof INVENTORY_COLUMNS)[number][0];
 const DEFAULT_VISIBLE_COLUMNS: InventoryColumnKey[] = [
   "division", "database_name", "database_instance", "environment", "db_version",
-  "server_name", "server_ip", "db_port", "zone", "location", "operating_system",
-  "database_role", "database_type"
+  "db_edition", "server_name", "server_ip", "db_port", "zone", "location",
+  "operating_system", "database_type"
 ];
 
 interface InventoryFormState {
@@ -467,6 +468,56 @@ export function DbInventory() {
     }
   };
 
+  const exportToExcel = () => {
+    // Build column label map
+    const colMap = Object.fromEntries(INVENTORY_COLUMNS.map(([k, label]) => [k, label]));
+    // Map each filtered row to a plain object with readable column headers
+    const rows = filteredDatabases.map((db) => {
+      const row: Record<string, string | number | boolean | null> = {};
+      for (const col of visibleColumns) {
+        const header = colMap[col] ?? col;
+        switch (col) {
+          case "division":          row[header] = db.division; break;
+          case "database_name":     row[header] = db.database_name; break;
+          case "database_instance": row[header] = db.database_instance ?? ""; break;
+          case "environment":       row[header] = db.env_label; break;
+          case "db_version":        row[header] = db.db_version ?? ""; break;
+          case "db_edition":        row[header] = db.db_edition ?? ""; break;
+          case "server_type":       row[header] = db.server_type; break;
+          case "server_name":       row[header] = db.server_name ?? ""; break;
+          case "server_ip":         row[header] = db.server_ip ?? ""; break;
+          case "db_port":           row[header] = db.db_port ?? ""; break;
+          case "zone":              row[header] = db.zone ?? ""; break;
+          case "location":          row[header] = db.location; break;
+          case "operating_system":  row[header] = db.os; break;
+          case "owner":             row[header] = db.owner?.username ?? ""; break;
+          case "database_role":     row[header] = db.role; break;
+          case "database_type":     row[header] = db.db_type; break;
+          case "status":            row[header] = db.status; break;
+          case "enable_access":     row[header] = db.enable_access ? "Yes" : "No"; break;
+          default:                  row[header] = "";
+        }
+      }
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    // Auto-fit column widths based on content
+    const colWidths = Object.keys(rows[0] ?? {}).map((key) => ({
+      wch: Math.max(
+        key.length,
+        ...rows.map((r) => String(r[key] ?? "").length)
+      ) + 2,
+    }));
+    worksheet["!cols"] = colWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "DB Inventory");
+    const timestamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `db_inventory_${timestamp}.xlsx`);
+    toast.success(`Exported ${rows.length} record${rows.length !== 1 ? "s" : ""} to Excel`);
+  };
+
   const renderForm = (mode: "create" | "edit") => (
     <form onSubmit={mode === "create" ? handleCreate : handleEdit} className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -682,64 +733,204 @@ export function DbInventory() {
 
   const renderInventoryCell = (database: DatabaseInventoryItem, column: InventoryColumnKey) => {
     switch (column) {
-      case "division": return <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-200 font-semibold">{database.division}</Badge>;
-      case "database_name": return <span className="font-medium">{database.database_name}</span>;
-      case "database_instance": return database.database_instance || "-";
-      case "environment": return <Badge variant={database.env_label === "PROD" ? "destructive" : "secondary"}>{database.env_label}</Badge>;
-      case "db_version": return database.db_version || "-";
-      case "db_edition": return database.db_edition || "-";
-      case "server_type": return database.server_type;
-      case "server_name": return database.server_name || "-";
-      case "server_ip": return database.server_ip || "-";
-      case "db_port": return <span className="font-mono">{database.db_port ?? "-"}</span>;
-      case "zone": return database.zone || "-";
-      case "location": return <span className="text-muted-foreground">{database.location || "-"}</span>;
-      case "operating_system": return database.os;
-      case "owner": return database.owner?.username || "-";
-      case "database_role": return database.role;
-      case "database_type": return database.db_type;
-      case "status": return <Badge variant="outline" className={database.status === "active" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : database.status === "inactive" ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : "border-red-500/30 bg-red-500/10 text-red-400"}>{database.status}</Badge>;
-      case "enable_access": return <Badge variant="outline" className={database.enable_access ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-amber-500/30 bg-amber-500/10 text-amber-400"}>{database.enable_access ? "Yes" : "No"}</Badge>;
+      case "division": return (
+        <Badge variant="outline" className="border-violet-500/40 bg-violet-500/10 text-violet-300 font-semibold tracking-wide text-[10px] uppercase px-2">
+          {database.division}
+        </Badge>
+      );
+      case "database_name": return (
+        <span className="font-semibold text-foreground flex items-center gap-1.5">
+          <DatabaseZap className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+          {database.database_name}
+        </span>
+      );
+      case "database_instance": return (
+        <span className="font-mono text-xs text-cyan-300/80 bg-cyan-500/5 border border-cyan-500/15 rounded px-1.5 py-0.5">
+          {database.database_instance || <span className="text-muted-foreground/50">—</span>}
+        </span>
+      );
+      case "environment": {
+        const envColors: Record<string, string> = {
+          PROD: "border-red-500/40 bg-red-500/10 text-red-300",
+          DR:   "border-orange-500/40 bg-orange-500/10 text-orange-300",
+          UAT:  "border-blue-500/40 bg-blue-500/10 text-blue-300",
+          DEV:  "border-slate-500/40 bg-slate-500/15 text-slate-300",
+        };
+        return (
+          <Badge variant="outline" className={cn("font-semibold text-[10px] uppercase tracking-wider px-2", envColors[database.env_label] ?? "border-border/50 bg-muted/30 text-muted-foreground")}>
+            {database.env_label}
+          </Badge>
+        );
+      }
+      case "db_version": return (
+        <span className="font-mono text-xs">{database.db_version || <span className="text-muted-foreground/40">—</span>}</span>
+      );
+      case "db_edition": {
+        const isEnterprise = (database.db_edition || "").toLowerCase().includes("enterprise");
+        return (
+          <span className={cn("text-xs font-medium", isEnterprise ? "text-amber-300" : "text-muted-foreground")}>
+            {database.db_edition || "—"}
+          </span>
+        );
+      }
+      case "server_type": return (
+        <Badge variant="outline" className="border-sky-500/30 bg-sky-500/8 text-sky-300 text-[10px] uppercase tracking-wide">
+          {database.server_type}
+        </Badge>
+      );
+      case "server_name": return (
+        <span className="font-mono text-xs text-slate-300">{database.server_name || <span className="text-muted-foreground/40">—</span>}</span>
+      );
+      case "server_ip": return (
+        <span className="font-mono text-xs text-emerald-300/80">{database.server_ip || <span className="text-muted-foreground/40">—</span>}</span>
+      );
+      case "db_port": return (
+        <span className="font-mono text-xs bg-muted/40 border border-border/40 rounded px-1.5 py-0.5 text-slate-300">
+          {database.db_port ?? <span className="text-muted-foreground/40">—</span>}
+        </span>
+      );
+      case "zone": return (
+        <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/8 text-indigo-300 text-[10px] uppercase tracking-wide">
+          {database.zone || "—"}
+        </Badge>
+      );
+      case "location": return (
+        <span className="text-xs font-medium text-slate-400">{database.location || <span className="text-muted-foreground/40">—</span>}</span>
+      );
+      case "operating_system": return (
+        <span className="text-xs font-medium text-slate-300">{database.os}</span>
+      );
+      case "owner": return (
+        <span className="text-xs text-muted-foreground">{database.owner?.username || "—"}</span>
+      );
+      case "database_role": {
+        const roleColors: Record<string, string> = {
+          primary:   "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
+          standby:   "border-blue-500/40 bg-blue-500/10 text-blue-300",
+          reporting: "border-purple-500/40 bg-purple-500/10 text-purple-300",
+        };
+        return (
+          <Badge variant="outline" className={cn("text-[10px] uppercase tracking-wide", roleColors[(database.role || "").toLowerCase()] ?? "border-border/50 text-muted-foreground")}>
+            {database.role}
+          </Badge>
+        );
+      }
+      case "database_type": {
+        const typeColors: Record<string, string> = {
+          "Standalone":        "border-slate-500/40 bg-slate-500/10 text-slate-300",
+          "RAC":               "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
+          "Dataguard":         "border-violet-500/40 bg-violet-500/10 text-violet-300",
+          "Active Dataguard":  "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300",
+          "RAC & Datagaurd":   "border-teal-500/40 bg-teal-500/10 text-teal-300",
+        };
+        return (
+          <Badge variant="outline" className={cn("text-[10px] font-semibold", typeColors[database.db_type] ?? "border-border/50 text-muted-foreground")}>
+            {database.db_type}
+          </Badge>
+        );
+      }
+      case "status": {
+        const statusMap: Record<string, { cls: string; icon: React.ReactNode }> = {
+          active:       { cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300", icon: <CheckCircle2 className="h-3 w-3" /> },
+          inactive:     { cls: "border-amber-500/40 bg-amber-500/10 text-amber-300",   icon: <AlertTriangle className="h-3 w-3" /> },
+          decomissioned:{ cls: "border-red-500/40 bg-red-500/10 text-red-300",         icon: <XCircle className="h-3 w-3" /> },
+        };
+        const s = statusMap[database.status] ?? { cls: "border-border/50 text-muted-foreground", icon: null };
+        return (
+          <Badge variant="outline" className={cn("gap-1 font-semibold text-[10px] uppercase tracking-wide", s.cls)}>
+            {s.icon}{database.status}
+          </Badge>
+        );
+      }
+      case "enable_access": return (
+        <Badge variant="outline" className={database.enable_access ? "gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "gap-1 border-rose-500/40 bg-rose-500/10 text-rose-300"}>
+          <Power className="h-3 w-3" />
+          {database.enable_access ? "On" : "Off"}
+        </Badge>
+      );
     }
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-6">
+      {/* ── Page Header ── */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-200">
-            <DatabaseZap className="h-4 w-4" />
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-cyan-300">
+            <DatabaseZap className="h-3.5 w-3.5" />
             DB Inventory
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Database inventory</h1>
+          <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">Database Inventory</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Manage database metadata and client ownership mappings.
           </p>
         </div>
-        <Button onClick={openCreate} disabled={!clients.length}>
+        <Button onClick={openCreate} disabled={!clients.length} className="gap-2 bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-500/20 transition-all">
           <Plus className="h-4 w-4" />
-          Add database
+          Add Database
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-muted-foreground">Inventory records</CardTitle>
+      {/* ── Stat Cards ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Inventory Records */}
+        <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-background to-cyan-950/20 py-0">
+          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none" />
+          <CardHeader className="px-4 pt-4 pb-1 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Inventory Records</CardTitle>
+            <div className="h-7 w-7 rounded-md bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center shrink-0">
+              <Server className="h-3.5 w-3.5 text-cyan-400" />
+            </div>
           </CardHeader>
-          <CardContent><div className="text-3xl font-semibold">{databases.length}</div></CardContent>
+          <CardContent className="px-4 pb-4">
+            <div className="text-2xl font-bold tracking-tight">{databases.length}</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Total database entries</p>
+          </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-muted-foreground">Client owners</CardTitle>
+
+        {/* Client Owners */}
+        <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-background to-violet-950/20 py-0">
+          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent pointer-events-none" />
+          <CardHeader className="px-4 pt-4 pb-1 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Client Owners</CardTitle>
+            <div className="h-7 w-7 rounded-md bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
+              <Users className="h-3.5 w-3.5 text-violet-400" />
+            </div>
           </CardHeader>
-          <CardContent><div className="text-3xl font-semibold">{clients.length}</div></CardContent>
+          <CardContent className="px-4 pb-4">
+            <div className="text-2xl font-bold tracking-tight">{clients.length}</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Active client accounts</p>
+          </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm text-muted-foreground">Production DBs</CardTitle>
+
+        {/* Production DBs */}
+        <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-background to-red-950/20 py-0">
+          <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent pointer-events-none" />
+          <CardHeader className="px-4 pt-4 pb-1 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Production DBs</CardTitle>
+            <div className="h-7 w-7 rounded-md bg-red-500/15 border border-red-500/25 flex items-center justify-center shrink-0">
+              <ShieldCheck className="h-3.5 w-3.5 text-red-400" />
+            </div>
           </CardHeader>
-          <CardContent><div className="text-3xl font-semibold">{databases.filter((db) => db.env_label === "PROD").length}</div></CardContent>
+          <CardContent className="px-4 pb-4">
+            <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label === "PROD").length}</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Critical production systems</p>
+          </CardContent>
+        </Card>
+
+        {/* Non-Prod DBs */}
+        <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-background to-teal-950/20 py-0">
+          <div className="absolute inset-0 bg-gradient-to-br from-teal-500/5 to-transparent pointer-events-none" />
+          <CardHeader className="px-4 pt-4 pb-1 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Non-Prod DBs</CardTitle>
+            <div className="h-7 w-7 rounded-md bg-teal-500/15 border border-teal-500/25 flex items-center justify-center shrink-0">
+              <FlaskConical className="h-3.5 w-3.5 text-teal-400" />
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label !== "PROD").length}</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">DEV, UAT &amp; DR systems</p>
+          </CardContent>
         </Card>
       </div>
 
@@ -805,6 +996,18 @@ export function DbInventory() {
               >
                 <Columns3 className="h-4 w-4" />
                 Columns
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-10 border-emerald-500/40 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/15 hover:border-emerald-500/60 hover:text-emerald-200 transition-colors disabled:opacity-50"
+                onClick={exportToExcel}
+                disabled={filteredDatabases.length === 0 || loading}
+                title="Export visible rows to Excel"
+              >
+                <FileDown className="h-4 w-4" />
+                Export
               </Button>
 
               {hasActiveFilters && (
@@ -1012,62 +1215,105 @@ export function DbInventory() {
             </div>
           )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {loading ? (
-            <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Loading DB inventory
+            <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin text-cyan-400" />
+              <span>Loading database inventory…</span>
             </div>
           ) : (
-            <Table className="min-w-[1300px]">
-              <TableHeader>
-                <TableRow>
-                  {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key, label]) => (
-                    <TableHead key={key} className={key === "division" ? "font-bold uppercase tracking-wider text-cyan-300" : undefined}>{label}</TableHead>
-                  ))}
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredDatabases.map((database) => (
-                  <TableRow key={database.id}>
-                    {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key]) => (
-                      <TableCell key={key}>{renderInventoryCell(database, key)}</TableCell>
+            <div className="overflow-auto">
+              <Table className="min-w-[1300px]">
+                <TableHeader>
+                  <TableRow className="border-b border-border/60 bg-muted/30 hover:bg-muted/30">
+                    {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key, label]) => (
+                      <TableHead
+                        key={key}
+                        className={cn(
+                          "text-[11px] font-bold uppercase tracking-wider py-3 whitespace-nowrap",
+                          key === "division" ? "text-violet-300" : "text-muted-foreground"
+                        )}
+                      >
+                        {label}
+                      </TableHead>
                     ))}
-                    <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(database)} disabled={saving}>
-                          <Edit3 className="h-4 w-4" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleAccessToggle(database)}
-                          disabled={saving}
-                          className={database.enable_access ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"}
-                          title={database.enable_access ? "Disable non-admin selector access" : "Enable non-admin selector access"}
-                        >
-                          <Power className="h-4 w-4" />
-                          {database.enable_access ? "Access on" : "Access off"}
-                        </Button>
-                        <Button variant="destructive" size="sm" onClick={() => openDelete(database)} disabled={saving}>
-                          <Trash2 className="h-4 w-4" />
-                          Delete
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableHead className="text-right text-[11px] font-bold uppercase tracking-wider py-3 text-muted-foreground pr-4">
+                      Actions
+                    </TableHead>
                   </TableRow>
-                ))}
-                {!filteredDatabases.length && (
-                  <TableRow>
-                    <TableCell colSpan={visibleColumns.length + 1} className="h-24 text-center text-muted-foreground">
-                      No databases found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredDatabases.map((database, idx) => (
+                    <TableRow
+                      key={database.id}
+                      className={cn(
+                        "border-b border-border/30 transition-colors",
+                        idx % 2 === 0 ? "bg-background" : "bg-muted/10",
+                        "hover:bg-cyan-950/20"
+                      )}
+                    >
+                      {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key]) => (
+                        <TableCell key={key} className="py-2.5 align-middle">
+                          {renderInventoryCell(database, key)}
+                        </TableCell>
+                      ))}
+                      <TableCell className="py-2 pr-4 align-middle">
+                        <div className="flex justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-md border border-border/50 text-muted-foreground hover:border-cyan-500/40 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                            onClick={() => openEdit(database)}
+                            disabled={saving}
+                            title="Edit record"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-7 w-7 rounded-md border transition-colors",
+                              database.enable_access
+                                ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50"
+                                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/50"
+                            )}
+                            onClick={() => void handleAccessToggle(database)}
+                            disabled={saving}
+                            title={database.enable_access ? "Disable selector access" : "Enable selector access"}
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-md border border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-colors"
+                            onClick={() => openDelete(database)}
+                            disabled={saving}
+                            title="Delete record"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {!filteredDatabases.length && (
+                    <TableRow>
+                      <TableCell colSpan={visibleColumns.length + 1} className="h-40 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                          <DatabaseZap className="h-10 w-10 opacity-20" />
+                          <div>
+                            <p className="font-medium">No databases found</p>
+                            <p className="text-xs mt-0.5">Try adjusting your search filters</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

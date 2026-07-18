@@ -4995,14 +4995,14 @@ async function fetchShiftCoverage(
 // of the app keeps working.
 
 const DEFAULT_DB_INVENTORY_COLUMNS = [
-  "division", "database_name", "database_instance", "environment", "db_version", "server_name",
-  "server_ip", "db_port", "zone", "location", "operating_system",
-  "database_role", "database_type"
+  "division", "database_name", "database_instance", "environment", "db_version",
+  "db_edition", "server_name", "server_ip", "db_port", "zone", "location",
+  "operating_system", "database_type"
 ] as const;
 
 const DB_INVENTORY_COLUMNS = new Set([
   ...DEFAULT_DB_INVENTORY_COLUMNS,
-  "database_instance", "db_edition", "server_type", "owner", "status", "enable_access"
+  "database_instance", "db_edition", "database_role", "server_type", "owner", "status", "enable_access"
 ]);
 
 function normalizeDatabaseInventoryColumns(value: unknown): string[] {

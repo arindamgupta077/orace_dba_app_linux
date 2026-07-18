@@ -7,8 +7,8 @@ import { DatabaseZap, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { href: "/admin-panel/app-users", label: "APP USER MANAGEMENT", icon: Users },
-  { href: "/admin-panel/database-inventory", label: "DATABASE INVENTORY", icon: DatabaseZap }
+  { href: "/admin-panel/database-inventory", label: "DATABASE INVENTORY", icon: DatabaseZap },
+  { href: "/admin-panel/app-users", label: "APP USER MANAGEMENT", icon: Users }
 ];
 
 export function AdminPanelTabs() {
