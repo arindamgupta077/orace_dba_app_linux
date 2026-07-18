@@ -32,6 +32,10 @@ const FEATURES = [
   }
 ] as const;
 
+function postLoginPath(role: string) {
+  return role === "dba_admin" ? "/dba-console/shift-management" : "/dashboard";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAppStore((state) => state.setUser);
@@ -58,7 +62,7 @@ export default function LoginPage() {
       .then((session) => {
         if (controller.signal.aborted || loginSucceededRef.current) return;
         setUser(session.user);
-        router.replace("/dashboard");
+        router.replace(postLoginPath(session.user.role));
       })
       .catch(() => {
         if (controller.signal.aborted || loginSucceededRef.current) return;
@@ -88,7 +92,7 @@ export default function LoginPage() {
       loginSucceededRef.current = true;
       setUser(response.user);
       toast.success("Login successful");
-      router.push("/dashboard");
+      router.push(postLoginPath(response.user.role));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Login failed.";
       toast.error("Authentication failed", { description: message });

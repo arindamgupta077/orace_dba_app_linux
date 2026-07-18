@@ -36,6 +36,19 @@ import { cn } from "@/lib/utils";
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
 const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
 
+function PortalBrand() {
+  return (
+    <Link href="/dashboard" className="group flex shrink-0 items-center gap-2.5" aria-label="ITSS DBA Portal dashboard">
+      <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 via-rose-600 to-orange-500 text-white shadow-[0_0_10px_rgba(225,29,72,0.3)] transition-all duration-300 group-hover:scale-105">
+        <DatabaseZap className="h-4.5 w-4.5 drop-shadow-sm" />
+      </div>
+      <p className="whitespace-nowrap bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-sm font-extrabold tracking-tight text-transparent">
+        ITSS DBA <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">PORTAL</span>
+      </p>
+    </Link>
+  );
+}
+
 const navItems: Array<{
   href: string;
   label: string;
@@ -136,6 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
   const isClient = user?.role === "client";
+  const isDbaAdmin = user?.role === "dba_admin";
   const isSidebarVisible = !!user && !isClient && showDatabase && !isNonDbRoute;
   const isDbSelectorVisible = !!user && showDatabase && !isNonDbRoute;
   const isDatabaseActive = !isNonDbRoute && showDatabase;
@@ -209,7 +223,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <aside className={cn(
         "fixed inset-y-0 left-0 z-40 w-72 border-r border-border/70 bg-background/80 backdrop-blur-xl transition-all duration-300 ease-in-out hidden lg:block",
         isSidebarVisible ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0 pointer-events-none"
@@ -217,23 +231,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarContent />
       </aside>
       <div className={cn(
-        "transition-all duration-300 ease-in-out",
+        "min-w-0 transition-all duration-300 ease-in-out",
         isSidebarVisible ? "lg:pl-72" : "lg:pl-0"
       )}>
         <header className="sticky top-0 z-30 border-b border-border/70 bg-background/75 backdrop-blur-xl">
-          <div className="flex min-h-16 items-center justify-between gap-3 px-4 lg:px-6">
-            <div className="flex items-center gap-2">
-              {isClient && (
-                <Link href="/dashboard" className="group flex items-center gap-2.5 mr-4 shrink-0">
-                  <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 via-rose-600 to-orange-500 text-white shadow-[0_0_10px_rgba(225,29,72,0.3)] transition-all duration-300 group-hover:scale-105">
-                    <DatabaseZap className="h-4.5 w-4.5 drop-shadow-sm" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-sm font-extrabold tracking-tight text-transparent">
-                      ITSS DBA <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">PORTAL</span>
-                    </p>
-                  </div>
-                </Link>
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-2 lg:px-6">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {isNonDbRoute && (
+                <div className="mr-4">
+                  <PortalBrand />
+                </div>
+              )}
+              {isClient && !isNonDbRoute && (
+                <div className="mr-2"><PortalBrand /></div>
               )}
               {isSidebarVisible && (
                 <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} title="Open navigation">
@@ -247,6 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onClick={handleDatabaseToggle}
                 className={cn(
                   "gap-1.5 transition-all",
+                  isDbaAdmin ? "order-2" : "order-1",
                   isDatabaseActive && "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
                 )}
               >
@@ -261,7 +272,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   variant={pathname.startsWith("/dba-console") ? "secondary" : "outline"}
                   size="sm"
                   className={cn(
-                    "transition-all",
+                    isDbaAdmin ? "order-1 transition-all" : "order-2 transition-all",
                     pathname.startsWith("/dba-console") && "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
                   )}
                 >
@@ -279,7 +290,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   variant={pathname.startsWith("/admin-panel") ? "secondary" : "outline"}
                   size="sm"
                   className={cn(
-                    "transition-all",
+                    "order-3 transition-all",
                     pathname.startsWith("/admin-panel") && "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20"
                   )}
                 >
@@ -296,7 +307,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 variant={pathname.startsWith("/audit") ? "secondary" : "outline"}
                 size="sm"
                 className={cn(
-                  "transition-all",
+                  "order-4 transition-all",
                   pathname.startsWith("/audit") && "bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
                 )}
               >
@@ -306,7 +317,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               </Button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <RmanRunningBadge />
               {/* Active DBA on-shift indicator — shown on right side when db selector row is hidden */}
               {!isDbSelectorVisible && <ActiveDbaPill />}
@@ -341,7 +352,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {isDbSelectorVisible && (
-            <div className="grid grid-cols-1 items-center gap-3 border-t border-border/70 bg-background/40 px-4 py-3 lg:grid-cols-[auto_minmax(400px,1fr)_auto] lg:px-6">
+            <div className="grid min-w-0 grid-cols-1 items-center gap-3 border-t border-border/70 bg-background/40 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:px-6">
               <DatabaseSelector />
               <SecurityPostureCard />
               {/* Active DBA on-shift indicator — shown in db selector row when database view is active */}
@@ -351,7 +362,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </header>
-        <main className="px-4 py-5 lg:px-6">{children}</main>
+        <main className="min-w-0 max-w-full px-4 py-5 lg:px-6">{children}</main>
       </div>
 
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>

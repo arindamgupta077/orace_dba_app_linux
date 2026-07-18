@@ -775,7 +775,7 @@ export function DashboardOverview() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 max-w-full space-y-5">
 
       {/* ── HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
