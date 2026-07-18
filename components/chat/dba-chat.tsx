@@ -20,7 +20,8 @@ import {
   Terminal,
   UserRound,
   X,
-  XCircle
+  XCircle,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -418,6 +419,34 @@ export function ChatWithDb() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 60);
   }, []);
 
+  const handleDownloadChat = useCallback(() => {
+    if (messages.length === 0) return;
+
+    let content = `Chat Export - DB: ${selectedDb}\n`;
+    content += `Date: ${new Date().toLocaleString()}\n`;
+    content += `==================================================\n\n`;
+
+    messages.forEach((msg) => {
+      const role = msg.role === "user" ? "You" : "DBA Assistant";
+      const time = msg.timestamp.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+      content += `[${time}] ${role}:\n${msg.content}\n\n`;
+      
+      if (msg.sqlApproval && msg.sqlApproval.sqlQuery) {
+        content += `[Generated SQL]:\n${msg.sqlApproval.sqlQuery}\n\n`;
+      }
+    });
+
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dba-chat-${selectedDb}-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [messages, selectedDb]);
+
   // ---------------------------------------------------------------------------
   // Fix #1 — Reset chat session immediately when DB changes
   // ---------------------------------------------------------------------------
@@ -734,8 +763,17 @@ export function ChatWithDb() {
                 <span className="text-muted-foreground/50 dark:text-slate-600">·</span>
                 <span>{dbTarget?.env_label ?? "PROD"}</span>
               </div>
+              <button
+                type="button"
+                onClick={handleDownloadChat}
+                title="Download chat history"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
               {/* Fix #4: Fullscreen toggle button */}
               <button
+                type="button"
                 onClick={() => setIsFullscreen((f) => !f)}
                 title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"

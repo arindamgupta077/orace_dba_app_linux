@@ -15,11 +15,18 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const limitParam = url.searchParams.get("limit");
     const limit = (limitParam === "unlimited" || !limitParam) ? undefined : Number(limitParam);
+    const offsetParam = url.searchParams.get("offset");
+    const offset = offsetParam ? Number(offsetParam) : undefined;
+    const startDate = url.searchParams.get("startDate") || undefined;
+    const endDate = url.searchParams.get("endDate") || undefined;
 
     // For "client" role users, restrict results to their own databases only.
     const items = await listAuditLogs(limit, {
       role: session.user.role,
       userId: session.userId,
+      offset,
+      startDate,
+      endDate
     });
     return NextResponse.json({ items });
   } catch (error) {

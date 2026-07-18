@@ -2052,24 +2052,48 @@ export async function insertAuditLog(input: {
 
 export async function listAuditLogs(
   limit?: number,
-  input: { role?: UserRole; userId?: number } = {}
+  input: { role?: UserRole; userId?: number; offset?: number; startDate?: string; endDate?: string } = {}
 ): Promise<AuditLogItem[]> {
   const safeLimit = limit !== undefined ? Math.min(Math.max(limit, 1), 1000000) : undefined;
+  const safeOffset = input.offset !== undefined ? Math.max(input.offset, 0) : 0;
 
   // For "client" role users, restrict to audit logs whose db_name belongs
   // to a database they own in db_inventory.
   const isClientRestricted = input.role === "client" && !!input.userId;
-  const whereClause = isClientRestricted
-    ? `WHERE db_name IN (
-         SELECT database_name FROM database_inventory WHERE owner_id = :ownerId
-       )`
-    : "";
+  const conditions: string[] = [];
+  const binds: BindParameters = {};
 
-  const limitClause = safeLimit !== undefined ? `FETCH FIRST ${safeLimit} ROWS ONLY` : "";
+  if (isClientRestricted) {
+    conditions.push(`db_name IN (
+         SELECT database_name FROM database_inventory WHERE owner_id = :ownerId
+       )`);
+    binds.ownerId = input.userId;
+  }
+
+  if (input.startDate) {
+    conditions.push(`created_at >= TO_DATE(:startDate, 'YYYY-MM-DD')`);
+    binds.startDate = input.startDate;
+  }
+
+  if (input.endDate) {
+    conditions.push(`created_at < TO_DATE(:endDate, 'YYYY-MM-DD') + 1`);
+    binds.endDate = input.endDate;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  let paginationClause = "";
+  if (safeLimit !== undefined) {
+    if (safeOffset > 0) {
+      paginationClause = `OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`;
+    } else {
+      paginationClause = `FETCH FIRST ${safeLimit} ROWS ONLY`;
+    }
+  } else if (safeOffset > 0) {
+    paginationClause = `OFFSET ${safeOffset} ROWS`;
+  }
 
   return executeOne(async (connection) => {
-    const binds: BindParameters = isClientRestricted ? { ownerId: input.userId } : {};
-
     const result = await connection.execute<DbRow>(
       `SELECT
          audit_id,
@@ -2085,7 +2109,7 @@ export async function listAuditLogs(
        FROM app_audit_logs
        ${whereClause}
        ORDER BY created_at DESC, audit_id ASC
-       ${limitClause}`,
+       ${paginationClause}`,
       binds
     );
 

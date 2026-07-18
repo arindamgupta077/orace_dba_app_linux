@@ -232,10 +232,15 @@ export async function fetchUsersByRole(role: AppUserRole) {
   return requestJson<{ users: AppUser[] }>(`/api/users?${query}`);
 }
 
-export async function fetchAuditLogs(limit?: number | "unlimited") {
-  const limitVal = limit === undefined || limit === "unlimited" ? "unlimited" : String(limit);
-  const query = new URLSearchParams({ limit: limitVal }).toString();
-  return requestJson<{ items: AuditLogItem[] }>(`/api/audit?${query}`);
+export async function fetchAuditLogs(params: { limit?: number | "unlimited", offset?: number, startDate?: string, endDate?: string } = {}) {
+  const query = new URLSearchParams();
+  const limitVal = params.limit === undefined || params.limit === "unlimited" ? "unlimited" : String(params.limit);
+  query.set("limit", limitVal);
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.startDate) query.set("startDate", params.startDate);
+  if (params.endDate) query.set("endDate", params.endDate);
+  
+  return requestJson<{ items: AuditLogItem[] }>(`/api/audit?${query.toString()}`);
 }
 
 export async function fetchPerformanceAuditLogs(db: string) {

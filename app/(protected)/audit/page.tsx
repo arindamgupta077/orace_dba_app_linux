@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAuditLogs } from "@/services/api";
 import type { AuditLogItem } from "@/types/dba";
 import { StatusBadge } from "@/components/visual/status-badge";
@@ -38,53 +39,70 @@ export default function AuditPage() {
   const [actionFilter, setActionFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(() => toIstDateString());
+  const [appliedFromDate, setAppliedFromDate] = useState("");
+  const [appliedToDate, setAppliedToDate] = useState(() => toIstDateString());
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [hasMore, setHasMore] = useState(true);
+
+  const getSortOrder = (item: AuditLogItem) => {
+    const status = item.status.toLowerCase();
+    const detail = item.detail.toLowerCase();
+    if (status === "pending" || status === "pending_approval" || status === "open") return 0;
+    if (status === "acknowledged") return 1;
+    if (status === "approved") {
+      if (detail.includes("marked approved")) return 2;
+      if (detail.includes("sql approved")) return 3;
+      return 4;
+    }
+    if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
+      return 5;
+    }
+    if (status === "resolved") return 9;
+    return 7;
+  };
+
+  const processAndSortLogs = (items: AuditLogItem[]) => {
+    const mappedItems = items.map(item => ({
+      ...item,
+      actor: item.actor === "n8n" ? "Monitoring Agent" : item.actor
+    }));
+    return mappedItems.sort((a, b) => {
+      const dateA = formatDateTime(a.timestamp);
+      const dateB = formatDateTime(b.timestamp);
+      if (dateA === dateB) {
+        const orderA = getSortOrder(a);
+        const orderB = getSortOrder(b);
+        if (orderA !== orderB) {
+          return orderB - orderA;
+        }
+        const idA = parseInt(a.id.replace("AUD-", ""), 10) || 0;
+        const idB = parseInt(b.id.replace("AUD-", ""), 10) || 0;
+        return idB - idA;
+      }
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
+  };
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const response = await fetchAuditLogs("unlimited");
-        if (!active) return;
-        const getSortOrder = (item: AuditLogItem) => {
-          const status = item.status.toLowerCase();
-          const detail = item.detail.toLowerCase();
-          if (status === "pending" || status === "pending_approval" || status === "open") return 0;
-          if (status === "acknowledged") return 1;
-          if (status === "approved") {
-            if (detail.includes("marked approved")) return 2;
-            if (detail.includes("sql approved")) return 3;
-            return 4;
-          }
-          if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
-            return 5;
-          }
-          if (status === "resolved") return 9;
-          return 7;
-        };
-
-        const mappedItems = (response.items || []).map(item => ({
-          ...item,
-          actor: item.actor === "n8n" ? "Monitoring Agent" : item.actor
-        }));
-
-        const sorted = mappedItems.sort((a, b) => {
-          const dateA = formatDateTime(a.timestamp);
-          const dateB = formatDateTime(b.timestamp);
-          if (dateA === dateB) {
-            const orderA = getSortOrder(a);
-            const orderB = getSortOrder(b);
-            if (orderA !== orderB) {
-              return orderB - orderA;
-            }
-            const idA = parseInt(a.id.replace("AUD-", ""), 10) || 0;
-            const idB = parseInt(b.id.replace("AUD-", ""), 10) || 0;
-            return idB - idA;
-          }
-          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        setLoading(true);
+        const isDateFiltered = appliedFromDate !== "" || appliedToDate !== toIstDateString();
+        const limitVal = isDateFiltered ? "unlimited" : 200;
+        const response = await fetchAuditLogs({
+          limit: limitVal,
+          offset: 0,
+          startDate: appliedFromDate || undefined,
+          endDate: appliedToDate || undefined
         });
+        if (!active) return;
+        
+        const sorted = processAndSortLogs(response.items || []);
         setAuditLogs(sorted);
+        setHasMore(!isDateFiltered && (response.items || []).length === 200);
+        setCurrentPage(1);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load audit logs.";
         toast.error("Could not load audit logs", { description: message });
@@ -96,12 +114,12 @@ export default function AuditPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [appliedFromDate, appliedToDate]);
 
-  // Reset to first page when filters change
+  // Reset to first page when other filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, actorFilter, dbFilter, actionFilter, fromDate, toDate]);
+  }, [searchTerm, statusFilter, actorFilter, dbFilter, actionFilter]);
 
   const uniqueStatuses = Array.from(new Set(auditLogs.map((l) => l.status)));
   const uniqueActors = Array.from(new Set(auditLogs.map((l) => l.actor).filter((actor): actor is string => !!actor)));
@@ -121,12 +139,12 @@ export default function AuditPage() {
     const matchesAction = actionFilter === "all" || item.action === actionFilter;
 
     let matchesDateRange = true;
-    if (fromDate || toDate) {
+    if (appliedFromDate || appliedToDate) {
       const itemDateStr = toIstDateString(parseAppTimestamp(item.timestamp));
-      if (fromDate && itemDateStr < fromDate) {
+      if (appliedFromDate && itemDateStr < appliedFromDate) {
         matchesDateRange = false;
       }
-      if (toDate && itemDateStr > toDate) {
+      if (appliedToDate && itemDateStr > appliedToDate) {
         matchesDateRange = false;
       }
     }
@@ -136,8 +154,39 @@ export default function AuditPage() {
 
   const [sqlCommandOpen, setSqlCommandOpen] = useState<AuditLogItem | null>(null);
 
-  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage) || 1;
   const currentLogs = filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handleNextPage = async () => {
+    if (currentPage === totalPages && hasMore) {
+      try {
+        setLoading(true);
+        const response = await fetchAuditLogs({
+          limit: 200,
+          offset: auditLogs.length
+        });
+        
+        const newSorted = processAndSortLogs(response.items || []);
+        
+        setAuditLogs(prev => {
+          const merged = [...prev, ...newSorted];
+          // Remove duplicates
+          const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
+          return processAndSortLogs(unique);
+        });
+        
+        setHasMore((response.items || []).length === 200);
+        setCurrentPage(p => p + 1);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load more audit logs.";
+        toast.error("Could not load more logs", { description: message });
+      } finally {
+        setLoading(false);
+      }
+    } else if (currentPage < totalPages) {
+      setCurrentPage(p => p + 1);
+    }
+  };
 
   const getStatusType = (status: string) => {
     const s = status.toLowerCase();
@@ -158,8 +207,8 @@ export default function AuditPage() {
       { header: "Detail", value: (row) => row.detail }
     ];
 
-    const periodLabel = fromDate || toDate
-      ? `${fromDate || "Start"} to ${toDate || "End"}`
+    const periodLabel = appliedFromDate || appliedToDate
+      ? `${appliedFromDate || "Start"} to ${appliedToDate || "End"}`
       : "All time";
 
     const activeFilters = [];
@@ -287,9 +336,23 @@ export default function AuditPage() {
               />
             </div>
 
-            {(searchTerm || statusFilter !== "all" || actorFilter !== "all" || dbFilter !== "all" || actionFilter !== "all" || fromDate || toDate !== toIstDateString()) && (
+            <div className="flex items-end pb-[1px]">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setAppliedFromDate(fromDate);
+                  setAppliedToDate(toDate);
+                }}
+                className="h-10 bg-primary/10 hover:bg-primary/20 text-primary"
+              >
+                Apply
+              </Button>
+            </div>
+
+            {(searchTerm || statusFilter !== "all" || actorFilter !== "all" || dbFilter !== "all" || actionFilter !== "all" || appliedFromDate || appliedToDate !== toIstDateString() || fromDate || toDate !== toIstDateString()) && (
               <Button
                 variant="ghost"
+                size="icon"
                 onClick={() => {
                   setSearchTerm("");
                   setStatusFilter("all");
@@ -298,21 +361,21 @@ export default function AuditPage() {
                   setActionFilter("all");
                   setFromDate("");
                   setToDate(toIstDateString());
+                  setAppliedFromDate("");
+                  setAppliedToDate(toIstDateString());
                 }}
-                className="h-10 px-3 text-muted-foreground hover:text-foreground animate-in fade-in duration-200"
+                className="h-10 w-10 text-muted-foreground hover:text-foreground animate-in fade-in duration-200"
+                title="Reset filters"
               >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset
+                <RotateCcw className="h-4 w-4" />
               </Button>
             )}
 
             <div className="ml-auto w-full sm:w-auto flex justify-end mt-2 sm:mt-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="h-10 bg-background">
-                    <Download className="mr-2 h-4 w-4" />
-                    Export Logs
-                    <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
+                  <Button variant="outline" size="icon" className="h-10 w-10 bg-background" title="Export Logs">
+                    <Download className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
@@ -348,11 +411,17 @@ export default function AuditPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    Loading audit logs...
-                  </TableCell>
-                </TableRow>
+                Array.from({ length: 20 }).map((_, index) => (
+                  <TableRow key={`skeleton-${index}`}>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-24 rounded-full" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-full max-w-sm" /></TableCell>
+                    <TableCell><Skeleton className="h-7 w-7 rounded-md" /></TableCell>
+                  </TableRow>
+                ))
               ) : currentLogs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
@@ -428,8 +497,8 @@ export default function AuditPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages && !hasMore}
                 >
                   Next
                 </Button>
