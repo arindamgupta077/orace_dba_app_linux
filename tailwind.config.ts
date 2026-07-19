@@ -73,11 +73,21 @@ const config: Config = {
         scan: {
           "0%": { transform: "translateX(-100%)" },
           "100%": { transform: "translateX(100%)" }
+        },
+        "sp-shimmer": {
+          "0%": { backgroundPosition: "200% 0" },
+          "100%": { backgroundPosition: "-200% 0" }
+        },
+        "sp-glow": {
+          "0%, 100%": { opacity: "0.4", transform: "scale(1)" },
+          "50%": { opacity: "1", transform: "scale(1.5)" }
         }
       },
       animation: {
         "grid-flow": "grid-flow 18s linear infinite",
-        scan: "scan 2.8s ease-in-out infinite"
+        scan: "scan 2.8s ease-in-out infinite",
+        "sp-shimmer": "sp-shimmer 2.5s ease-in-out infinite",
+        "sp-glow": "sp-glow 2s ease-in-out infinite"
       }
     }
   },

@@ -351,7 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
               {!isClient && <NotificationBell />}
               <ThemeToggle />
-              <Button variant="ghost" size="icon" onClick={logout} title="Logout">
+              <Button variant="ghost" size="icon" onClick={logout} title="Sign out" aria-label="Sign out">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>

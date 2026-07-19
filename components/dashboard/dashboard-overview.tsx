@@ -817,8 +817,8 @@ export function DashboardOverview() {
         </div>
 
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
-          {/* Server-side schedule badge */}
-          {serverSchedule && (
+          {/* Server-side schedule badge — hidden for client role */}
+          {user?.role !== "client" && serverSchedule && (
             <button
               onClick={() => setScheduleModalOpen(true)}
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors hover:opacity-80 ${
@@ -849,17 +849,19 @@ export function DashboardOverview() {
             {refreshing ? "Collecting…" : "Refresh"}
           </Button>
 
-          {/* Schedule button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setScheduleModalOpen(true)}
-            className="gap-1.5"
-            title="Configure server-side scheduled refresh"
-          >
-            <Calendar className="h-3.5 w-3.5" />
-            Schedule
-          </Button>
+          {/* Schedule button — hidden for client role */}
+          {user?.role !== "client" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setScheduleModalOpen(true)}
+              className="gap-1.5"
+              title="Configure server-side scheduled refresh"
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              Schedule
+            </Button>
+          )}
 
           <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m}>
             <FileDown className="h-3.5 w-3.5" />

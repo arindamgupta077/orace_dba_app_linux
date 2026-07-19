@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
   title: string;
@@ -8,9 +9,10 @@ interface PageHeaderProps {
   actionLabel?: string;
   onAction?: () => void;
   actionDisabled?: boolean;
+  descriptionClassName?: string;
 }
 
-export function PageHeader({ title, description, icon: Icon, actionLabel, onAction, actionDisabled }: PageHeaderProps) {
+export function PageHeader({ title, description, icon: Icon, actionLabel, onAction, actionDisabled, descriptionClassName }: PageHeaderProps) {
   return (
     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div className="flex items-start gap-3">
@@ -19,7 +21,7 @@ export function PageHeader({ title, description, icon: Icon, actionLabel, onActi
         </span>
         <div>
           <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
+          <p className={cn("mt-1 max-w-3xl text-sm text-muted-foreground", descriptionClassName)}>{description}</p>
         </div>
       </div>
       {actionLabel && onAction ? (

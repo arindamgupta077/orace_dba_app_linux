@@ -975,11 +975,11 @@ export interface ShiftReportSessionRow {
 
 export interface ShiftReportCoverageRow {
   shift_date: string;
-  shift_number: number;
-  expected_dbas: number;
-  actual_dbas: number;
+  covered_minutes: number;
+  gap_minutes: number;
   coverage_pct: number;
-  late_logins: number;
+  /** Which of the 3 shifts had zero logins — e.g. [3] means Shift 3 had no DBA */
+  uncovered_shifts: number[];
 }
 
 export interface ShiftReportData {

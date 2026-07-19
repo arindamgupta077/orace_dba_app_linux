@@ -327,11 +327,10 @@ export function ShiftReportSection() {
       case "coverage": {
         const cols: ExportColumn<ShiftReportData["coverage"][number]>[] = [
           { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Expected DBAs", value: (r) => r.expected_dbas },
-          { header: "Actual DBAs", value: (r) => r.actual_dbas },
+          { header: "Covered (min)", value: (r) => r.covered_minutes },
+          { header: "Gap (min)", value: (r) => r.gap_minutes },
           { header: "Coverage %", value: (r) => r.coverage_pct },
-          { header: "Late Logins", value: (r) => r.late_logins }
+          { header: "Uncovered Shifts", value: (r) => r.uncovered_shifts.length > 0 ? r.uncovered_shifts.map((sn) => `Shift ${sn}`).join(", ") : "—" }
         ];
         exportDataset(format, cols, report.coverage, baseMeta("Shift Coverage"));
         break;
@@ -525,42 +524,52 @@ export function ShiftReportSection() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
-                      <TableHead>Shift</TableHead>
-                      <TableHead>Expected</TableHead>
-                      <TableHead>Actual</TableHead>
+                      <TableHead>Covered</TableHead>
+                      <TableHead>Gap</TableHead>
                       <TableHead>Coverage</TableHead>
-                      <TableHead>Late</TableHead>
+                      <TableHead>Uncovered Shifts</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {report.coverage.slice(0, 30).map((c, i) => (
-                      <TableRow key={`${c.shift_date}-${c.shift_number}-${i}`}>
-                        <TableCell className="font-medium">{c.shift_date}</TableCell>
-                        <TableCell>Shift {c.shift_number}</TableCell>
-                        <TableCell>{c.expected_dbas}</TableCell>
-                        <TableCell>{c.actual_dbas}</TableCell>
-                        <TableCell>
-                          <Badge className={cn(
-                            c.coverage_pct >= 100
-                              ? "border-green-500/30 bg-green-500/10 text-green-300"
-                              : c.coverage_pct >= 50
-                                ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                                : "border-red-500/30 bg-red-500/10 text-red-300"
-                          )}>
-                            {c.coverage_pct}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {c.late_logins > 0 ? (
-                            <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-300">
-                              {c.late_logins}
+                    {report.coverage.slice(0, 30).map((c, i) => {
+                      const covH = Math.floor(c.covered_minutes / 60);
+                      const covM = c.covered_minutes % 60;
+                      const gapH = Math.floor(c.gap_minutes / 60);
+                      const gapM = c.gap_minutes % 60;
+                      return (
+                        <TableRow key={`${c.shift_date}-${i}`}>
+                          <TableCell className="font-medium">{c.shift_date}</TableCell>
+                          <TableCell>{covH}h {covM}m</TableCell>
+                          <TableCell>
+                            {c.gap_minutes > 0 ? (
+                              <span className="text-amber-300">{gapH}h {gapM}m</span>
+                            ) : (
+                              <span className="text-muted-foreground">0</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn(
+                              c.coverage_pct >= 100
+                                ? "border-green-500/30 bg-green-500/10 text-green-300"
+                                : c.coverage_pct >= 50
+                                  ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                  : "border-red-500/30 bg-red-500/10 text-red-300"
+                            )}>
+                              {c.coverage_pct}%
                             </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">0</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell>
+                            {c.uncovered_shifts.length > 0 ? (
+                              <Badge className="border-red-500/30 bg-red-500/10 text-red-300">
+                                {c.uncovered_shifts.map((sn) => `Shift ${sn}`).join(", ")}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -952,7 +961,9 @@ export function ShiftReportSection() {
                       </TableCell>
                       <TableCell>
                         <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-300">
-                          +{l.minutes_late}m
+                          +{Math.floor(l.minutes_late / 60) > 0
+                            ? `${Math.floor(l.minutes_late / 60)}h ${l.minutes_late % 60}m`
+                            : `${l.minutes_late}m`}
                         </Badge>
                       </TableCell>
                     </TableRow>

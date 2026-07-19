@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bot, CheckCircle2, Clock3, Download, FileUp, Loader2, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Clock3, Download, FileUp, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -14,16 +14,44 @@ import { formatAppDateTime } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { SecurityPostureProcessingStatus, SecurityPostureReport } from "@/types/dba";
 
-const statusIcon: Record<SecurityPostureProcessingStatus, { Icon: typeof Clock3; className: string; label: string }> = {
-  UPLOADED: { Icon: Clock3, className: "text-slate-400", label: "Report uploaded" },
-  PROCESSING: { Icon: Loader2, className: "animate-spin text-cyan-400", label: "Processing report" },
-  COMPLETED: { Icon: CheckCircle2, className: "text-emerald-400", label: "Report processing completed" },
-  FAILED: { Icon: XCircle, className: "text-red-400", label: "Report processing failed" }
-};
+/* ------------------------------------------------------------------ */
+/*  Status indicator components                                        */
+/* ------------------------------------------------------------------ */
 
-function ProcessingStatusIcon({ status }: { status: SecurityPostureProcessingStatus }) {
-  const { Icon, className, label } = statusIcon[status];
-  return <span className="shrink-0" aria-label={label} title={label}><Icon className={`h-4 w-4 ${className}`} /></span>;
+/** Compact inline badge shown while AI is processing the report. */
+function ProcessingBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-sp-glow rounded-full bg-cyan-400" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
+      </span>
+      <Loader2 className="h-3 w-3 animate-spin text-cyan-400" />
+      <span className="text-[10px] font-semibold tracking-wide text-cyan-300">AI Processing</span>
+    </span>
+  );
+}
+
+/** Compact inline badge shown when AI summary is ready. */
+function CompletedBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5">
+      <Sparkles className="h-3 w-3 text-emerald-400" />
+      <span className="text-[10px] font-semibold tracking-wide text-emerald-300">AI Summary Ready</span>
+    </span>
+  );
+}
+
+/** Simple icon for UPLOADED / FAILED states. */
+function StatusIcon({ status }: { status: SecurityPostureProcessingStatus }) {
+  const map: Record<SecurityPostureProcessingStatus, { Icon: typeof Clock3; cls: string; label: string }> = {
+    UPLOADED: { Icon: Clock3, cls: "text-slate-400", label: "Report uploaded" },
+    PROCESSING: { Icon: Loader2, cls: "animate-spin text-cyan-400", label: "AI processing in progress" },
+    COMPLETED: { Icon: CheckCircle2, cls: "text-emerald-400", label: "Report processing completed" },
+    FAILED: { Icon: XCircle, cls: "text-red-400", label: "Report processing failed" }
+  };
+  const { Icon, cls, label } = map[status];
+  return <span className="shrink-0" aria-label={label} title={label}><Icon className={`h-4 w-4 ${cls}`} /></span>;
 }
 
 function formatDate(value?: string) {
@@ -70,6 +98,10 @@ function SummaryContent({ summary }: { summary?: string }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Main card                                                          */
+/* ------------------------------------------------------------------ */
+
 export function SecurityPostureCard() {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const user = useAppStore((state) => state.user);
@@ -78,6 +110,9 @@ export function SecurityPostureCard() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+
+  // Track the previous processing status so we can fire a toast on transition.
+  const prevStatusRef = useRef<SecurityPostureProcessingStatus | null>(null);
 
   const loadReport = useCallback(async (quiet = false) => {
     if (!selectedDb) return setReport(null);
@@ -96,9 +131,31 @@ export function SecurityPostureCard() {
   }, [selectedDb]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
+
+  // Detect status transitions and notify the user.
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = report?.processing_status ?? null;
+    if (prev && curr && prev !== curr) {
+      if (curr === "PROCESSING") {
+        toast.info("AI is now analysing the Nessus report…");
+      } else if (curr === "COMPLETED") {
+        toast.success("AI security summary is ready.", { icon: "✨" });
+      } else if (curr === "FAILED") {
+        toast.error(report?.error_message || "AI summary generation failed.");
+      }
+    }
+    prevStatusRef.current = curr;
+  }, [report]);
+
+  const isProcessing = report?.processing_status === "PROCESSING";
+
   useEffect(() => {
     if (!report || !["UPLOADED", "PROCESSING"].includes(report.processing_status)) return;
-    const timer = window.setInterval(() => void loadReport(true), 10_000);
+    // Poll faster (3s) when UPLOADED — waiting for n8n to flip to PROCESSING.
+    // Once PROCESSING, poll at 8s — just waiting for completion.
+    const interval = report.processing_status === "UPLOADED" ? 3_000 : 8_000;
+    const timer = window.setInterval(() => void loadReport(true), interval);
     return () => window.clearInterval(timer);
   }, [loadReport, report]);
 
@@ -129,24 +186,65 @@ export function SecurityPostureCard() {
   const isOutdated = report ? Date.now() - new Date(report.uploaded_at).getTime() > SECURITY_POSTURE_OUTDATED_AFTER_MS : false;
   const canUpload = user?.role === "client";
 
+  /* ---------- Status-dependent inline indicator ---------- */
+  const statusIndicator = (() => {
+    if (loading) return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />;
+    if (!report) return <span className="truncate text-[11px] text-muted-foreground">No active report</span>;
+    if (report.processing_status === "PROCESSING") return <ProcessingBadge />;
+    if (report.processing_status === "COMPLETED") return <StatusIcon status={report.processing_status} />;
+    return <StatusIcon status={report.processing_status} />;
+  })();
+
+  /* ---------- Card wrapper — shimmer border when processing ---------- */
+  const cardContent = (
+    <section
+      className={[
+        "flex w-fit max-w-full flex-wrap items-center gap-4 rounded-xl border px-3 py-2 sm:flex-nowrap transition-all duration-500",
+        isProcessing
+          ? "border-cyan-500/25 bg-gradient-to-r from-cyan-500/[0.04] via-transparent to-cyan-500/[0.04] shadow-[0_0_20px_rgba(34,211,238,0.08)]"
+          : "border-violet-400/20 bg-violet-500/[0.04] shadow-[0_0_16px_rgba(139,92,246,0.06)]"
+      ].join(" ")}
+      aria-label="Security Posture Management"
+    >
+      <div className="flex min-w-0 shrink items-center gap-2">
+        <span className={`shrink-0 rounded-md border p-1 transition-colors duration-500 ${isProcessing ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-300" : "border-violet-400/25 bg-violet-400/10 text-violet-300"}`}>
+          <ShieldCheck className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0 leading-tight"><p className="text-xs font-semibold text-foreground">Security Posture</p><p className="text-[10px] text-muted-foreground">Nessus scan report</p></div>
+        {statusIndicator}
+        {report && isOutdated && <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-400/60 bg-red-500/20 px-1.5 text-[9px] font-bold text-red-200 shadow-[0_0_10px_rgba(239,68,68,0.4)] motion-safe:animate-pulse"><AlertTriangle className="h-2.5 w-2.5 motion-safe:animate-bounce" />Outdated</span>}
+      </div>
+      <div className="min-w-0 flex-1 text-[10px] text-muted-foreground sm:order-2">
+        {report ? <span className="block truncate">Uploaded {formatDate(report.uploaded_at)} by {report.uploaded_by}</span> : <span className="block truncate">Select a report to begin AI security analysis.</span>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 sm:order-3">
+        {report && <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSummaryOpen(true)} aria-label="Open AI security summary" title="AI Summary"><Bot className="h-3.5 w-3.5" /></Button>}
+        {canUpload && <><Input ref={inputRef} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => void upload(event.target.files?.[0])} /><Button size="icon" variant="outline" className="h-7 w-7" onClick={() => inputRef.current?.click()} disabled={!selectedDb || uploading} aria-label="Upload Nessus scan report" title="Upload report">{uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}</Button></>}
+        {report && <Button size="icon" variant="outline" className="h-7 w-7" aria-label="Download Nessus scan report" title="Download report" asChild><a href={`/api/security-posture/${report.id}/download`}><Download className="h-3.5 w-3.5" /></a></Button>}
+      </div>
+    </section>
+  );
+
   return (
     <>
-      <section className="flex w-full max-w-[640px] flex-wrap items-center gap-2 rounded-xl border border-violet-400/20 bg-violet-500/[0.04] px-3 py-2 shadow-[0_0_16px_rgba(139,92,246,0.06)] sm:flex-nowrap" aria-label="Security Posture Management">
-        <div className="flex min-w-0 shrink items-center gap-2">
-          <span className="shrink-0 rounded-md border border-violet-400/25 bg-violet-400/10 p-1 text-violet-300"><ShieldCheck className="h-3.5 w-3.5" /></span>
-          <div className="min-w-0 leading-tight"><p className="text-xs font-semibold text-foreground">Security Posture</p><p className="text-[10px] text-muted-foreground">Nessus scan report</p></div>
-          {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : report ? <ProcessingStatusIcon status={report.processing_status} /> : <span className="truncate text-[11px] text-muted-foreground">No active report</span>}
-          {report && isOutdated && <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-400/60 bg-red-500/20 px-1.5 text-[9px] font-bold text-red-200 shadow-[0_0_10px_rgba(239,68,68,0.4)] motion-safe:animate-pulse"><AlertTriangle className="h-2.5 w-2.5 motion-safe:animate-bounce" />Outdated</span>}
+      {/* During processing, wrap the card in a shimmer-border container */}
+      {isProcessing ? (
+        <div className="relative w-fit rounded-[13px] p-px" aria-hidden="false">
+          {/* Animated gradient border */}
+          <div
+            className="pointer-events-none absolute inset-0 rounded-[13px] animate-sp-shimmer"
+            style={{
+              background: "linear-gradient(90deg, transparent 0%, rgba(34,211,238,0.25) 25%, rgba(139,92,246,0.2) 50%, rgba(34,211,238,0.25) 75%, transparent 100%)",
+              backgroundSize: "200% 100%",
+              mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+              maskComposite: "exclude",
+              WebkitMaskComposite: "xor",
+              padding: "1.5px"
+            }}
+          />
+          {cardContent}
         </div>
-        <div className="min-w-0 flex-1 text-[10px] text-muted-foreground sm:order-2">
-          {report ? <span className="block truncate">Uploaded {formatDate(report.uploaded_at)} by {report.uploaded_by}</span> : <span className="block truncate">Select a report to begin AI security analysis.</span>}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 sm:order-3">
-          {report && <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSummaryOpen(true)} aria-label="Open AI security summary" title="AI Summary"><Bot className="h-3.5 w-3.5" /></Button>}
-          {canUpload && <><Input ref={inputRef} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => void upload(event.target.files?.[0])} /><Button size="icon" variant="outline" className="h-7 w-7" onClick={() => inputRef.current?.click()} disabled={!selectedDb || uploading} aria-label="Upload Nessus scan report" title="Upload report">{uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}</Button></>}
-          {report && <Button size="icon" variant="outline" className="h-7 w-7" aria-label="Download Nessus scan report" title="Download report" asChild><a href={`/api/security-posture/${report.id}/download`}><Download className="h-3.5 w-3.5" /></a></Button>}
-        </div>
-      </section>
+      ) : cardContent}
 
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
         <DialogContent className="max-w-4xl">

@@ -18,6 +18,7 @@ export default async function ShiftReportPage() {
       <PageHeader
         title="Shift Report"
         description="Manager-grade operational dashboard: shift coverage, checklist compliance, exceptions, and audit-ready PDF/Excel exports (login/logout, checklists, handovers)."
+        descriptionClassName="max-w-none whitespace-nowrap"
         icon={BarChart3}
       />
       <ShiftReportSection />
