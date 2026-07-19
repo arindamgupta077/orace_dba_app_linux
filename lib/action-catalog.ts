@@ -602,6 +602,24 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
         placeholder: "SELECT SYSDATE FROM DUAL;"
       }
     ]
+  },
+
+  // ── Dashboard Drilldown ───────────────────────────────────
+  {
+    action: "fetch_failed_jobs",
+    title: "Fetch Failed Jobs",
+    description: "Fetch top failed scheduler jobs from dba_scheduler_job_run_details grouped by owner and job name.",
+    category: "dashboard",
+    icon: "AlertTriangle",
+    params: []
+  },
+  {
+    action: "invalid_obejcts",
+    title: "Fetch Invalid Objects",
+    description: "Fetch all invalid objects from dba_objects ordered by owner, object_type and object_name.",
+    category: "dashboard",
+    icon: "Layers",
+    params: []
   }
 ];
 

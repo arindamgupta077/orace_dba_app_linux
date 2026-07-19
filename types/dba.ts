@@ -87,6 +87,7 @@ export type DbaAction =
   | "top_sql"
   | "invalid_objects"
   | "invalid_obejcts"
+  | "fetch_failed_jobs"
   | "cpu_usage"
   | "wait_events"
   | "SESSION_LONGOPS"

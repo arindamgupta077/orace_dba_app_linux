@@ -49,6 +49,40 @@ const SUGGESTED_PROMPTS = [
 const POLL_INTERVAL_MS = 1500;
 
 // ---------------------------------------------------------------------------
+// SessionStorage helpers — persist chat across page navigation, clear on
+// hard refresh (sessionStorage is scoped to the browser tab lifecycle).
+// ---------------------------------------------------------------------------
+
+const CHAT_STORAGE_PREFIX = "dba_chat_messages_";
+
+function saveChatToSession(dbName: string, messages: ChatMessage[]) {
+  try {
+    const serializable = messages.map((m) => ({
+      ...m,
+      timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+    }));
+    sessionStorage.setItem(CHAT_STORAGE_PREFIX + dbName, JSON.stringify(serializable));
+  } catch {
+    // storage full or unavailable — silently ignore
+  }
+}
+
+function loadChatFromSession(dbName: string): ChatMessage[] | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_STORAGE_PREFIX + dbName);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ChatMessage[];
+    // Re-hydrate Date objects
+    return parsed.map((m) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -399,9 +433,11 @@ export function ChatWithDb() {
   const dbTarget = databases.find((db) => db.name === selectedDb);
 
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    buildWelcomeMessage(selectedDb, dbTarget)
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    // Restore from sessionStorage if available (survives page navigation)
+    const cached = loadChatFromSession(selectedDb);
+    return cached && cached.length > 0 ? cached : [buildWelcomeMessage(selectedDb, dbTarget)];
+  });
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -448,6 +484,13 @@ export function ChatWithDb() {
   }, [messages, selectedDb]);
 
   // ---------------------------------------------------------------------------
+  // Persist messages to sessionStorage whenever they change
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    saveChatToSession(selectedDb, messages);
+  }, [messages, selectedDb]);
+
+  // ---------------------------------------------------------------------------
   // Fix #1 — Reset chat session immediately when DB changes
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -463,7 +506,9 @@ export function ChatWithDb() {
       setIsLoading(false);
       setInput("");
       const newDbTarget = databases.find((db) => db.name === selectedDb);
-      setMessages([buildWelcomeMessage(selectedDb, newDbTarget)]);
+      // Try to restore from sessionStorage for this DB, otherwise fresh welcome
+      const cached = loadChatFromSession(selectedDb);
+      setMessages(cached && cached.length > 0 ? cached : [buildWelcomeMessage(selectedDb, newDbTarget)]);
     }
   }, [databases, selectedDb]);
 
@@ -867,9 +912,11 @@ export function ChatWithDb() {
               {messages.length > 1 && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setMessages([buildWelcomeMessage(selectedDb, dbTarget)])
-                  }
+                  onClick={() => {
+                    setMessages([buildWelcomeMessage(selectedDb, dbTarget)]);
+                    // Also clear sessionStorage for this DB
+                    try { sessionStorage.removeItem(CHAT_STORAGE_PREFIX + selectedDb); } catch {}
+                  }}
                   className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600 transition hover:text-amber-600 dark:hover:text-amber-400"
                 >
                   <X className="h-3 w-3" />

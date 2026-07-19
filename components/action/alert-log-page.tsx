@@ -43,6 +43,34 @@ import type {
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SessionStorage helpers — persist AI analysis across page navigation, clear
+// on hard refresh (sessionStorage is scoped to the browser tab lifecycle).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AI_ANALYSIS_PREFIX = "dba_alert_ai_";
+
+function saveAiAnalysisToSession(sectionKey: string, db: string, analysis: string | null) {
+  try {
+    const key = `${AI_ANALYSIS_PREFIX}${sectionKey}_${db}`;
+    if (analysis) {
+      sessionStorage.setItem(key, analysis);
+    } else {
+      sessionStorage.removeItem(key);
+    }
+  } catch {
+    // storage unavailable — silently ignore
+  }
+}
+
+function loadAiAnalysisFromSession(sectionKey: string, db: string): string | null {
+  try {
+    return sessionStorage.getItem(`${AI_ANALYSIS_PREFIX}${sectionKey}_${db}`);
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -934,7 +962,9 @@ function Section2() {
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(() =>
+    loadAiAnalysisFromSession("s2_time", selectedDb)
+  );
 
   // Helper: convert datetime-local value → "YYYY-MM-DD HH:MM:SS" (no timezone suffix)
   function toOraFormat(val: string) {
@@ -992,6 +1022,11 @@ function Section2() {
       setAiLoading(false);
     }
   };
+
+  // Persist AI analysis to sessionStorage whenever it changes
+  useEffect(() => {
+    saveAiAnalysisToSession("s2_time", selectedDb, aiAnalysis);
+  }, [aiAnalysis, selectedDb]);
 
   const displayRows = oraFilter
     ? rows.filter((r) => containsOra(r.message_text))
@@ -1258,7 +1293,9 @@ function Section3() {
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(() =>
+    loadAiAnalysisFromSession("s3_lines", selectedDb)
+  );
 
   const handleExecute = async () => {
     if (!lineCount || lineCount < 1) {
@@ -1308,6 +1345,11 @@ function Section3() {
       setAiLoading(false);
     }
   };
+
+  // Persist AI analysis to sessionStorage whenever it changes
+  useEffect(() => {
+    saveAiAnalysisToSession("s3_lines", selectedDb, aiAnalysis);
+  }, [aiAnalysis, selectedDb]);
 
   // Apply ORA filter: split lines and filter those containing ORA-xxxxx
   const lines = output?.split("\n") ?? [];

@@ -39,6 +39,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScheduleModal } from "@/components/dashboard/schedule-modal";
 import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
+import { FailedJobsModal } from "@/components/dashboard/failed-jobs-modal";
+import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardHistory } from "@/services/api";
@@ -572,6 +574,8 @@ export function DashboardOverview() {
   const [error, setError]                   = useState<string | null>(null);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
+  const [failedJobsModalOpen, setFailedJobsModalOpen]       = useState(false);
+  const [invalidObjectsModalOpen, setInvalidObjectsModalOpen] = useState(false);
 
   const dbTarget  = databases.find((db) => db.name === selectedDb);
   const prevDb    = useRef(selectedDb);
@@ -1104,6 +1108,7 @@ export function DashboardOverview() {
                   value={m.failed_jobs}
                   sub="Scheduler job failures"
                   variant={m.failed_jobs > 0 ? "warning" : "healthy"}
+                  onClick={() => setFailedJobsModalOpen(true)}
                 />
                 <KpiTile
                   icon={Layers}
@@ -1111,6 +1116,7 @@ export function DashboardOverview() {
                   value={m.invalid_objects}
                   sub="PL/SQL, views, triggers"
                   variant={m.invalid_objects > 10 ? "warning" : m.invalid_objects > 0 ? "neutral" : "healthy"}
+                  onClick={() => setInvalidObjectsModalOpen(true)}
                 />
                 <KpiTile
                   icon={Shield}
@@ -1419,6 +1425,20 @@ export function DashboardOverview() {
           setScheduleModalOpen(false);
           loadServerSchedule(selectedDb);
         }}
+        selectedDb={selectedDb}
+      />
+
+      {/* ── Failed Jobs Modal ────────────────────────────────────────── */}
+      <FailedJobsModal
+        open={failedJobsModalOpen}
+        onClose={() => setFailedJobsModalOpen(false)}
+        selectedDb={selectedDb}
+      />
+
+      {/* ── Invalid Objects Modal ────────────────────────────────────── */}
+      <InvalidObjectsModal
+        open={invalidObjectsModalOpen}
+        onClose={() => setInvalidObjectsModalOpen(false)}
         selectedDb={selectedDb}
       />
     </div>
