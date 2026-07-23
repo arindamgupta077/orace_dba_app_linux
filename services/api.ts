@@ -658,15 +658,45 @@ export async function fetchShiftReport(filters: ShiftReportFilters): Promise<{ r
 
 export async function fetchApprovalRequests(params: {
   status?: string;
+  search?: string;
+  action?: string;
+  dbName?: string;
+  requester?: string;
+  fromDate?: string;
+  toDate?: string;
   limit?: number;
   offset?: number;
-} = {}): Promise<{ items: ApprovalRequest[]; total: number }> {
+} = {}): Promise<{
+  items: ApprovalRequest[];
+  total: number;
+  counts?: { pending: number; approved: number; rejected: number };
+  options?: {
+    actions: string[];
+    databases: string[];
+    requesters: string[];
+  };
+}> {
   const query = new URLSearchParams();
-  if (params.status) query.set("status", params.status);
-  if (params.limit)  query.set("limit",  String(params.limit));
+  if (params.status)    query.set("status",    params.status);
+  if (params.search)    query.set("search",    params.search);
+  if (params.action)    query.set("action",    params.action);
+  if (params.dbName)    query.set("dbName",    params.dbName);
+  if (params.requester) query.set("requester", params.requester);
+  if (params.fromDate)  query.set("fromDate",  params.fromDate);
+  if (params.toDate)    query.set("toDate",    params.toDate);
+  if (params.limit)     query.set("limit",     String(params.limit));
   if (typeof params.offset === "number") query.set("offset", String(params.offset));
   const suffix = query.size ? `?${query.toString()}` : "";
-  return requestJson<{ items: ApprovalRequest[]; total: number }>(`/api/admin/approvals${suffix}`);
+  return requestJson<{
+    items: ApprovalRequest[];
+    total: number;
+    counts?: { pending: number; approved: number; rejected: number };
+    options?: {
+      actions: string[];
+      databases: string[];
+      requesters: string[];
+    };
+  }>(`/api/admin/approvals${suffix}`);
 }
 
 export async function fetchApprovalDetail(id: string): Promise<{

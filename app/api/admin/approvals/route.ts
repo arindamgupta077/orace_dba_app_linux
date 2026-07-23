@@ -17,9 +17,15 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const status  = searchParams.get("status")  || undefined;
-  const limit   = Number(searchParams.get("limit")  || 50);
-  const offset  = Number(searchParams.get("offset") || 0);
+  const status    = searchParams.get("status")    || undefined;
+  const search    = searchParams.get("search")    || undefined;
+  const action    = searchParams.get("action")    || undefined;
+  const dbName    = searchParams.get("dbName")    || undefined;
+  const requester = searchParams.get("requester") || undefined;
+  const fromDate  = searchParams.get("fromDate")  || undefined;
+  const toDate    = searchParams.get("toDate")    || undefined;
+  const limit     = Number(searchParams.get("limit")  || 50);
+  const offset    = Number(searchParams.get("offset") || 0);
   const countOnly = searchParams.get("countOnly") === "1";
 
   try {
@@ -29,7 +35,18 @@ export async function GET(request: Request) {
     }
 
     const requesterUserId = session.user.role === "dba_admin" ? session.userId : undefined;
-    const result = await listApprovalRequests({ status, limit, offset, requesterUserId });
+    const result = await listApprovalRequests({
+      status,
+      search,
+      action,
+      dbName,
+      requester,
+      fromDate,
+      toDate,
+      limit,
+      offset,
+      requesterUserId
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch approval requests.";

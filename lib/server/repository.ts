@@ -5485,10 +5485,25 @@ export async function getApprovalWebhookPayload(requestId: string): Promise<stri
 
 export async function listApprovalRequests(input: {
   status?: string;
+  search?: string;
+  action?: string;
+  dbName?: string;
+  requester?: string;
+  fromDate?: string;
+  toDate?: string;
   limit?: number;
   offset?: number;
   requesterUserId?: number;
-}): Promise<{ items: ApprovalRequest[]; total: number }> {
+}): Promise<{
+  items: ApprovalRequest[];
+  total: number;
+  counts: { pending: number; approved: number; rejected: number };
+  options: {
+    actions: string[];
+    databases: string[];
+    requesters: string[];
+  };
+}> {
   const limit  = Math.min(Math.max(input.limit  ?? 50, 1), 500);
   const offset = Math.max(input.offset ?? 0, 0);
 
@@ -5510,6 +5525,45 @@ export async function listApprovalRequests(input: {
         (countBinds as Record<string, unknown>).requesterUserId = input.requesterUserId;
       }
 
+      if (input.search && input.search.trim()) {
+        const term = `%${input.search.trim().toLowerCase()}%`;
+        conditions.push(
+          `(LOWER(r.display_name) LIKE :searchTerm OR LOWER(r.action_name) LIKE :searchTerm OR LOWER(r.db_name) LIKE :searchTerm OR LOWER(r.requester_username) LIKE :searchTerm OR LOWER(r.environment) LIKE :searchTerm)`
+        );
+        (queryBinds as Record<string, unknown>).searchTerm = term;
+        (countBinds as Record<string, unknown>).searchTerm = term;
+      }
+
+      if (input.action && input.action.trim()) {
+        conditions.push(`(UPPER(r.action_name) = UPPER(:actionVal) OR UPPER(r.display_name) = UPPER(:actionVal))`);
+        (queryBinds as Record<string, unknown>).actionVal = input.action.trim();
+        (countBinds as Record<string, unknown>).actionVal = input.action.trim();
+      }
+
+      if (input.dbName && input.dbName.trim()) {
+        conditions.push(`UPPER(r.db_name) = UPPER(:dbNameVal)`);
+        (queryBinds as Record<string, unknown>).dbNameVal = input.dbName.trim();
+        (countBinds as Record<string, unknown>).dbNameVal = input.dbName.trim();
+      }
+
+      if (input.requester && input.requester.trim()) {
+        conditions.push(`UPPER(r.requester_username) = UPPER(:requesterVal)`);
+        (queryBinds as Record<string, unknown>).requesterVal = input.requester.trim();
+        (countBinds as Record<string, unknown>).requesterVal = input.requester.trim();
+      }
+
+      if (input.fromDate && input.fromDate.trim()) {
+        conditions.push(`r.created_at >= TO_TIMESTAMP(:fromDateVal || ' 00:00:00', 'YYYY-MM-DD HH24:MI:SS')`);
+        (queryBinds as Record<string, unknown>).fromDateVal = input.fromDate.trim();
+        (countBinds as Record<string, unknown>).fromDateVal = input.fromDate.trim();
+      }
+
+      if (input.toDate && input.toDate.trim()) {
+        conditions.push(`r.created_at <= TO_TIMESTAMP(:toDateVal || ' 23:59:59', 'YYYY-MM-DD HH24:MI:SS')`);
+        (queryBinds as Record<string, unknown>).toDateVal = input.toDate.trim();
+        (countBinds as Record<string, unknown>).toDateVal = input.toDate.trim();
+      }
+
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ``;
 
       const countResult = await connection.execute<DbRow>(
@@ -5517,6 +5571,39 @@ export async function listApprovalRequests(input: {
         countBinds
       );
       const total = Number(countResult.rows?.[0]?.TOTAL ?? 0);
+
+      const countsResult = await connection.execute<DbRow>(
+        `SELECT
+           SUM(CASE WHEN request_status = 'pending' THEN 1 ELSE 0 END) AS pending_cnt,
+           SUM(CASE WHEN request_status = 'approved' THEN 1 ELSE 0 END) AS approved_cnt,
+           SUM(CASE WHEN request_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_cnt
+         FROM app_approval_requests`
+      );
+      const countsRow = countsResult.rows?.[0] ?? {};
+      const counts = {
+        pending: Number(countsRow.PENDING_CNT ?? 0),
+        approved: Number(countsRow.APPROVED_CNT ?? 0),
+        rejected: Number(countsRow.REJECTED_CNT ?? 0)
+      };
+
+      const optionsResult = await connection.execute<DbRow>(
+        `SELECT DISTINCT display_name, db_name, requester_username FROM app_approval_requests`
+      );
+      const actionsSet = new Set<string>();
+      const dbsSet = new Set<string>();
+      const requestersSet = new Set<string>();
+
+      (optionsResult.rows ?? []).forEach((row) => {
+        if (row.DISPLAY_NAME) actionsSet.add(String(row.DISPLAY_NAME));
+        if (row.DB_NAME) dbsSet.add(String(row.DB_NAME));
+        if (row.REQUESTER_USERNAME) requestersSet.add(String(row.REQUESTER_USERNAME));
+      });
+
+      const options = {
+        actions: Array.from(actionsSet).sort(),
+        databases: Array.from(dbsSet).sort(),
+        requesters: Array.from(requestersSet).sort()
+      };
 
       const result = await connection.execute<DbRow>(
         `${APPROVAL_SELECT}
@@ -5528,9 +5615,14 @@ export async function listApprovalRequests(input: {
         queryBinds
       );
 
-      return { items: (result.rows ?? []).map(mapApprovalRow), total };
+      return { items: (result.rows ?? []).map(mapApprovalRow), total, counts, options };
     } catch (error) {
-      if (isOracleMissingTableError(error)) return { items: [], total: 0 };
+      if (isOracleMissingTableError(error)) return {
+        items: [],
+        total: 0,
+        counts: { pending: 0, approved: 0, rejected: 0 },
+        options: { actions: [], databases: [], requesters: [] }
+      };
       throw error;
     }
   });
