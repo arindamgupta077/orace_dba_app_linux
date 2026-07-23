@@ -19,10 +19,18 @@ import { pendingApprovals, pruneOldApprovals } from "@/lib/server/chat-approval-
 import type { ChatApprovalCallbackPayload } from "@/types/dba";
 
 export async function POST(request: Request) {
-  let body: ChatApprovalCallbackPayload;
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as ChatApprovalCallbackPayload;
+    rawBody = await request.json();
   } catch {
+    return NextResponse.json({ message: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const body = (
+    Array.isArray(rawBody) ? rawBody[0] : rawBody
+  ) as ChatApprovalCallbackPayload | undefined;
+
+  if (!body || typeof body !== "object") {
     return NextResponse.json({ message: "Invalid JSON body." }, { status: 400 });
   }
 

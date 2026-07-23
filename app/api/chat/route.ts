@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getDatabaseTargetByName } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
+import { pendingApprovals, pruneOldApprovals } from "@/lib/server/chat-approval-store";
 import type { ChatBotPayload } from "@/types/dba";
 
 interface RequestBody {
@@ -87,6 +88,17 @@ export async function POST(request: Request) {
         { message: `n8n webhook failed (${response.status}): ${message}` },
         { status: 502 }
       );
+    }
+
+    // Check if n8n triggered the approval flow and stored a pending approval request
+    pruneOldApprovals();
+    const pending = pendingApprovals.get(sessionId);
+    if (pending) {
+      return NextResponse.json({
+        status: "pending",
+        session_id: sessionId,
+        sql_query: pending.sqlQuery
+      });
     }
 
     // n8n responds with the humanised text from the final LLM node.

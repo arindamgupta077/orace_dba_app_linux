@@ -621,14 +621,62 @@ export function ChatWithDb() {
           throw new Error(err.message || `HTTP ${response.status}`);
         }
 
-        const data = (await response.json()) as { reply?: string };
-        const reply = data.reply || "No response received from the AI.";
+        const data = (await response.json()) as {
+          status?: string;
+          reply?: string;
+          sql_query?: string;
+        };
 
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: reply, status: "done" } : m
-          )
-        );
+        stopPolling();
+        setPollingSessionId(null);
+
+        // Check if n8n sent this query for approval (either returned by /api/chat or in pending store)
+        let pendingSqlQuery = data.status === "pending" ? data.sql_query : undefined;
+
+        if (!pendingSqlQuery) {
+          try {
+            const checkRes = await fetch(`/api/chat/approval/${sessionId}`);
+            if (checkRes.ok) {
+              const checkData = (await checkRes.json()) as { status: string; sql_query?: string };
+              if (checkData.status === "pending" && checkData.sql_query) {
+                pendingSqlQuery = checkData.sql_query;
+              }
+            }
+          } catch {
+            // ignore network error
+          }
+        }
+
+        if (pendingSqlQuery) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    status: "waiting_approval",
+                    content: "A query was generated that requires your approval before execution:",
+                    sqlApproval: {
+                      sessionId,
+                      sqlQuery: pendingSqlQuery!,
+                      resumeUrl: "",
+                      status: "pending"
+                    }
+                  }
+                : m
+            )
+          );
+        } else {
+          const reply = data.reply || "No response received from the AI.";
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? m.status === "waiting_approval"
+                  ? m
+                  : { ...m, content: reply, status: "done" }
+                : m
+            )
+          );
+        }
       } catch (error) {
         stopPolling();
         setPollingSessionId(null);
