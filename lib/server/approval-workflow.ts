@@ -15,6 +15,7 @@ import {
 import { getServerEnv } from "@/lib/server/env";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { normalizeDbaResponse } from "@/lib/server/dba-response-normalizer";
+import { isDestructiveSql } from "@/lib/server/destructive-sql-detector";
 import type {
   ApprovalRequest,
   ApprovalRiskLevel,
@@ -30,15 +31,36 @@ const PROTECTED_ENVIRONMENTS = new Set(["PROD", "DR"]);
 /**
  * Returns true when the given action + environment combination
  * requires an approval request before the webhook may be sent.
+ *
+ * For static protected actions (drop_user, drop_profile, etc.) the decision
+ * is driven by the `app_protected_actions` registry.
+ *
+ * For the dynamic `query` action, the `params` object is inspected: on PROD,
+ * the SQL text is run through the destructive-SQL detector. Only destructive
+ * statements are gated — safe SELECTs pass through immediately.
+ *
+ * `app_admin` always bypasses approval.
  */
 export async function requiresApproval(
   action: string,
   environment: string,
-  userRole?: string
+  userRole?: string,
+  params?: Record<string, unknown>
 ): Promise<boolean> {
   if (userRole === "app_admin") return false;
   if (!PROTECTED_ENVIRONMENTS.has(environment)) return false;
-  return Boolean(await getProtectedAction(action));
+
+  // Static registry-based check for known destructive DBA operations.
+  if (await getProtectedAction(action)) return true;
+
+  // Dynamic check: destructive SQL on the Execute Query panel.
+  if (action === "query") {
+    const sql = typeof params?.sql_query === "string" ? params.sql_query : "";
+    if (!sql.trim()) return false;
+    return isDestructiveSql(sql).destructive;
+  }
+
+  return false;
 }
 
 export interface CreateApprovalInput {
@@ -48,6 +70,17 @@ export interface CreateApprovalInput {
   userId: number;
   username: string;
   environment: string;
+  /** Override the display name shown in the Pending Approvals UI. Used by
+   *  dynamic actions (e.g. destructive SQL) that need a more specific label
+   *  than the action catalog title. */
+  displayNameOverride?: string;
+  /** Override the risk level frozen on the approval row. */
+  riskLevelOverride?: ApprovalRiskLevel;
+  /** Fine-grained dedup key for dynamic actions where multiple distinct
+   *  requests can exist simultaneously for the same action+db+requester
+   *  (e.g. two different destructive SQL statements). When omitted, the
+   *  duplicate guard matches on action+db+requester alone. */
+  dedupSignature?: string;
 }
 
 /**
@@ -101,10 +134,15 @@ export async function createApprovalRequest(
   // the same protected action. Rather than creating N pending rows for one
   // logical request, re-use the existing pending request so the reviewer sees
   // exactly one item in their queue.
+  //
+  // For dynamic actions (e.g. destructive `query`), `dedupSignature` narrows
+  // the match so that different SQL statements each get their own request,
+  // while the exact same statement re-submitted is deduped.
   const existing = await findPendingApprovalRequest({
-    actionName:      input.action,
-    dbName:          input.db,
-    requesterUserId: input.userId
+    actionName:       input.action,
+    dbName:           input.db,
+    requesterUserId:  input.userId,
+    paramsSignature:  input.dedupSignature
   });
   if (existing) {
     return {
@@ -113,24 +151,39 @@ export async function createApprovalRequest(
     };
   }
 
-  // ── Resolve display name + risk level from the protected-actions registry ──
-  // The registry (app_protected_actions) is the single source of truth for
-  // which display name and risk level to freeze on the approval row. Fall back
-  // to the action catalog only when the migration hasn't been installed.
+  // ── Resolve display name + risk level ──────────────────────────────────
+  // Caller-provided overrides win (destructive SQL uses a more specific label).
+  // Otherwise, the protected-actions registry is the source of truth, with
+  // the action catalog as a fallback when the migration hasn't been installed.
   const registry = await getProtectedAction(input.action);
   const definition = getActionDefinition(input.action as DbaAction);
-  const displayName = registry?.display_name ?? definition?.title ?? input.action;
+  const displayName =
+    input.displayNameOverride ??
+    registry?.display_name ??
+    definition?.title ??
+    input.action;
   const riskLevel: ApprovalRiskLevel =
-    registry?.risk_level ?? (definition?.destructive ? "critical" : "high");
+    input.riskLevelOverride ??
+    registry?.risk_level ??
+    (definition?.destructive ? "critical" : "high");
 
   const requestId = `APR-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   // Freeze the exact webhook payload — replayed verbatim on approval.
+  // The webhook payload is NEVER modified; the dedup signature is only injected
+  // into the separate `request_params` column (used for admin UI display + dedup search).
   const webhookPayload = JSON.stringify(input.payload);
 
-  // Human-readable params for the admin UI (no internal/sensitive fields).
-  const requestParams = Object.keys(input.payload.params ?? {}).length > 0
-    ? JSON.stringify(input.payload.params)
+  // Human-readable params for the admin UI. For dynamic actions (destructive
+  // SQL), embed a hidden `_dedup_sig` so findPendingApprovalRequest can
+  // narrow the duplicate search via DBMS_LOB.INSTR without a schema change.
+  // The signature is stripped from the UI display (keys starting with `_`).
+  const paramsForDisplay: Record<string, unknown> = { ...(input.payload.params ?? {}) };
+  if (input.dedupSignature) {
+    paramsForDisplay._dedup_sig = input.dedupSignature;
+  }
+  const requestParams = Object.keys(paramsForDisplay).length > 0
+    ? JSON.stringify(paramsForDisplay)
     : undefined;
 
   const approvalRequest = await insertApprovalRequest({

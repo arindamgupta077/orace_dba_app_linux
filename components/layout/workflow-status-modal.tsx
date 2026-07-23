@@ -174,7 +174,7 @@ function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
             </div>
           )}
 
-          {req.request_params && Object.keys(req.request_params).length > 0 && (
+          {req.request_params && Object.keys(req.request_params).filter((k) => !k.startsWith("_")).length > 0 && (
             <div className="rounded-lg border border-slate-200/80 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50 p-3 shadow-2xs space-y-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Parameters:</span>
               <ParamsDisplay params={req.request_params} />

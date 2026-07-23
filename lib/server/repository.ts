@@ -5359,27 +5359,43 @@ export async function getProtectedAction(actionName: string): Promise<ProtectedA
  * requester so that a repeated submission (double-click, retry, retry after
  * network drop) does NOT create a duplicate pending row. The first pending
  * request is returned so the caller can respond idempotently.
+ *
+ * When `paramsSignature` is provided (used by the dynamic `query` action so
+ * that distinct destructive SQL statements each get their own request), the
+ * search additionally requires that the `request_params` CLOB contains the
+ * signature text — mirroring the `DBMS_LOB.INSTR` dedup pattern already used
+ * by `insertAuditLog`.
  */
 export async function findPendingApprovalRequest(input: {
   actionName: string;
   dbName: string;
   requesterUserId: number;
+  paramsSignature?: string;
 }): Promise<ApprovalRequest | null> {
   return executeOne(async (connection) => {
     try {
+      const binds: BindParameters = {
+        actionName:      input.actionName,
+        dbName:          input.dbName,
+        requesterUserId: input.requesterUserId
+      };
+      const lobFilter = input.paramsSignature
+        ? "AND DBMS_LOB.INSTR(request_params, :paramsSignature) > 0"
+        : "";
+      if (input.paramsSignature) {
+        (binds as Record<string, unknown>).paramsSignature = input.paramsSignature;
+      }
+
       const result = await connection.execute<DbRow>(
         `${APPROVAL_SELECT}
           WHERE r.action_name        = :actionName
             AND r.db_name            = :dbName
             AND r.requester_user_id  = :requesterUserId
             AND r.request_status     = 'pending'
+            ${lobFilter}
           ORDER BY r.created_at DESC
           FETCH FIRST 1 ROW ONLY`,
-        {
-          actionName:      input.actionName,
-          dbName:          input.dbName,
-          requesterUserId: input.requesterUserId
-        }
+        binds
       );
       const row = result.rows?.[0];
       return row ? mapApprovalRow(row) : null;

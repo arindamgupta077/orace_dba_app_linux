@@ -383,7 +383,7 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
               </div>
 
               {/* Parameters Display */}
-              {request.request_params && Object.keys(request.request_params).length > 0 && (
+              {request.request_params && Object.keys(request.request_params).filter((k) => !k.startsWith("_")).length > 0 && (
                 <div className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/60 p-3.5 shadow-2xs space-y-2">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Parameters</p>
                   <ParamsDisplay params={request.request_params} />

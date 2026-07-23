@@ -13,7 +13,11 @@ export function ParamsDisplay({ params, className }: ParamsDisplayProps) {
     return <span className="text-xs text-muted-foreground italic">None</span>;
   }
 
-  const entries = Object.entries(params);
+  // Filter out internal fields (keys prefixed with `_`) used for dedup/bookkeeping.
+  const entries = Object.entries(params).filter(([k]) => !k.startsWith("_"));
+  if (!entries.length) {
+    return <span className="text-xs text-muted-foreground italic">None</span>;
+  }
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className || ""}`}>

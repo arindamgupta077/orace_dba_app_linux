@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getActionDefinition } from "@/lib/action-catalog";
 import { requiresApproval, createApprovalRequest } from "@/lib/server/approval-workflow";
 import { normalizeDbaResponse } from "@/lib/server/dba-response-normalizer";
+import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sql-detector";
 import { getServerEnv } from "@/lib/server/env";
 import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -72,14 +73,36 @@ export async function POST(request: Request) {
     };
 
     // ── Approval gate ──────────────────────────────────────────────────
-    if (await requiresApproval(action, dbTarget.env_label, session.user.role)) {
+    // For the `query` action on PROD, the SQL is inspected for destructive
+    // content. When destructive, an approval request is created using the
+    // existing workflow — the frozen payload (including the original SQL) is
+    // replayed verbatim to n8n once an app_admin approves.
+    if (await requiresApproval(action, dbTarget.env_label, session.user.role, params)) {
+      // For dynamic actions (destructive SQL), provide display name + risk
+      // level + dedup signature overrides so the admin UI shows a meaningful
+      // label and duplicate submissions are deduped by SQL content.
+      let displayNameOverride: string | undefined;
+      let riskLevelOverride: "critical" | undefined;
+      let dedupSignature: string | undefined;
+
+      if (action === "query") {
+        const sqlText = typeof params.sql_query === "string" ? params.sql_query : "";
+        const analysis = isDestructiveSql(sqlText);
+        displayNameOverride = `Execute Destructive SQL — ${analysis.reasons[0] ?? "destructive operation"}`;
+        riskLevelOverride = "critical";
+        dedupSignature = sqlDedupSignature(analysis.normalizedSql);
+      }
+
       const { dbaResponse: pendingResponse } = await createApprovalRequest({
         action,
         db,
         payload,
-        userId:      session.userId,
-        username:    session.user.username,
-        environment: dbTarget.env_label
+        userId:               session.userId,
+        username:             session.user.username,
+        environment:           dbTarget.env_label,
+        displayNameOverride,
+        riskLevelOverride,
+        dedupSignature
       });
       const durationMs = Date.now() - startedAt;
       await insertRequestHistory({
