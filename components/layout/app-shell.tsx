@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ActiveDbaPill } from "@/components/layout/active-dba-pill";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { WorkflowStatusModal } from "@/components/layout/workflow-status-modal";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DatabaseSelector } from "@/components/visual/database-selector";
 import { SecurityPostureCard } from "@/components/security-posture/security-posture-card";
@@ -349,6 +350,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               )}
+              {!isClient && <WorkflowStatusModal />}
               {!isClient && <NotificationBell />}
               <ThemeToggle />
               <Button variant="ghost" size="icon" onClick={logout} title="Sign out" aria-label="Sign out">

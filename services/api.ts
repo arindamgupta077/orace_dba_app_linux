@@ -2,6 +2,8 @@ import type {
   AlertNotification,
   AlertNotificationStatus,
   AlertSqlApprovalDecision,
+  ApprovalHistoryEvent,
+  ApprovalRequest,
   AppUser,
   AppUserRole,
   AuditLogItem,
@@ -648,4 +650,46 @@ export async function fetchShiftReport(filters: ShiftReportFilters): Promise<{ r
   if (filters.timelineSearch) params.set("timelineSearch", filters.timelineSearch);
   const qs = params.toString() ? `?${params.toString()}` : "";
   return requestJson<{ report: ShiftReportData }>(`/api/reports${qs}`);
+}
+
+// ============================================================
+// Approval Workflow
+// ============================================================
+
+export async function fetchApprovalRequests(params: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<{ items: ApprovalRequest[]; total: number }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.limit)  query.set("limit",  String(params.limit));
+  if (typeof params.offset === "number") query.set("offset", String(params.offset));
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return requestJson<{ items: ApprovalRequest[]; total: number }>(`/api/admin/approvals${suffix}`);
+}
+
+export async function fetchApprovalDetail(id: string): Promise<{
+  request: ApprovalRequest;
+  history: ApprovalHistoryEvent[];
+}> {
+  return requestJson<{ request: ApprovalRequest; history: ApprovalHistoryEvent[] }>(
+    `/api/admin/approvals/${encodeURIComponent(id)}`
+  );
+}
+
+export async function decideApproval(
+  requestId: string,
+  decision: "approved" | "rejected",
+  comment?: string
+): Promise<{ request: ApprovalRequest; dbaResponse?: DbaResponse }> {
+  return requestJson<{ request: ApprovalRequest; dbaResponse?: DbaResponse }>("/api/admin/approvals", {
+    method: "PATCH",
+    body: JSON.stringify({ request_id: requestId, decision, comment })
+  });
+}
+
+export async function fetchPendingApprovalCount(): Promise<number> {
+  const result = await requestJson<{ count: number }>("/api/admin/approvals?countOnly=1");
+  return result.count;
 }

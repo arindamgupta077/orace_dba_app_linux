@@ -48,7 +48,12 @@ import type {
   SecurityPostureProcessingStatus,
   SecurityPostureReport,
   ThemePreference,
-  UserSession
+  UserSession,
+  ApprovalRequest,
+  ApprovalHistoryEvent,
+  ApprovalRequestStatus,
+  ApprovalHistoryEventType,
+  ApprovalRiskLevel
 } from "@/types/dba";
 
 type UserRole = UserSession["role"];
@@ -1926,7 +1931,7 @@ export async function revokeSession(sessionToken: string) {
   });
 }
 
-const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert"]);
+const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow"]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
   "acknowledged",
@@ -5249,3 +5254,423 @@ export async function upsertUserThemePreference(
 }
 
 
+// ── Approval Workflow ────────────────────────────────────────────────────────
+
+function mapApprovalRow(row: DbRow): ApprovalRequest {
+  return {
+    request_id:         String(row.REQUEST_ID),
+    action_name:        String(row.ACTION_NAME),
+    display_name:       String(row.DISPLAY_NAME),
+    db_name:            String(row.DB_NAME),
+    environment:        String(row.ENVIRONMENT),
+    requester_user_id:  Number(row.REQUESTER_USER_ID),
+    requester_username: String(row.REQUESTER_USERNAME),
+    requester_email:    row.REQUESTER_EMAIL ? String(row.REQUESTER_EMAIL) : undefined,
+    request_status:     String(row.REQUEST_STATUS) as ApprovalRequestStatus,
+    risk_level:         String(row.RISK_LEVEL) as ApprovalRiskLevel,
+    reviewer_user_id:   row.REVIEWER_USER_ID ? Number(row.REVIEWER_USER_ID) : undefined,
+    reviewer_username:  row.REVIEWER_USERNAME ? String(row.REVIEWER_USERNAME) : undefined,
+    reviewer_comment:   row.REVIEWER_COMMENT ? String(row.REVIEWER_COMMENT) : undefined,
+    reviewed_at:        row.REVIEWED_AT ? toIstIsoString(row.REVIEWED_AT) : undefined,
+    request_params:     row.REQUEST_PARAMS
+      ? (() => { try { return JSON.parse(String(row.REQUEST_PARAMS)) as Record<string, unknown>; } catch { return undefined; } })()
+      : undefined,
+    execution_status:   row.EXECUTION_STATUS
+      ? (String(row.EXECUTION_STATUS) as ApprovalRequest["execution_status"])
+      : undefined,
+    expires_at:         row.EXPIRES_AT ? toIstIsoString(row.EXPIRES_AT) : undefined,
+    created_at:         toIstIsoString(row.CREATED_AT),
+    updated_at:         toIstIsoString(row.UPDATED_AT)
+  };
+}
+
+function mapApprovalHistoryRow(row: DbRow): ApprovalHistoryEvent {
+  return {
+    history_id:      Number(row.HISTORY_ID),
+    request_id:      String(row.REQUEST_ID),
+    event_type:      String(row.EVENT_TYPE) as ApprovalHistoryEventType,
+    actor_user_id:   row.ACTOR_USER_ID ? Number(row.ACTOR_USER_ID) : undefined,
+    actor_username:  String(row.ACTOR_USERNAME),
+    comment_text:    row.COMMENT_TEXT ? String(row.COMMENT_TEXT) : undefined,
+    snapshot_status: String(row.SNAPSHOT_STATUS) as ApprovalRequestStatus,
+    metadata:        row.METADATA_JSON
+      ? (() => { try { return JSON.parse(String(row.METADATA_JSON)) as Record<string, unknown>; } catch { return undefined; } })()
+      : undefined,
+    created_at:      toIstIsoString(row.CREATED_AT)
+  };
+}
+
+const APPROVAL_SELECT = `
+  SELECT r.request_id, r.action_name, r.display_name, r.db_name, r.environment,
+         r.requester_user_id, r.requester_username, r.request_status, r.risk_level,
+         r.reviewer_user_id, r.reviewer_username, r.reviewer_comment, r.reviewed_at,
+         r.request_params, r.execution_status, r.expires_at, r.created_at, r.updated_at,
+         u.email AS requester_email
+    FROM app_approval_requests r
+    LEFT JOIN app_users u ON u.user_id = r.requester_user_id`;
+
+/**
+ * Returns true when the given action name is registered in app_protected_actions
+ * with is_active = 'Y'. Degrades gracefully if the migration has not yet been run.
+ */
+export async function isProtectedAction(actionName: string): Promise<boolean> {
+  return Boolean(await getProtectedAction(actionName));
+}
+
+export interface ProtectedActionRecord {
+  action_name: string;
+  display_name: string;
+  risk_level: ApprovalRiskLevel;
+}
+
+/**
+ * Loads a single protected-action registry row (display name + risk level) so
+ * the approval workflow uses ONE source of truth — the seeded
+ * `app_protected_actions` table — instead of re-deriving risk level from the
+ * action catalog. Returns null when the action is not registered, inactive, or
+ * the migration has not yet been installed.
+ */
+export async function getProtectedAction(actionName: string): Promise<ProtectedActionRecord | null> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT action_name, display_name, risk_level
+           FROM app_protected_actions
+          WHERE UPPER(action_name) = UPPER(:actionName)
+            AND is_active = 'Y'`,
+        { actionName }
+      );
+      const row = result.rows?.[0];
+      if (!row) return null;
+      return {
+        action_name:   String(row.ACTION_NAME),
+        display_name:  String(row.DISPLAY_NAME),
+        risk_level:    String(row.RISK_LEVEL) as ApprovalRiskLevel
+      };
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return null;
+      throw error;
+    }
+  });
+}
+
+/**
+ * Find an existing pending approval request for the same action / db /
+ * requester so that a repeated submission (double-click, retry, retry after
+ * network drop) does NOT create a duplicate pending row. The first pending
+ * request is returned so the caller can respond idempotently.
+ */
+export async function findPendingApprovalRequest(input: {
+  actionName: string;
+  dbName: string;
+  requesterUserId: number;
+}): Promise<ApprovalRequest | null> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `${APPROVAL_SELECT}
+          WHERE r.action_name        = :actionName
+            AND r.db_name            = :dbName
+            AND r.requester_user_id  = :requesterUserId
+            AND r.request_status     = 'pending'
+          ORDER BY r.created_at DESC
+          FETCH FIRST 1 ROW ONLY`,
+        {
+          actionName:      input.actionName,
+          dbName:          input.dbName,
+          requesterUserId: input.requesterUserId
+        }
+      );
+      const row = result.rows?.[0];
+      return row ? mapApprovalRow(row) : null;
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return null;
+      throw error;
+    }
+  });
+}
+
+export interface InsertApprovalRequestInput {
+  requestId: string;
+  actionName: string;
+  displayName: string;
+  dbName: string;
+  environment: string;
+  requesterUserId: number;
+  requesterUsername: string;
+  riskLevel: string;
+  webhookPayload: string;  // frozen JSON — replayed verbatim on approval
+  requestParams?: string;  // human-readable JSON for the admin UI
+}
+
+export async function insertApprovalRequest(input: InsertApprovalRequestInput): Promise<ApprovalRequest> {
+  return executeOne(async (connection) => {
+    await connection.execute(
+      `INSERT INTO app_approval_requests (
+         request_id, action_name, display_name, db_name, environment,
+         requester_user_id, requester_username, request_status, risk_level,
+         webhook_payload, request_params
+       ) VALUES (
+         :requestId, :actionName, :displayName, :dbName, :environment,
+         :requesterUserId, :requesterUsername, 'pending', :riskLevel,
+         :webhookPayload, :requestParams
+       )`,
+      {
+        requestId:         input.requestId,
+        actionName:        input.actionName,
+        displayName:       input.displayName,
+        dbName:            input.dbName,
+        environment:       input.environment,
+        requesterUserId:   input.requesterUserId,
+        requesterUsername: input.requesterUsername,
+        riskLevel:         input.riskLevel,
+        webhookPayload:    input.webhookPayload,
+        requestParams:     input.requestParams ?? null
+      },
+      { autoCommit: false }
+    );
+
+    await connection.execute(
+      `INSERT INTO app_approval_history (
+         request_id, event_type, actor_user_id, actor_username, snapshot_status
+       ) VALUES (:requestId, 'requested', :actorUserId, :actorUsername, 'pending')`,
+      {
+        requestId:    input.requestId,
+        actorUserId:  input.requesterUserId,
+        actorUsername: input.requesterUsername
+      },
+      { autoCommit: true }
+    );
+
+    const result = await connection.execute<DbRow>(
+      `${APPROVAL_SELECT} WHERE r.request_id = :requestId`,
+      { requestId: input.requestId }
+    );
+    return mapApprovalRow(result.rows![0]);
+  });
+}
+
+export async function getApprovalRequest(requestId: string): Promise<ApprovalRequest | null> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `${APPROVAL_SELECT} WHERE r.request_id = :requestId`,
+        { requestId }
+      );
+      const row = result.rows?.[0];
+      return row ? mapApprovalRow(row) : null;
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return null;
+      throw error;
+    }
+  });
+}
+
+/** Read the raw frozen webhook_payload CLOB for a request. */
+export async function getApprovalWebhookPayload(requestId: string): Promise<string | null> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT webhook_payload FROM app_approval_requests WHERE request_id = :requestId`,
+        { requestId }
+      );
+      const row = result.rows?.[0];
+      return row ? String(row.WEBHOOK_PAYLOAD) : null;
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return null;
+      throw error;
+    }
+  });
+}
+
+export async function listApprovalRequests(input: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+  requesterUserId?: number;
+}): Promise<{ items: ApprovalRequest[]; total: number }> {
+  const limit  = Math.min(Math.max(input.limit  ?? 50, 1), 500);
+  const offset = Math.max(input.offset ?? 0, 0);
+
+  return executeOne(async (connection) => {
+    try {
+      const queryBinds: BindParameters = { limit, offset };
+      const countBinds: BindParameters = {};
+      const conditions: string[] = [];
+
+      if (input.status) {
+        conditions.push(`r.request_status = :status`);
+        (queryBinds as Record<string, unknown>).status = input.status;
+        (countBinds as Record<string, unknown>).status = input.status;
+      }
+
+      if (typeof input.requesterUserId === "number") {
+        conditions.push(`r.requester_user_id = :requesterUserId`);
+        (queryBinds as Record<string, unknown>).requesterUserId = input.requesterUserId;
+        (countBinds as Record<string, unknown>).requesterUserId = input.requesterUserId;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ``;
+
+      const countResult = await connection.execute<DbRow>(
+        `SELECT COUNT(*) AS total FROM app_approval_requests r ${whereClause}`,
+        countBinds
+      );
+      const total = Number(countResult.rows?.[0]?.TOTAL ?? 0);
+
+      const result = await connection.execute<DbRow>(
+        `${APPROVAL_SELECT}
+         ${whereClause}
+         ORDER BY
+           CASE r.request_status WHEN 'pending' THEN 0 ELSE 1 END,
+           r.created_at DESC
+         OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`,
+        queryBinds
+      );
+
+      return { items: (result.rows ?? []).map(mapApprovalRow), total };
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return { items: [], total: 0 };
+      throw error;
+    }
+  });
+}
+
+export async function updateApprovalDecision(input: {
+  requestId: string;
+  decision: "approved" | "rejected";
+  reviewerUserId: number;
+  reviewerUsername: string;
+  comment?: string;
+}): Promise<ApprovalRequest | null> {
+  return executeOne(async (connection) => {
+    const update = await connection.execute(
+      `UPDATE app_approval_requests
+          SET request_status    = :decision,
+              reviewer_user_id  = :reviewerUserId,
+              reviewer_username = :reviewerUsername,
+              reviewer_comment  = :commentText,
+              reviewed_at       = SYSTIMESTAMP
+        WHERE request_id     = :requestId
+          AND request_status = 'pending'`,
+      {
+        decision:         input.decision,
+        reviewerUserId:   input.reviewerUserId,
+        reviewerUsername: input.reviewerUsername,
+        commentText:      input.comment ?? null,
+        requestId:        input.requestId
+      },
+      { autoCommit: false }
+    );
+
+    // rowsAffected === 0 means the request was already approved/rejected
+    // (concurrent reviewer or a stale retry). Bail out WITHOUT writing a
+    // phantom history row or dispatching the webhook a second time.
+    if (!update.rowsAffected) {
+      await connection.rollback();
+      return null;
+    }
+
+    const eventType: ApprovalHistoryEventType = input.decision === "approved" ? "approved" : "rejected";
+    await connection.execute(
+      `INSERT INTO app_approval_history (
+         request_id, event_type, actor_user_id, actor_username,
+         comment_text, snapshot_status
+       ) VALUES (:requestId, :eventType, :actorUserId, :actorUsername, :commentText, :snapshotStatus)`,
+      {
+        requestId:      input.requestId,
+        eventType,
+        actorUserId:    input.reviewerUserId,
+        actorUsername:  input.reviewerUsername,
+        commentText:    input.comment ?? null,
+        snapshotStatus: input.decision
+      },
+      { autoCommit: true }
+    );
+
+    return getApprovalRequest(input.requestId);
+  });
+}
+
+export async function updateApprovalExecution(input: {
+  requestId: string;
+  executionStatus: "executing" | "success" | "failed";
+  actorUsername: string;
+  response?: unknown;
+}): Promise<void> {
+  return executeOne(async (connection) => {
+    const responseJson = input.response ? JSON.stringify(input.response) : null;
+    const update = await connection.execute(
+      `UPDATE app_approval_requests
+          SET execution_status   = :executionStatus,
+              execution_response = :responseJson,
+              executed_at        = CASE WHEN :executionStatus != 'executing'
+                                        THEN SYSTIMESTAMP ELSE executed_at END
+        WHERE request_id = :requestId`,
+      {
+        executionStatus: input.executionStatus,
+        responseJson,
+        requestId:       input.requestId
+      },
+      { autoCommit: false }
+    );
+
+    // No row matched — the request was removed (or never existed). Avoid
+    // writing an orphan history row and abort the calling execution.
+    if (!update.rowsAffected) {
+      await connection.rollback();
+      throw new Error(`Approval request ${input.requestId} not found while recording execution status.`);
+    }
+
+    const eventType: ApprovalHistoryEventType =
+      input.executionStatus === "executing" ? "executing" :
+      input.executionStatus === "success"   ? "executed"  : "execute_failed";
+
+    await connection.execute(
+      `INSERT INTO app_approval_history (
+         request_id, event_type, actor_user_id, actor_username,
+         snapshot_status, metadata_json
+       ) VALUES (:requestId, :eventType, NULL, :actorUsername, 'approved', :metadataJson)`,
+      {
+        requestId:     input.requestId,
+        eventType,
+        actorUsername:  input.actorUsername,
+        metadataJson:  responseJson
+      },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function getApprovalHistory(requestId: string): Promise<ApprovalHistoryEvent[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT history_id, request_id, event_type, actor_user_id, actor_username,
+                comment_text, snapshot_status, metadata_json, created_at
+           FROM app_approval_history
+          WHERE request_id = :requestId
+          ORDER BY created_at ASC`,
+        { requestId }
+      );
+      return (result.rows ?? []).map(mapApprovalHistoryRow);
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      throw error;
+    }
+  });
+}
+
+export async function countPendingApprovals(): Promise<number> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT COUNT(*) AS cnt FROM app_approval_requests WHERE request_status = 'pending'`
+      );
+      return Number(result.rows?.[0]?.CNT ?? 0);
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return 0;
+      throw error;
+    }
+  });
+}

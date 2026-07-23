@@ -38,6 +38,15 @@ export function useNotificationStream() {
       es.addEventListener("notification", (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data as string);
+          if (data.type === "approval_workflow") {
+            // Approval events are surfaced in a dedicated modal for the
+            // requester (dba_admin) instead of the bell list. Other roles
+            // still get them in the bell via addNotification below.
+            window.dispatchEvent(new CustomEvent("dba-approval-update", { detail: data }));
+            if (user?.role === "dba_admin") {
+              return;
+            }
+          }
           addNotificationRef.current(payloadToNotificationItem(data));
           if (!data.replayed) {
             console.log("[useNotificationStream] New live notification received:", data);

@@ -10,6 +10,7 @@ interface BroadcastPayload extends NotificationPayload {
 
 interface NotificationListener {
   id: string;
+  userRole?: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   heartbeatId?: ReturnType<typeof setInterval>;
 }
@@ -23,20 +24,6 @@ const globalState = globalThis as typeof globalThis & {
 const listeners = globalState.__globalNotifListeners ?? new Map<string, NotificationListener>();
 globalState.__globalNotifListeners = listeners;
 
-/**
- * In-memory ring buffer of recently broadcast notifications.
- *
- * `emitGlobalNotification` is fire-and-forget: it only pushes to SSE listeners
- * that are connected *at the moment of emission*. If a user's browser is
- * closed (no active EventSource), the broadcast is lost forever — so a user
- * logging in afterwards never sees the bell badge update for events that
- * happened while they were away (e.g. a DBA login/logout, handover submit,
- * HO acknowledgement, or an alert-log error that isn't backed by a pending
- * alert row).
- *
- * We retain the most recent broadcasts here and replay them (merged with the
- * DB-sourced replay items, deduped by id) when a new SSE client connects.
- */
 const RECENT_BUFFER_LIMIT = 50;
 const recentBroadcasts = globalState.__globalNotifRecent ?? [];
 globalState.__globalNotifRecent = recentBroadcasts;
@@ -52,46 +39,41 @@ function removeListener(id: string) {
   listeners.delete(id);
 }
 
-/**
- * Register a new SSE client.
- * @param controller  - The ReadableStream controller to write SSE frames into.
- * @param replayItems - Optional recent notifications to replay immediately on connect.
- *                      Ensures the bell icon is populated even after the browser was closed.
- */
 export function addGlobalNotificationListener(
   controller: ReadableStreamDefaultController<Uint8Array>,
-  replayItems?: NotificationPayload[]
+  replayItems?: NotificationPayload[],
+  userRole?: string
 ) {
   const id = `gn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const listener: NotificationListener = { id, controller };
+  const listener: NotificationListener = { id, userRole, controller };
   listeners.set(id, listener);
 
   try {
     writeSse(listener, "connected", { sent_at: new Date().toISOString() });
 
-    // Replay any missed notifications (alerts that arrived while the browser was closed)
     if (replayItems && replayItems.length > 0) {
       for (const item of replayItems) {
         try {
           writeSse(listener, "notification", { ...item, replayed: true, sent_at: new Date().toISOString() });
         } catch {
-          break; // stream already closed
+          break;
         }
       }
     }
 
-    // Replay recently-broadcast ephemeral notifications (shift login/logout,
-    // handover submit/ack, alert-log errors, etc.) that were emitted while no
-    // browser was connected. Merge with the DB-sourced items already replayed
-    // above, deduping by id so DB-backed alerts aren't shown twice.
     if (recentBroadcasts.length > 0) {
       const replayedIds = new Set((replayItems ?? []).map((r) => r.id));
       for (const item of recentBroadcasts) {
         if (replayedIds.has(item.id)) continue;
+        // dba_admin never sees approval-workflow notifications in the bell —
+        // they surface in the dedicated WorkflowStatusModal instead.
+        if (userRole === "dba_admin" && item.type === "approval_workflow") {
+          continue;
+        }
         try {
           writeSse(listener, "notification", { ...item, replayed: true });
         } catch {
-          break; // stream already closed
+          break;
         }
       }
     }
@@ -113,8 +95,6 @@ export function addGlobalNotificationListener(
 export function emitGlobalNotification(payload: NotificationPayload) {
   const broadcast: BroadcastPayload = { ...payload, sent_at: new Date().toISOString() };
 
-  // Record in the ring buffer so users who were offline at emission time get
-  // the notification replayed when they next connect.
   recentBroadcasts.push(broadcast);
   if (recentBroadcasts.length > RECENT_BUFFER_LIMIT) {
     recentBroadcasts.splice(0, recentBroadcasts.length - RECENT_BUFFER_LIMIT);
@@ -133,6 +113,7 @@ export function alertTypeToTargetPath(alertType: string): string {
   const t = alertType.trim().toLowerCase();
   if (t === "tablespace") return "/tablespaces";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "/filesystem-drive";
+  if (t === "approval_workflow") return "/admin-panel/pending-approvals";
   return "/tablespaces";
 }
 
@@ -140,6 +121,7 @@ export function resolveNotificationType(alertType: string): NotificationItemType
   const t = alertType.trim().toLowerCase();
   if (t === "tablespace") return "tablespace";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
+  if (t === "approval_workflow") return "approval_workflow";
   return "generic";
 }
 
@@ -147,6 +129,7 @@ export function alertTypeToAuditAction(alertType: string): string {
   const t = alertType.trim().toLowerCase();
   if (t === "tablespace") return "Tablespace Alert";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "disk_utilization";
+  if (t === "approval_workflow") return "approval_workflow";
   return "alert_log";
 }
 

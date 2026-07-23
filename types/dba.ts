@@ -277,7 +277,7 @@ export interface AlertLinesResponse {
   database_name: string;
 }
 
-export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "generic";
+export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "approval_workflow" | "generic";
 
 /** Shared shape of the SSE notification payload broadcast to clients */
 export interface NotificationPayload {
@@ -1002,4 +1002,54 @@ export interface ShiftReportData {
   handovers: Handover[];
   sessions: ShiftReportSessionRow[];
   coverage: ShiftReportCoverageRow[];
+}
+
+// ── Approval Workflow ────────────────────────────────────────
+
+export type ApprovalRequestStatus = "pending" | "approved" | "rejected" | "expired" | "cancelled";
+export type ApprovalExecutionStatus = "pending" | "executing" | "success" | "failed" | "skipped";
+export type ApprovalRiskLevel = "low" | "medium" | "high" | "critical";
+
+export interface ApprovalRequest {
+  request_id: string;
+  action_name: string;
+  display_name: string;
+  db_name: string;
+  environment: string;
+  requester_user_id: number;
+  requester_username: string;
+  requester_email?: string;
+  request_status: ApprovalRequestStatus;
+  risk_level: ApprovalRiskLevel;
+  reviewer_user_id?: number;
+  reviewer_username?: string;
+  reviewer_comment?: string;
+  reviewed_at?: string;
+  request_params?: Record<string, unknown>;
+  execution_status?: ApprovalExecutionStatus;
+  expires_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ApprovalHistoryEventType =
+  | "requested"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "cancelled"
+  | "executing"
+  | "executed"
+  | "execute_failed";
+
+export interface ApprovalHistoryEvent {
+  history_id: number;
+  request_id: string;
+  event_type: ApprovalHistoryEventType;
+  actor_user_id?: number;
+  actor_username: string;
+  comment_text?: string;
+  snapshot_status: ApprovalRequestStatus;
+  metadata?: Record<string, unknown>;
+  created_at: string;
 }

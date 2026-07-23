@@ -98,11 +98,16 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const notifications = useAppStore((s) => s.notifications);
+  const user = useAppStore((s) => s.user);
+  const rawNotifications = useAppStore((s) => s.notifications);
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
   const markAllNotificationsRead = useAppStore((s) => s.markAllNotificationsRead);
   const clearNotifications = useAppStore((s) => s.clearNotifications);
   const setSelectedDb = useAppStore((s) => s.setSelectedDb);
+
+  const notifications = user?.role === "dba_admin"
+    ? rawNotifications.filter((n) => n.type !== "approval_workflow" && n.title !== "Approval Required")
+    : rawNotifications;
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const hasAny = notifications.length > 0;

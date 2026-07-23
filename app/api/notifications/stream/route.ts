@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  * Build replay items from recent pending / unresolved alerts so the bell
  * icon is populated immediately when the browser reconnects after being closed.
  */
-async function buildReplayItems(): Promise<NotificationPayload[]> {
+async function buildReplayItems(userRole?: string): Promise<NotificationPayload[]> {
   try {
     const result = await listAlertNotifications({
       status: "pending_approval",
@@ -19,7 +19,11 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
       offset: 0
     });
 
-    return result.items.map((alert) => ({
+    const items = userRole === "dba_admin"
+      ? result.items.filter((alert) => alert.alert_type !== "approval_workflow")
+      : result.items;
+
+    return items.map((alert) => ({
       id: alert.id,
       type: resolveNotificationType(alert.alert_type),
       severity: alert.severity,
@@ -35,26 +39,27 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
       targetPath: alertTypeToTargetPath(alert.alert_type)
     }));
   } catch {
-    // Never break the SSE stream because of a DB lookup failure
     return [];
   }
 }
 
 export async function GET(request: Request) {
+  let userRole: string | undefined;
   try {
-    await requireAuthenticatedSession();
+    const session = await requireAuthenticatedSession();
+    userRole = session?.user?.role;
   } catch {
     return new Response("Unauthorized", { status: 401 });
   }
 
   // Fetch missed alerts before opening the stream to avoid race conditions
-  const replayItems = await buildReplayItems();
+  const replayItems = await buildReplayItems(userRole);
 
   let unsubscribe: () => void = () => {};
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      unsubscribe = addGlobalNotificationListener(controller, replayItems);
+      unsubscribe = addGlobalNotificationListener(controller, replayItems, userRole);
       request.signal.addEventListener("abort", unsubscribe, { once: true });
     },
     cancel() {

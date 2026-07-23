@@ -79,7 +79,16 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           tablespaceRefreshTrigger: state.tablespaceRefreshTrigger + 1
       })),
-      setUser: (user) => set({ user }),
+      setUser: (user) =>
+        set((state) => {
+          const notifications =
+            user?.role === "dba_admin"
+              ? state.notifications.filter(
+                  (n) => n.type !== "approval_workflow" && n.title !== "Approval Required"
+                )
+              : state.notifications;
+          return { user, notifications };
+        }),
       setSelectedDb: (selectedDb) => set({ selectedDb }),
       setDatabases: (databases) =>
         set((state) => {
@@ -116,11 +125,13 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
-          // Drop notifications the user has already dismissed with the "Clear"
-          // button. Important: /api/notifications/stream replays every alert
-          // that is still pending_approval on each (re)connect, so without this
-          // guard the cleared alerts would pop back into the bell after every
-          // page reload (see dismissedNotificationIds).
+          // Hide "approval_workflow" / "Approval Required" notifications for dba_admin users
+          if (
+            state.user?.role === "dba_admin" &&
+            (item.type === "approval_workflow" || item.title === "Approval Required")
+          ) {
+            return state;
+          }
           if (state.dismissedNotificationIds.includes(String(item.id))) {
             return state;
           }
