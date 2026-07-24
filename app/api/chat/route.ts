@@ -139,36 +139,59 @@ function extractReply(value: unknown): string | null {
   if (typeof value === "string") {
     return isControlMessage(value) ? null : value || null;
   }
-  if (Array.isArray(value) && value.length > 0) {
-    const first = value[0] as Record<string, unknown>;
-    if (first && typeof first === "object") {
-      for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
-        if (typeof first[key] === "string") {
-          const val = (first[key] as string).trim();
-          if (val && !isControlMessage(val)) return val;
-        }
+
+  const checkObject = (obj: Record<string, unknown>): string | null => {
+    // 1. Explicitly check for outcome === "blocked"
+    if (obj.outcome === "blocked") {
+      const msg = obj.message || obj.text || obj.reason || obj.output || obj.reply;
+      if (typeof msg === "string" && msg.trim()) {
+        return msg.trim();
       }
-      // Unwrap n8n { json: { ... } } envelope
-      const jsonField = first.json as Record<string, unknown> | undefined;
-      if (jsonField && typeof jsonField === "object") {
-        for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
-          if (typeof jsonField[key] === "string") {
-            const val = (jsonField[key] as string).trim();
-            if (val && !isControlMessage(val)) return val;
-          }
+    }
+
+    // 2. Unwrap n8n { json: { ... } } envelope if present
+    const jsonField = (obj.json && typeof obj.json === "object" ? obj.json : null) as Record<string, unknown> | null;
+    if (jsonField) {
+      if (jsonField.outcome === "blocked") {
+        const msg = jsonField.message || jsonField.text || jsonField.reason || jsonField.output || jsonField.reply;
+        if (typeof msg === "string" && msg.trim()) {
+          return msg.trim();
         }
       }
     }
-    return null;
-  }
-  if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
+
+    // 3. Extract text from json envelope first, then outer object
+    const target = jsonField || obj;
     for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
-      if (typeof obj[key] === "string") {
-        const val = (obj[key] as string).trim();
+      if (typeof target[key] === "string") {
+        const val = (target[key] as string).trim();
         if (val && !isControlMessage(val)) return val;
       }
     }
+
+    if (jsonField) {
+      for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
+        if (typeof obj[key] === "string") {
+          const val = (obj[key] as string).trim();
+          if (val && !isControlMessage(val)) return val;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0] as Record<string, unknown>;
+    if (first && typeof first === "object") {
+      return checkObject(first);
+    }
+    return null;
   }
+
+  if (value && typeof value === "object") {
+    return checkObject(value as Record<string, unknown>);
+  }
+
   return null;
 }
