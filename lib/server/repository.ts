@@ -4479,7 +4479,8 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
   const coverageBinds: BindParameters = {};
   if (filters.fromDate) {
     coverageBinds.fromDate = filters.fromDate;
-    coverageConditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+    // Fetch sessions starting 1 day prior so previous day's Shift 3 sessions extending past 07:00 AM are included
+    coverageConditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD') - 1");
   }
   if (filters.toDate) {
     coverageBinds.toDate = filters.toDate;
@@ -4504,7 +4505,7 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       fetchBackupStatusChecksForReport(connection, filters),
       fetchHandoversForReport(connection, filters),
       fetchSessionsForReport(connection, binds, whereClause),
-      fetchShiftCoverage(connection, coverageBinds, coverageWhere)
+      fetchShiftCoverage(connection, coverageBinds, coverageWhere, filters)
     ]);
 
     const unacknowledgedHandovers = pendingHandovers;
@@ -5079,21 +5080,15 @@ async function fetchSessionsForReport(
 async function fetchShiftCoverage(
   connection: Connection,
   binds: BindParameters,
-  whereClause: string
+  whereClause: string,
+  filters?: ShiftReportFilters
 ): Promise<ShiftReportData["coverage"]> {
-  // Day-level gap coverage. For each day we fetch every DBA session (shifts
-  // 1/2/3) with login/logout timestamps, merge their intervals, and measure
-  // how much of the 24-hour cycle (07:00 → 07:00 next day) is covered.
+  // Day-level gap coverage. For each day we calculate how much of the 24-hour
+  // cycle (07:00 IST -> 07:00 IST next day = 1440 minutes) is covered by any
+  // active DBA sessions (shifts 1/2/3).
+  // Sessions starting on previous days (e.g. Shift 3 running until 08:00 or 09:00 AM
+  // on the next day) contribute their overlapping duration to the next day's coverage.
 
-  // Shift boundaries in minutes from midnight (IST). These define the
-  // expected duty span for each shift.
-  const SHIFT_SPANS: Record<number, { startMin: number; endMin: number }> = {
-    1: { startMin: 7 * 60, endMin: 15 * 60 + 30 },       // 07:00 – 15:30
-    2: { startMin: 14 * 60 + 30, endMin: 23 * 60 },       // 14:30 – 23:00
-    3: { startMin: 22 * 60 + 30, endMin: 24 * 60 + 7 * 60 } // 22:30 – 07:00 (+1d)
-  };
-
-  // Total expected coverage = 24 hours = 1440 minutes (07:00 → 07:00).
   const TOTAL_DAY_MINUTES = 1440;
 
   // Query raw session intervals — only shifts 1/2/3 contribute to coverage.
@@ -5106,28 +5101,54 @@ async function fetchShiftCoverage(
      FROM app_shift_sessions s
      ${whereClause}
      ${whereClause ? "AND" : "WHERE"} s.shift_number IN (1, 2, 3)
-     ORDER BY TRUNC(s.shift_date) DESC, s.login_at`,
+     ORDER BY TRUNC(s.shift_date) ASC, s.login_at ASC`,
     binds
   );
 
-  // Group sessions by date string.
-  const dayMap = new Map<string, Array<{ shiftNumber: number; loginAt: Date; logoutAt: Date }>>();
-  for (const row of result.rows || []) {
-    const dateKey = toOracleDateString(asDate(row.SHIFT_DATE) || new Date());
-    const loginAt = asDate(row.LOGIN_AT);
-    const logoutAt = asDate(row.EFFECTIVE_LOGOUT);
-    if (!loginAt || !logoutAt) continue;
-    let arr = dayMap.get(dateKey);
-    if (!arr) { arr = []; dayMap.set(dateKey, arr); }
-    arr.push({ shiftNumber: Number(row.SHIFT_NUMBER), loginAt, logoutAt });
+  interface ProcessedSession {
+    shiftDateStr: string;
+    shiftNumber: number;
+    loginAt: Date;
+    logoutAt: Date;
+    loginMs: number;
+    logoutMs: number;
   }
 
-  // Helper: convert a Date to IST minute-of-day.
-  // Oracle TIMESTAMP columns store IST wall-clock values but node-oracledb
-  // reads them as if they were UTC. The raw Date's getUTCHours/Minutes
-  // already represent IST wall-clock, so we use UTC accessors directly.
-  function toIstMinuteOfDay(d: Date): number {
-    return d.getUTCHours() * 60 + d.getUTCMinutes();
+  // Convert Date (read as UTC by node-oracledb) to linear IST wall-clock epoch ms.
+  function getIstWallClockMs(d: Date): number {
+    return Date.UTC(
+      d.getUTCFullYear(),
+      d.getUTCMonth(),
+      d.getUTCDate(),
+      d.getUTCHours(),
+      d.getUTCMinutes(),
+      d.getUTCSeconds()
+    );
+  }
+
+  const allSessions: ProcessedSession[] = [];
+  const dateKeysSet = new Set<string>();
+
+  for (const row of result.rows || []) {
+    const shiftDate = asDate(row.SHIFT_DATE);
+    const loginAt = asDate(row.LOGIN_AT);
+    const logoutAt = asDate(row.EFFECTIVE_LOGOUT);
+    if (!shiftDate || !loginAt || !logoutAt) continue;
+
+    const shiftDateStr = toOracleDateString(shiftDate);
+    const loginMs = getIstWallClockMs(loginAt);
+    const logoutMs = getIstWallClockMs(logoutAt);
+
+    allSessions.push({
+      shiftDateStr,
+      shiftNumber: Number(row.SHIFT_NUMBER),
+      loginAt,
+      logoutAt,
+      loginMs,
+      logoutMs
+    });
+
+    dateKeysSet.add(shiftDateStr);
   }
 
   // Helper: merge a sorted array of [start, end] intervals.
@@ -5148,34 +5169,42 @@ async function fetchShiftCoverage(
 
   const rows: ShiftReportData["coverage"] = [];
 
-  for (const [dateKey, sessions] of dayMap) {
-    // Convert each session to an interval in "day offset minutes" where
-    // 0 = 07:00 IST on the shift_date and 1440 = 07:00 IST next day.
+  for (const dateKey of dateKeysSet) {
+    // If fromDate filter was specified, ignore context dates prior to fromDate
+    if (filters?.fromDate && dateKey < filters.fromDate) {
+      continue;
+    }
+    if (filters?.toDate && dateKey > filters.toDate) {
+      continue;
+    }
+
+    const [yyyy, mm, dd] = dateKey.split("-").map(Number);
+    if (!yyyy || !mm || !dd) continue;
+
+    // Daily window starts at 07:00 IST on dateKey and ends at 07:00 IST next day
+    const windowStartMs = Date.UTC(yyyy, mm - 1, dd, 7, 0, 0);
+    const windowEndMs = windowStartMs + TOTAL_DAY_MINUTES * 60 * 1000;
+
     const intervals: Array<[number, number]> = [];
     const shiftsPresent = new Set<number>();
 
-    for (const sess of sessions) {
-      shiftsPresent.add(sess.shiftNumber);
-      let startMin = toIstMinuteOfDay(sess.loginAt);
-      let endMin = toIstMinuteOfDay(sess.logoutAt);
-
-      // Normalise to offset from 07:00.
-      startMin = startMin >= 420 ? startMin - 420 : startMin + 1020; // +1020 = 1440 - 420
-      endMin = endMin >= 420 ? endMin - 420 : endMin + 1020;
-
-      // Handle sessions that cross the 07:00 boundary (shift 3).
-      // If endMin < startMin after normalisation, the session wraps around.
-      if (endMin < startMin) {
-        // Session spans past our reference point — clamp to end of day.
-        endMin = TOTAL_DAY_MINUTES;
+    for (const sess of allSessions) {
+      // Record shift presence for sessions logged under this specific shift date
+      if (sess.shiftDateStr === dateKey) {
+        shiftsPresent.add(sess.shiftNumber);
       }
 
-      // Clamp to [0, 1440].
-      startMin = Math.max(0, Math.min(TOTAL_DAY_MINUTES, startMin));
-      endMin = Math.max(0, Math.min(TOTAL_DAY_MINUTES, endMin));
+      // Check if session overlaps with target day's 24-hour cycle (07:00 -> 07:00 next day)
+      if (sess.loginMs < windowEndMs && sess.logoutMs > windowStartMs) {
+        const overlapStartMs = Math.max(sess.loginMs, windowStartMs);
+        const overlapEndMs = Math.min(sess.logoutMs, windowEndMs);
 
-      if (endMin > startMin) {
-        intervals.push([startMin, endMin]);
+        const startMin = Math.max(0, Math.min(TOTAL_DAY_MINUTES, Math.round((overlapStartMs - windowStartMs) / 60000)));
+        const endMin = Math.max(0, Math.min(TOTAL_DAY_MINUTES, Math.round((overlapEndMs - windowStartMs) / 60000)));
+
+        if (endMin > startMin) {
+          intervals.push([startMin, endMin]);
+        }
       }
     }
 
@@ -5184,7 +5213,7 @@ async function fetchShiftCoverage(
     const gapMinutes = TOTAL_DAY_MINUTES - coveredMinutes;
     const coveragePct = Math.min(100, Math.round((coveredMinutes / TOTAL_DAY_MINUTES) * 100));
 
-    // Determine which of the 3 shifts had zero sessions.
+    // Determine which of the 3 shifts had zero logged sessions for dateKey
     const uncoveredShifts = [1, 2, 3].filter((sn) => !shiftsPresent.has(sn));
 
     rows.push({
