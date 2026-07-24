@@ -217,10 +217,7 @@ export const useAppStore = create<AppState>()(
           }
           return { dataPumpJobs: [job, ...state.dataPumpJobs].slice(0, 50) };
         }),
-      clearCompletedDataPumpJobs: () =>
-        set((state) => ({
-          dataPumpJobs: state.dataPumpJobs.filter((j) => j.status === "running")
-        })),
+      clearCompletedDataPumpJobs: () => set({ dataPumpJobs: [] }),
       setExpdpTemplates: (expdpTemplates) => set({ expdpTemplates }),
       addExpdpTemplate: (template) =>
         set((state) => ({
