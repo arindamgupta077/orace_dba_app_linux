@@ -1,7 +1,8 @@
-﻿"use client";
+"use client";
 
 import { useEffect } from "react";
 import { CheckCircle2, Loader2, Server, Trash2, XCircle } from "lucide-react";
+import { fetchDataPumpJobsApi } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { DataPumpJob } from "@/types/dba";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,25 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
   const jobs = useAppStore((s) => s.dataPumpJobs);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const clearCompletedDataPumpJobs = useAppStore((s) => s.clearCompletedDataPumpJobs);
+
+  // Sync database jobs into store without wiping locally created jobs
+  useEffect(() => {
+    const syncJobs = () => {
+      fetchDataPumpJobsApi()
+        .then((res) => {
+          if (Array.isArray(res.active)) {
+            res.active.forEach((j) => upsertDataPumpJob(j));
+          }
+          if (Array.isArray(res.history)) {
+            res.history.forEach((j) => upsertDataPumpJob(j));
+          }
+        })
+        .catch(() => {});
+    };
+    syncJobs();
+    const interval = setInterval(syncJobs, 5000);
+    return () => clearInterval(interval);
+  }, [upsertDataPumpJob]);
 
   // Open SSE connection for any running jobs
   useEffect(() => {
@@ -105,6 +125,9 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
                 </span>
                 <span className="font-semibold text-foreground">{job.db}</span>
                 <span className="font-mono text-muted-foreground">{job.id}</span>
+                {job.requested_by && (
+                  <span className="text-[10px] text-muted-foreground">· By {job.requested_by}</span>
+                )}
               </div>
 
               {/* Status message */}

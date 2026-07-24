@@ -21,6 +21,11 @@ import type {
   DbaAlertLogStatus,
   DbaResponse,
   DiagAlertExtRow,
+  ExpdpParams,
+  ExpdpTemplate,
+  ImpdpParams,
+  ImpdpTemplate,
+  DataPumpJob,
   Handover,
   ShiftReportData,
   ShiftReportFilters,
@@ -722,4 +727,64 @@ export async function decideApproval(
 export async function fetchPendingApprovalCount(): Promise<number> {
   const result = await requestJson<{ count: number }>("/api/admin/approvals?countOnly=1");
   return result.count;
+}
+
+// ── Data Pump Templates API ────────────────────────────
+
+export async function fetchExpdpTemplatesApi(): Promise<{ templates: ExpdpTemplate[] }> {
+  return requestJson<{ templates: ExpdpTemplate[] }>("/api/datapump/templates/expdp");
+}
+
+export async function createExpdpTemplateApi(input: {
+  name: string;
+  db?: string;
+  params: ExpdpParams;
+}): Promise<{ template: ExpdpTemplate }> {
+  return requestJson<{ template: ExpdpTemplate }>("/api/datapump/templates/expdp", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteExpdpTemplateApi(id: string): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(`/api/datapump/templates/expdp/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchImpdpTemplatesApi(): Promise<{ templates: ImpdpTemplate[] }> {
+  return requestJson<{ templates: ImpdpTemplate[] }>("/api/datapump/templates/impdp");
+}
+
+export async function createImpdpTemplateApi(input: {
+  name: string;
+  db?: string;
+  params: ImpdpParams;
+}): Promise<{ template: ImpdpTemplate }> {
+  return requestJson<{ template: ImpdpTemplate }>("/api/datapump/templates/impdp", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteImpdpTemplateApi(id: string): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(`/api/datapump/templates/impdp/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
+// ── Data Pump Job Tracking & History API ────────────────────────────
+
+export async function fetchDataPumpJobsApi(): Promise<{
+  active: DataPumpJob[];
+  history: DataPumpJob[];
+}> {
+  return requestJson<{ active: DataPumpJob[]; history: DataPumpJob[] }>("/api/datapump/jobs");
+}
+
+export async function recordDataPumpJobApi(job: DataPumpJob): Promise<{ job: DataPumpJob }> {
+  return requestJson<{ job: DataPumpJob }>("/api/datapump/jobs", {
+    method: "POST",
+    body: JSON.stringify(job)
+  });
 }

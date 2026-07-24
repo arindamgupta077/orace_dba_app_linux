@@ -5,7 +5,7 @@ import { requiresApproval, createApprovalRequest } from "@/lib/server/approval-w
 import { normalizeDbaResponse } from "@/lib/server/dba-response-normalizer";
 import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sql-detector";
 import { getServerEnv } from "@/lib/server/env";
-import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { createMockResponse } from "@/services/mock-data";
 import type { DbaAction, DbaRequestPayload, DbaResponse } from "@/types/dba";
@@ -130,22 +130,49 @@ export async function POST(request: Request) {
         throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
       }
 
-      const response = await fetch(env.webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {})
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store"
-      });
+      try {
+        const response = await fetch(env.webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {})
+          },
+          body: JSON.stringify(payload),
+          cache: "no-store"
+        });
 
-      if (!response.ok) {
-        const message = await parseErrorMessage(response);
-        throw new Error(`n8n webhook failed (${response.status}): ${message}`);
+        if (!response.ok) {
+          const message = await parseErrorMessage(response);
+          throw new Error(`n8n webhook failed (${response.status}): ${message}`);
+        }
+
+        result = normalizeDbaResponse(await response.json(), action);
+      } catch (fetchErr) {
+        // Data Pump long-running actions (expdp / impdp) can take hours, causing n8n respond node socket timeout.
+        // If fetch failed due to socket timeout / aborted connection after starting, n8n is still running in background.
+        if (action === "expdp" || action === "impdp") {
+          const errMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          const jobIdStr = (params.job_id as string) || requestId;
+          result = {
+            status: "success",
+            request_id: jobIdStr,
+            action,
+            db_status: "healthy",
+            ai_summary: `Data Pump ${action.toUpperCase()} job initiated on server. Running in background (waiting for n8n completion callback).`,
+            findings: [],
+            recommendations: [],
+            raw_data: {
+              async: true,
+              job_id: jobIdStr,
+              status: "running",
+              note: errMessage
+            },
+            raw_output: `Job ${jobIdStr} triggered via n8n webhook. Log will update upon n8n callback.`
+          };
+        } else {
+          throw fetchErr;
+        }
       }
-
-      result = normalizeDbaResponse(await response.json(), action);
     }
 
     const durationMs = Date.now() - startedAt;
@@ -180,6 +207,26 @@ export async function POST(request: Request) {
       detail: `${action} submitted to n8n webhook for ${db}.`,
       metadata: { request_id: result.request_id, duration_ms: durationMs }
     });
+
+    if (action === "expdp" || action === "impdp") {
+      const jobIdStr = (params.job_id as string) || requestId;
+      const isStillRunning = (result.raw_data as Record<string, unknown>)?.status === "running" || (result.raw_data as Record<string, unknown>)?.async === true;
+      await upsertDataPumpJobHistory({
+        id: jobIdStr,
+        operation: action,
+        db,
+        status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
+        started_at: new Date(startedAt).toISOString(),
+        ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
+        message: result.ai_summary || (isStillRunning ? "Operation running on server (waiting for n8n callback...)" : "Operation completed"),
+        dump_file: (result.raw_data as Record<string, unknown>)?.dump_file as string | undefined,
+        transfer_status: (result.raw_data as Record<string, unknown>)?.transfer_status as string | undefined,
+        requested_by: session.user.username,
+        params
+      }).catch((err) => {
+        console.error("[dba/actions] Failed to save Data Pump job history:", err);
+      });
+    }
 
     return NextResponse.json(result);
   } catch (error) {

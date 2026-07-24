@@ -710,6 +710,7 @@ export interface DataPumpJob {
   dump_file?: string;
   transfer_status?: string;
   message?: string;
+  requested_by?: string;
   params: Record<string, unknown>;
 }
 
@@ -761,6 +762,7 @@ export interface ExpdpTemplate {
   name: string;
   db: string;
   created_at: string;
+  created_by?: string;
   params: ExpdpParams;
 }
 
@@ -769,6 +771,7 @@ export interface ImpdpTemplate {
   name: string;
   db: string;
   created_at: string;
+  created_by?: string;
   params: ImpdpParams;
 }
 

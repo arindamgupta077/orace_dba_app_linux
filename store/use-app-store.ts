@@ -43,10 +43,13 @@ interface AppState {
   dismissNotification: (id: string) => void;
   /** Forget a single previously-dismissed notification id so it can reappear. */
   undismissNotification: (id: string) => void;
+  setDataPumpJobs: (jobs: DataPumpJob[]) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
   clearCompletedDataPumpJobs: () => void;
+  setExpdpTemplates: (templates: ExpdpTemplate[]) => void;
   addExpdpTemplate: (template: ExpdpTemplate) => void;
   deleteExpdpTemplate: (id: string) => void;
+  setImpdpTemplates: (templates: ImpdpTemplate[]) => void;
   addImpdpTemplate: (template: ImpdpTemplate) => void;
   deleteImpdpTemplate: (id: string) => void;
   upsertRmanJob: (job: RmanJob) => void;
@@ -184,26 +187,48 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           dismissedNotificationIds: state.dismissedNotificationIds.filter((existing) => existing !== String(id))
         })),
+      setDataPumpJobs: (dataPumpJobs) => set({ dataPumpJobs }),
       upsertDataPumpJob: (job) =>
         set((state) => {
-          const existing = state.dataPumpJobs.findIndex((j) => j.id === job.id);
-          if (existing >= 0) {
+          const existingIndex = state.dataPumpJobs.findIndex((j) => j.id === job.id);
+          if (existingIndex >= 0) {
             const updated = [...state.dataPumpJobs];
-            updated[existing] = job;
+            const old = updated[existingIndex];
+            updated[existingIndex] = {
+              ...old,
+              ...job,
+              // Preserve non-empty fields if incoming job payload lacks them
+              // Do not downgrade a running job to error if the incoming message is a transient fetch/network error
+              status: (old.status === "running" && job.status === "error" && (
+                (job.message || "").toLowerCase().includes("failed to fetch") ||
+                (job.message || "").toLowerCase().includes("fetch failed") ||
+                (job.message || "").toLowerCase().includes("network")
+              )) ? "running" : (job.status || old.status),
+              dump_file: job.dump_file || old.dump_file,
+              transfer_status: job.transfer_status || old.transfer_status,
+              message: (old.status === "running" && (
+                (job.message || "").toLowerCase().includes("failed to fetch") ||
+                (job.message || "").toLowerCase().includes("fetch failed")
+              )) ? "In progress — waiting for n8n callback…" : (job.message || old.message),
+              completed_at: job.completed_at || old.completed_at,
+              requested_by: job.requested_by || old.requested_by
+            };
             return { dataPumpJobs: updated };
           }
-          return { dataPumpJobs: [job, ...state.dataPumpJobs].slice(0, 15) };
+          return { dataPumpJobs: [job, ...state.dataPumpJobs].slice(0, 50) };
         }),
       clearCompletedDataPumpJobs: () =>
         set((state) => ({
           dataPumpJobs: state.dataPumpJobs.filter((j) => j.status === "running")
         })),
+      setExpdpTemplates: (expdpTemplates) => set({ expdpTemplates }),
       addExpdpTemplate: (template) =>
         set((state) => ({
           expdpTemplates: [template, ...state.expdpTemplates.filter((t) => t.id !== template.id)]
         })),
       deleteExpdpTemplate: (id) =>
         set((state) => ({ expdpTemplates: state.expdpTemplates.filter((t) => t.id !== id) })),
+      setImpdpTemplates: (impdpTemplates) => set({ impdpTemplates }),
       addImpdpTemplate: (template) =>
         set((state) => ({
           impdpTemplates: [template, ...state.impdpTemplates.filter((t) => t.id !== template.id)]
@@ -284,8 +309,8 @@ export const useAppStore = create<AppState>()(
         // replay after a page reload (see addNotification guard above).
         dismissedNotificationIds: state.dismissedNotificationIds.slice(-DISMISSED_NOTIFICATION_ID_LIMIT),
 
-        // ── Data Pump Jobs (cap 15, strip params) ──────────────
-        dataPumpJobs: state.dataPumpJobs.slice(0, 15).map(({ params: _p, ...rest }) => ({
+        // ── Data Pump Jobs (cap 50, strip params) ──────────────
+        dataPumpJobs: state.dataPumpJobs.slice(0, 50).map(({ params: _p, ...rest }) => ({
           ...rest,
           params: {}
         })),

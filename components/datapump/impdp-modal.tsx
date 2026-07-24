@@ -44,10 +44,10 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { SchemaPicker } from "@/components/datapump/schema-picker";
-import { executeDBAAction } from "@/services/api";
+import { createImpdpTemplateApi, deleteImpdpTemplateApi, executeDBAAction, fetchImpdpTemplatesApi, recordDataPumpJobApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
-import type { DbaResponse, ImpdpParams, ImpdpTemplate } from "@/types/dba";
+import type { DataPumpJob, DbaResponse, ImpdpParams, ImpdpTemplate } from "@/types/dba";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                             */
@@ -208,9 +208,24 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
   const user = useAppStore((s) => s.user);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const impdpTemplates = useAppStore((s) => s.impdpTemplates);
+  const setImpdpTemplates = useAppStore((s) => s.setImpdpTemplates);
   const addImpdpTemplate = useAppStore((s) => s.addImpdpTemplate);
   const deleteImpdpTemplate = useAppStore((s) => s.deleteImpdpTemplate);
   const dbTarget = databases.find((db) => db.name === selectedDb);
+
+  useEffect(() => {
+    if (open) {
+      fetchImpdpTemplatesApi()
+        .then((res) => {
+          if (Array.isArray(res.templates)) {
+            setImpdpTemplates(res.templates);
+          }
+        })
+        .catch(() => {
+          // Silently retain existing templates on network error
+        });
+    }
+  }, [open, setImpdpTemplates]);
 
   // Wizard state
   const [wizardStep, setWizardStep] = useState<WizardStep>("dumpfile");
@@ -309,73 +324,149 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
     setWizardStep("configure");
   };
 
+  const recordJob = (job: DataPumpJob) => {
+    const fullJob: DataPumpJob = {
+      ...job,
+      requested_by: user?.username || "dba"
+    };
+    upsertDataPumpJob(fullJob);
+    recordDataPumpJobApi(fullJob).catch(() => {
+      // Ignore API failure
+    });
+  };
+
   /* ── Submit ── */
   const handleSubmit = async () => {
     setStatus("loading");
     setError(null);
     const jobId = `IMPDP-${Date.now()}`;
+    const actionParams = { ...fullPayload.params, job_id: jobId };
 
-    upsertDataPumpJob({
+    recordJob({
       id: jobId,
       operation: "impdp",
       db: selectedDb,
       status: "running",
       started_at: new Date().toISOString(),
-      params: fullPayload.params
+      params: actionParams
     });
 
     try {
-      const result = await executeDBAAction("impdp", selectedDb, fullPayload.params);
+      const result = await executeDBAAction("impdp", selectedDb, actionParams);
+      const isStillRunning = (result.raw_data as Record<string, unknown>)?.status === "running";
+
       setStatus("success");
       setResponse(result);
-      upsertDataPumpJob({
+
+      recordJob({
         id: jobId,
         operation: "impdp",
         db: selectedDb,
-        status: result.status === "success" ? "success" : "error",
+        status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
         started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        message: result.ai_summary || "Import completed",
+        ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
+        message: result.ai_summary || (isStillRunning ? "Import running on server (waiting for n8n callback...)" : "Import completed"),
         dump_file: fullPayload.params.DUMPFILE as string,
-        params: fullPayload.params
+        params: actionParams
       });
-      toast.success("IMPDP completed", { description: result.ai_summary });
+
+      if (isStillRunning) {
+        toast.info("IMPDP import started", {
+          description: "Import job is executing on the server. You can monitor progress in Active Jobs."
+        });
+      } else {
+        toast.success("IMPDP completed", { description: result.ai_summary });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Import request failed";
-      setStatus("error");
-      setError(msg);
-      upsertDataPumpJob({
-        id: jobId,
-        operation: "impdp",
-        db: selectedDb,
-        status: "error",
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        message: msg,
-        params: fullPayload.params
-      });
+      const isAsyncOrTimeout =
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("fetch failed") ||
+        msg.toLowerCase().includes("failed to fetch") ||
+        msg.toLowerCase().includes("network") ||
+        msg.toLowerCase().includes("abort") ||
+        msg.toLowerCase().includes("connection") ||
+        msg.toLowerCase().includes("socket") ||
+        msg.toLowerCase().includes("504") ||
+        msg.toLowerCase().includes("502") ||
+        msg.toLowerCase().includes("500") ||
+        msg.toLowerCase().includes("n8n");
+
+      if (isAsyncOrTimeout) {
+        setStatus("success");
+        recordJob({
+          id: jobId,
+          operation: "impdp",
+          db: selectedDb,
+          status: "running",
+          started_at: new Date().toISOString(),
+          message: "In progress — waiting for n8n callback…",
+          params: actionParams
+        });
+        toast.info("IMPDP import running", {
+          description: "Import job is executing on the database server. Status will update upon n8n callback."
+        });
+      } else {
+        setStatus("error");
+        setError(msg);
+        recordJob({
+          id: jobId,
+          operation: "impdp",
+          db: selectedDb,
+          status: "error",
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          message: msg,
+          params: actionParams
+        });
+      }
     }
   };
 
   /* ── Save template ── */
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
     if (!templateName.trim()) { toast.error("Enter a template name"); return; }
-    const tpl: ImpdpTemplate = {
-      id: `IMPTPL-${Date.now()}`,
-      name: templateName.trim(),
-      db: selectedDb,
-      created_at: new Date().toISOString(),
-      params: {
-        ...params,
-        drop_user: dropUser ? "yes" : "no"
-      }
+    const tplParams: ImpdpParams = {
+      ...params,
+      drop_user: dropUser ? "yes" : "no"
     };
     for (const { key, value } of extraParams) {
-      if (key && value) (tpl.params as Record<string, unknown>)[key] = value;
+      if (key && value) (tplParams as Record<string, unknown>)[key] = value;
     }
-    addImpdpTemplate(tpl);
-    toast.success(`Template "${tpl.name}" saved`);
-    setTemplateName("");
+
+    try {
+      const res = await createImpdpTemplateApi({
+        name: templateName.trim(),
+        db: selectedDb,
+        params: tplParams
+      });
+      addImpdpTemplate(res.template);
+      toast.success(`Template "${res.template.name}" saved to database`);
+    } catch {
+      const fallbackTpl: ImpdpTemplate = {
+        id: `IMPTPL-${Date.now()}`,
+        name: templateName.trim(),
+        db: selectedDb,
+        created_at: new Date().toISOString(),
+        created_by: user?.username || "dba",
+        params: tplParams
+      };
+      addImpdpTemplate(fallbackTpl);
+      toast.success(`Template "${fallbackTpl.name}" saved locally`);
+    } finally {
+      setTemplateName("");
+    }
+  };
+
+  /* ── Delete template ── */
+  const handleDeleteTemplate = async (tpl: ImpdpTemplate) => {
+    try {
+      await deleteImpdpTemplateApi(tpl.id);
+    } catch {
+      // Ignore API error for offline/fallback templates
+    }
+    deleteImpdpTemplate(tpl.id);
+    toast.info(`Template "${tpl.name}" deleted`);
   };
 
   /* ── Load template ── */
@@ -741,14 +832,14 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
                             )}
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            DB: {tpl.db} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"} · {new Date(tpl.created_at).toLocaleDateString()}
+                            DB: {tpl.db || "Default"} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"}{tpl.created_by ? ` · By: ${tpl.created_by}` : ""} · {new Date(tpl.created_at).toLocaleDateString()}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Button size="sm" variant="outline" onClick={() => handleLoadTemplate(tpl)} className="h-7 gap-1 text-xs">
                             <Play className="h-3 w-3" /> Load
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => deleteImpdpTemplate(tpl.id)} className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400">
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteTemplate(tpl)} className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400">
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>

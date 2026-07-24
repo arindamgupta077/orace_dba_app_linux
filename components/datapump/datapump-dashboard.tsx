@@ -9,6 +9,7 @@ import {
   Database,
   FileInput,
   FileOutput,
+  History,
   Server,
   Shield,
   Zap
@@ -18,6 +19,8 @@ import { ExpdpModal } from "@/components/datapump/expdp-modal";
 import { ImpdpModal } from "@/components/datapump/impdp-modal";
 import { LogViewerModal } from "@/components/datapump/log-viewer-modal";
 import { ActiveJobsBanner } from "@/components/datapump/active-jobs-banner";
+import { JobHistoryModal } from "@/components/datapump/job-history-modal";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/use-app-store";
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +155,7 @@ export function DataPumpDashboard() {
   const [impdpOpen, setImpdpOpen] = useState(false);
   const [expdpLogOpen, setExpdpLogOpen] = useState(false);
   const [impdpLogOpen, setImpdpLogOpen] = useState(false);
+  const [jobHistoryOpen, setJobHistoryOpen] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -161,20 +165,33 @@ export function DataPumpDashboard() {
         icon={Database}
       />
 
-      {/* Environment badge */}
-      <div className="flex items-center gap-3">
-        <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-          isProd
-            ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
-            : "border-violet-400/30 bg-violet-400/10 text-violet-300"
-        }`}>
-          <Shield className="h-3.5 w-3.5" />
-          {isProd ? "Production — EXPDP Only" : `${dbTarget?.env_label || "Non-PROD"} — EXPDP + IMPDP Available`}
+      {/* Environment badge & Job History button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+            isProd
+              ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
+              : "border-violet-400/30 bg-violet-400/10 text-violet-300"
+          }`}>
+            <Shield className="h-3.5 w-3.5" />
+            {isProd ? "Production — EXPDP Only" : `${dbTarget?.env_label || "Non-PROD"} — EXPDP + IMPDP Available`}
+          </div>
+          <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-1.5 text-xs text-muted-foreground">
+            <Server className="inline h-3 w-3 mr-1" />
+            {selectedDb} · {dbTarget?.os}
+          </div>
         </div>
-        <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-1.5 text-xs text-muted-foreground">
-          <Server className="inline h-3 w-3 mr-1" />
-          {selectedDb} · {dbTarget?.os}
-        </div>
+
+        <Button
+          id="btn-view-datapump-history"
+          variant="outline"
+          size="sm"
+          onClick={() => setJobHistoryOpen(true)}
+          className="gap-2 border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"
+        >
+          <History className="h-4 w-4 text-violet-400" />
+          Job History
+        </Button>
       </div>
 
       {/* Active jobs banner */}
@@ -315,6 +332,7 @@ export function DataPumpDashboard() {
         title="IMPDP Log Viewer"
         description="Latest Oracle Data Pump import log from the database server"
       />
+      <JobHistoryModal open={jobHistoryOpen} onOpenChange={setJobHistoryOpen} />
     </div>
   );
 }

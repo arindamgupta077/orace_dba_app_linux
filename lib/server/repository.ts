@@ -53,7 +53,14 @@ import type {
   ApprovalHistoryEvent,
   ApprovalRequestStatus,
   ApprovalHistoryEventType,
-  ApprovalRiskLevel
+  ApprovalRiskLevel,
+  ExpdpParams,
+  ExpdpTemplate,
+  ImpdpParams,
+  ImpdpTemplate,
+  DataPumpJob,
+  DataPumpJobStatus,
+  DataPumpOperation
 } from "@/types/dba";
 
 type UserRole = UserSession["role"];
@@ -5795,6 +5802,368 @@ export async function countPendingApprovals(): Promise<number> {
       return Number(result.rows?.[0]?.CNT ?? 0);
     } catch (error) {
       if (isOracleMissingTableError(error)) return 0;
+      throw error;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Data Pump Export (EXPDP) & Import (IMPDP) Templates Database Persistence
+// ---------------------------------------------------------------------------
+
+export async function listDataPumpExpdpTemplates(): Promise<ExpdpTemplate[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT template_id, template_name, database_name, created_by, created_at, params_json
+           FROM datapump_expdp_templates
+          ORDER BY created_at DESC`
+      );
+      return (result.rows ?? []).map((row) => {
+        const rawJson = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawJson);
+        } catch {
+          parsedParams = {};
+        }
+        return {
+          id: String(row.TEMPLATE_ID),
+          name: String(row.TEMPLATE_NAME),
+          db: String(row.DATABASE_NAME || ""),
+          created_by: String(row.CREATED_BY || ""),
+          created_at: toIstIsoString(row.CREATED_AT),
+          params: parsedParams as unknown as ExpdpParams
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      throw error;
+    }
+  });
+}
+
+export async function createDataPumpExpdpTemplate(input: {
+  name: string;
+  db?: string;
+  createdBy: string;
+  params: ExpdpParams;
+}): Promise<ExpdpTemplate> {
+  return executeOne(async (connection) => {
+    const paramsJson = JSON.stringify(input.params || {});
+    const dumpTransferReq = input.params.dump_transfer_required === "yes" ? "yes" : "no";
+    const transferServer = input.params.transfer_server || null;
+    const compression = input.params.COMPRESSION || null;
+    const schemasList = Array.isArray(input.params.SCHEMAS) ? input.params.SCHEMAS.join(",") : (input.params.SCHEMAS || null);
+
+    const result = await connection.execute<{ templateId: number[] }>(
+      `INSERT INTO datapump_expdp_templates (
+         template_name, database_name, created_by, params_json,
+         dump_transfer_req, transfer_server, compression, schemas_list
+       ) VALUES (
+         :name, :db, :createdBy, :paramsJson,
+         :dumpTransferReq, :transferServer, :compression, :schemasList
+       ) RETURNING template_id INTO :templateId`,
+      {
+        name: input.name,
+        db: input.db || "",
+        createdBy: input.createdBy,
+        paramsJson,
+        dumpTransferReq,
+        transferServer,
+        compression,
+        schemasList,
+        templateId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+      },
+      { autoCommit: true }
+    );
+
+    const insertedId = result.outBinds?.templateId?.[0] ? String(result.outBinds.templateId[0]) : `EXPTPL-${Date.now()}`;
+    return {
+      id: insertedId,
+      name: input.name,
+      db: input.db || "",
+      created_by: input.createdBy,
+      created_at: new Date().toISOString(),
+      params: input.params
+    };
+  });
+}
+
+export async function deleteDataPumpExpdpTemplate(id: string | number): Promise<boolean> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute(
+        `DELETE FROM datapump_expdp_templates WHERE template_id = :id`,
+        { id: Number(id) || id },
+        { autoCommit: true }
+      );
+      return (result.rowsAffected ?? 0) > 0;
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return false;
+      throw error;
+    }
+  });
+}
+
+export async function listDataPumpImpdpTemplates(): Promise<ImpdpTemplate[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT template_id, template_name, database_name, created_by, created_at, params_json
+           FROM datapump_impdp_templates
+          ORDER BY created_at DESC`
+      );
+      return (result.rows ?? []).map((row) => {
+        const rawJson = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawJson);
+        } catch {
+          parsedParams = {};
+        }
+        return {
+          id: String(row.TEMPLATE_ID),
+          name: String(row.TEMPLATE_NAME),
+          db: String(row.DATABASE_NAME || ""),
+          created_by: String(row.CREATED_BY || ""),
+          created_at: toIstIsoString(row.CREATED_AT),
+          params: parsedParams as unknown as ImpdpParams
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      throw error;
+    }
+  });
+}
+
+export async function createDataPumpImpdpTemplate(input: {
+  name: string;
+  db?: string;
+  createdBy: string;
+  params: ImpdpParams;
+}): Promise<ImpdpTemplate> {
+  return executeOne(async (connection) => {
+    const paramsJson = JSON.stringify(input.params || {});
+    const dropUser = input.params.drop_user === "no" ? "no" : "yes";
+    const tableExistsAction = input.params.TABLE_EXISTS_ACTION || null;
+    const contentType = input.params.CONTENT || null;
+    const schemasList = Array.isArray(input.params.SCHEMAS) ? input.params.SCHEMAS.join(",") : (input.params.SCHEMAS || null);
+
+    const result = await connection.execute<{ templateId: number[] }>(
+      `INSERT INTO datapump_impdp_templates (
+         template_name, database_name, created_by, params_json,
+         drop_user, table_exists_action, content_type, schemas_list
+       ) VALUES (
+         :name, :db, :createdBy, :paramsJson,
+         :dropUser, :tableExistsAction, :contentType, :schemasList
+       ) RETURNING template_id INTO :templateId`,
+      {
+        name: input.name,
+        db: input.db || "",
+        createdBy: input.createdBy,
+        paramsJson,
+        dropUser,
+        tableExistsAction,
+        contentType,
+        schemasList,
+        templateId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+      },
+      { autoCommit: true }
+    );
+
+    const insertedId = result.outBinds?.templateId?.[0] ? String(result.outBinds.templateId[0]) : `IMPTPL-${Date.now()}`;
+    return {
+      id: insertedId,
+      name: input.name,
+      db: input.db || "",
+      created_by: input.createdBy,
+      created_at: new Date().toISOString(),
+      params: input.params
+    };
+  });
+}
+
+export async function deleteDataPumpImpdpTemplate(id: string | number): Promise<boolean> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute(
+        `DELETE FROM datapump_impdp_templates WHERE template_id = :id`,
+        { id: Number(id) || id },
+        { autoCommit: true }
+      );
+      return (result.rowsAffected ?? 0) > 0;
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return false;
+      throw error;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Data Pump Job History Database Operations (DATAPUMP_JOB_HISTORY)
+// ---------------------------------------------------------------------------
+
+export async function listDataPumpJobHistory(limit = 100): Promise<DataPumpJob[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT job_id, operation, database_name, status, started_at, completed_at,
+                DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
+                DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
+                DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
+                requested_by,
+                DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
+           FROM (
+             SELECT * FROM datapump_job_history ORDER BY started_at DESC
+           )
+          WHERE ROWNUM <= :limit`,
+        { limit }
+      );
+      return (result.rows ?? []).map((row) => {
+        const rawParams = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawParams);
+        } catch {
+          parsedParams = {};
+        }
+        return {
+          id: String(row.JOB_ID),
+          operation: String(row.OPERATION).toLowerCase() as DataPumpOperation,
+          db: String(row.DATABASE_NAME || ""),
+          status: String(row.STATUS).toLowerCase() as DataPumpJobStatus,
+          started_at: toIstIsoString(row.STARTED_AT),
+          completed_at: row.COMPLETED_AT ? toIstIsoString(row.COMPLETED_AT) : undefined,
+          dump_file: row.DUMP_FILE ? String(row.DUMP_FILE) : undefined,
+          transfer_status: row.TRANSFER_STATUS ? String(row.TRANSFER_STATUS) : undefined,
+          message: row.MESSAGE ? String(row.MESSAGE) : undefined,
+          requested_by: row.REQUESTED_BY ? String(row.REQUESTED_BY) : undefined,
+          params: parsedParams
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      console.error("[listDataPumpJobHistory] Oracle DB Error:", error);
+      throw error;
+    }
+  });
+}
+
+export async function listActiveDataPumpJobs(): Promise<DataPumpJob[]> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT job_id, operation, database_name, status, started_at, completed_at,
+                DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
+                DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
+                DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
+                requested_by,
+                DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
+           FROM datapump_job_history
+          WHERE LOWER(status) = 'running'
+          ORDER BY started_at DESC`
+      );
+      return (result.rows ?? []).map((row) => {
+        const rawParams = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawParams);
+        } catch {
+          parsedParams = {};
+        }
+        return {
+          id: String(row.JOB_ID),
+          operation: String(row.OPERATION).toLowerCase() as DataPumpOperation,
+          db: String(row.DATABASE_NAME || ""),
+          status: String(row.STATUS).toLowerCase() as DataPumpJobStatus,
+          started_at: toIstIsoString(row.STARTED_AT),
+          completed_at: row.COMPLETED_AT ? toIstIsoString(row.COMPLETED_AT) : undefined,
+          dump_file: row.DUMP_FILE ? String(row.DUMP_FILE) : undefined,
+          transfer_status: row.TRANSFER_STATUS ? String(row.TRANSFER_STATUS) : undefined,
+          message: row.MESSAGE ? String(row.MESSAGE) : undefined,
+          requested_by: row.REQUESTED_BY ? String(row.REQUESTED_BY) : undefined,
+          params: parsedParams
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      console.error("[listActiveDataPumpJobs] Oracle DB Error:", error);
+      throw error;
+    }
+  });
+}
+
+export async function upsertDataPumpJobHistory(job: DataPumpJob): Promise<void> {
+  return executeOne(async (connection) => {
+    try {
+      const jobIdStr = String(job.id || `JOB-${Date.now()}`).slice(0, 50);
+      const operationVal = String(job.operation || "expdp").toLowerCase().slice(0, 10);
+      const dbName = String(job.db || "DEFAULT").trim().slice(0, 50) || "DEFAULT";
+      const statusVal = String(job.status || "running").toLowerCase().slice(0, 20);
+      const requestedBy = String(job.requested_by || "dba").slice(0, 50);
+      const paramsJson = JSON.stringify(job.params || {});
+
+      const startedAtIso = (job.started_at ? new Date(job.started_at) : new Date()).toISOString();
+      const completedAtIso = job.completed_at ? new Date(job.completed_at).toISOString() : null;
+      const dumpFile = job.dump_file ? String(job.dump_file).slice(0, 500) : null;
+      const transferStatus = job.transfer_status ? String(job.transfer_status).slice(0, 500) : null;
+      const messageVal = job.message ? String(job.message) : null;
+
+      // 1. Try UPDATE
+      const updateResult = await connection.execute(
+        `UPDATE datapump_job_history
+            SET status = :statusVal,
+                completed_at = CASE WHEN :completedAtIso IS NOT NULL THEN TO_TIMESTAMP_TZ(:completedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') ELSE completed_at END,
+                dump_file = COALESCE(:dumpFile, dump_file),
+                transfer_status = COALESCE(:transferStatus, transfer_status),
+                message = COALESCE(:messageVal, message),
+                params_json = CASE WHEN :paramsJson IS NOT NULL AND :paramsJson <> '{}' THEN :paramsJson ELSE params_json END
+          WHERE job_id = :jobId`,
+        {
+          jobId: jobIdStr,
+          statusVal,
+          completedAtIso,
+          dumpFile,
+          transferStatus,
+          messageVal,
+          paramsJson
+        },
+        { autoCommit: true }
+      );
+
+      // 2. If row does not exist, INSERT
+      if ((updateResult.rowsAffected ?? 0) === 0) {
+        await connection.execute(
+          `INSERT INTO datapump_job_history (
+             job_id, operation, database_name, status, started_at, completed_at,
+             dump_file, transfer_status, message, requested_by, params_json
+           ) VALUES (
+             :jobId, :operationVal, :dbName, :statusVal,
+             TO_TIMESTAMP_TZ(:startedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'),
+             CASE WHEN :completedAtIso IS NOT NULL THEN TO_TIMESTAMP_TZ(:completedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') ELSE NULL END,
+             :dumpFile, :transferStatus, :messageVal, :requestedBy, :paramsJson
+           )`,
+          {
+            jobId: jobIdStr,
+            operationVal,
+            dbName,
+            statusVal,
+            startedAtIso,
+            completedAtIso,
+            dumpFile,
+            transferStatus,
+            messageVal,
+            requestedBy,
+            paramsJson
+          },
+          { autoCommit: true }
+        );
+      }
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return;
+      console.error("[upsertDataPumpJobHistory] Oracle DB Error:", error);
       throw error;
     }
   });

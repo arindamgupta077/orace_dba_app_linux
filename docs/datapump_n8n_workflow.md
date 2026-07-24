@@ -92,7 +92,7 @@ return [{
     dump_transfer_required: p.dump_transfer_required || 'no',
     transfer_server: p.transfer_server || '',
     log_file: logPath,
-    job_id: `EXPDP-${Date.now()}`
+    job_id: p.job_id || $json.job_id || `EXPDP-${Date.now()}`
   }
 }];
 ```
@@ -138,6 +138,7 @@ const p = cmdData.body ? cmdData.body.params : cmdData.params;
 return [{
   json: {
     job_id: cmdData.job_id,
+    db: cmdData.db || 'ORCL',
     status: success ? 'success' : 'error',
     action: 'expdp',
     dump_file: p.DUMPFILE || 'exp_%U.dmp',
@@ -348,7 +349,7 @@ return [{
     ...data,
     impdp_command: impdpCmd,
     shell_command: shellCmd,
-    job_id: `IMPDP-${Date.now()}`
+    job_id: p.job_id || $json.job_id || `IMPDP-${Date.now()}`
   }
 }];
 ```

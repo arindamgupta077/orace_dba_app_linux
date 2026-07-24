@@ -4,6 +4,7 @@ export interface DataPumpCallbackPayload {
   job_id: string;
   status: "success" | "error" | "running" | "completed";
   action: "expdp" | "impdp";
+  db?: string;
   dump_file?: string;
   transfer_status?: string;
   message?: string;

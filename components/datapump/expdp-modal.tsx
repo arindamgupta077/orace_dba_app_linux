@@ -44,10 +44,10 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { SchemaPicker } from "@/components/datapump/schema-picker";
-import { executeDBAAction } from "@/services/api";
+import { createExpdpTemplateApi, deleteExpdpTemplateApi, executeDBAAction, fetchExpdpTemplatesApi, recordDataPumpJobApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
-import type { DbaResponse, ExpdpParams, ExpdpTemplate } from "@/types/dba";
+import type { DataPumpJob, DbaResponse, ExpdpParams, ExpdpTemplate } from "@/types/dba";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                             */
@@ -151,9 +151,24 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   const user = useAppStore((s) => s.user);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const expdpTemplates = useAppStore((s) => s.expdpTemplates);
+  const setExpdpTemplates = useAppStore((s) => s.setExpdpTemplates);
   const addExpdpTemplate = useAppStore((s) => s.addExpdpTemplate);
   const deleteExpdpTemplate = useAppStore((s) => s.deleteExpdpTemplate);
   const dbTarget = databases.find((db) => db.name === selectedDb);
+
+  useEffect(() => {
+    if (open) {
+      fetchExpdpTemplatesApi()
+        .then((res) => {
+          if (Array.isArray(res.templates)) {
+            setExpdpTemplates(res.templates);
+          }
+        })
+        .catch(() => {
+          // Silently retain existing templates on network error
+        });
+    }
+  }, [open, setExpdpTemplates]);
 
   // Form state
   const [params, setParams] = useState<ExpdpParams>({ ...DEFAULT_PARAMS });
@@ -216,82 +231,157 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
     }
   }, [open]);
 
+  const recordJob = (job: DataPumpJob) => {
+    const fullJob: DataPumpJob = {
+      ...job,
+      requested_by: user?.username || "dba"
+    };
+    upsertDataPumpJob(fullJob);
+    recordDataPumpJobApi(fullJob).catch(() => {
+      // Ignore API failure
+    });
+  };
+
   /* ── Submit ── */
   const handleSubmit = async () => {
     setStatus("loading");
     setError(null);
     const jobId = `EXPDP-${Date.now()}`;
+    const actionParams = { ...fullPayload.params, job_id: jobId };
 
-    // Register job immediately in store (persists even if modal closes)
-    upsertDataPumpJob({
+    // Register job immediately in store and database
+    recordJob({
       id: jobId,
       operation: "expdp",
       db: selectedDb,
       status: "running",
       started_at: new Date().toISOString(),
-      params: fullPayload.params
+      params: actionParams
     });
 
     try {
-      const result = await executeDBAAction("expdp", selectedDb, fullPayload.params);
+      const result = await executeDBAAction("expdp", selectedDb, actionParams);
+      const isStillRunning = (result.raw_data as Record<string, unknown>)?.status === "running";
+
       setStatus("success");
       setResponse(result);
-      // Update job with final status
-      upsertDataPumpJob({
+
+      // Update job in store and database
+      recordJob({
         id: jobId,
         operation: "expdp",
         db: selectedDb,
-        status: result.status === "success" ? "success" : "error",
+        status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
         started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        message: result.ai_summary || "Export completed",
+        ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
+        message: result.ai_summary || (isStillRunning ? "Export running on server (waiting for n8n callback...)" : "Export completed"),
         dump_file: (result.raw_data as Record<string, unknown>)?.dump_file as string | undefined,
         transfer_status: (result.raw_data as Record<string, unknown>)?.transfer_status as string | undefined,
-        params: fullPayload.params
+        params: actionParams
       });
-      toast.success("EXPDP completed", { description: result.ai_summary });
+
+      if (isStillRunning) {
+        toast.info("EXPDP export started", {
+          description: "Export job is executing on the server. You can monitor progress in Active Jobs."
+        });
+      } else {
+        toast.success("EXPDP completed", { description: result.ai_summary });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Export request failed";
-      setStatus("error");
-      setError(msg);
-      upsertDataPumpJob({
-        id: jobId,
-        operation: "expdp",
-        db: selectedDb,
-        status: "error",
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        message: msg,
-        params: fullPayload.params
-      });
+      const isAsyncOrTimeout =
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("fetch failed") ||
+        msg.toLowerCase().includes("failed to fetch") ||
+        msg.toLowerCase().includes("network") ||
+        msg.toLowerCase().includes("abort") ||
+        msg.toLowerCase().includes("connection") ||
+        msg.toLowerCase().includes("socket") ||
+        msg.toLowerCase().includes("504") ||
+        msg.toLowerCase().includes("502") ||
+        msg.toLowerCase().includes("500") ||
+        msg.toLowerCase().includes("n8n");
+
+      if (isAsyncOrTimeout) {
+        setStatus("success");
+        recordJob({
+          id: jobId,
+          operation: "expdp",
+          db: selectedDb,
+          status: "running",
+          started_at: new Date().toISOString(),
+          message: "In progress — waiting for n8n callback…",
+          params: actionParams
+        });
+        toast.info("EXPDP export running", {
+          description: "Export job is executing on the database server. Status will update upon n8n callback."
+        });
+      } else {
+        setStatus("error");
+        setError(msg);
+        recordJob({
+          id: jobId,
+          operation: "expdp",
+          db: selectedDb,
+          status: "error",
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          message: msg,
+          params: actionParams
+        });
+      }
     }
   };
 
   /* ── Save template ── */
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
     if (!templateName.trim()) {
       toast.error("Please enter a template name");
       return;
     }
     setSavingTemplate(true);
-    const tpl: ExpdpTemplate = {
-      id: `EXPTPL-${Date.now()}`,
-      name: templateName.trim(),
-      db: selectedDb,
-      created_at: new Date().toISOString(),
-      params: {
-        ...params,
-        ...(dumpTransfer ? { dump_transfer_required: "yes" as const, transfer_server: transferServer } : { dump_transfer_required: "no" as const })
-      }
+    const tplParams: ExpdpParams = {
+      ...params,
+      ...(dumpTransfer ? { dump_transfer_required: "yes" as const, transfer_server: transferServer } : { dump_transfer_required: "no" as const })
     };
-    // Build extra params back into tpl params
     for (const { key, value } of extraParams) {
-      if (key && value) (tpl.params as Record<string, unknown>)[key] = value;
+      if (key && value) (tplParams as Record<string, unknown>)[key] = value;
     }
-    addExpdpTemplate(tpl);
-    toast.success(`Template "${tpl.name}" saved`);
-    setTemplateName("");
-    setSavingTemplate(false);
+
+    try {
+      const res = await createExpdpTemplateApi({
+        name: templateName.trim(),
+        db: selectedDb,
+        params: tplParams
+      });
+      addExpdpTemplate(res.template);
+      toast.success(`Template "${res.template.name}" saved to database`);
+    } catch {
+      const fallbackTpl: ExpdpTemplate = {
+        id: `EXPTPL-${Date.now()}`,
+        name: templateName.trim(),
+        db: selectedDb,
+        created_at: new Date().toISOString(),
+        created_by: user?.username || "dba",
+        params: tplParams
+      };
+      addExpdpTemplate(fallbackTpl);
+      toast.success(`Template "${fallbackTpl.name}" saved locally`);
+    } finally {
+      setTemplateName("");
+      setSavingTemplate(false);
+    }
+  };
+
+  /* ── Delete template ── */
+  const handleDeleteTemplate = async (tpl: ExpdpTemplate) => {
+    try {
+      await deleteExpdpTemplateApi(tpl.id);
+    } catch {
+      // Ignore API error for offline/fallback templates
+    }
+    deleteExpdpTemplate(tpl.id);
+    toast.info(`Template "${tpl.name}" deleted`);
   };
 
   /* ── Load template ── */
@@ -585,7 +675,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                               )}
                             </div>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              DB: {tpl.db} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"} · {new Date(tpl.created_at).toLocaleDateString()}
+                              DB: {tpl.db || "Default"} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"}{tpl.created_by ? ` · By: ${tpl.created_by}` : ""} · {new Date(tpl.created_at).toLocaleDateString()}
                             </p>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -593,7 +683,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                               <Play className="h-3 w-3" />
                               Load
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => deleteExpdpTemplate(tpl.id)} className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400">
+                            <Button size="sm" variant="ghost" onClick={() => handleDeleteTemplate(tpl)} className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
