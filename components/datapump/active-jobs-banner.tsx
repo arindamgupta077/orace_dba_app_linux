@@ -153,8 +153,23 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
             </div>
 
             {/* Time */}
-            <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-              {new Date(job.started_at).toLocaleTimeString()}
+            <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums font-mono">
+              {(() => {
+                try {
+                  const d = new Date(job.started_at);
+                  if (isNaN(d.getTime())) return String(job.started_at);
+                  const istDate = new Date(d.getTime() + 330 * 60 * 1000);
+                  return new Intl.DateTimeFormat("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: true,
+                    timeZone: "Asia/Kolkata"
+                  }).format(istDate) + " IST";
+                } catch {
+                  return String(job.started_at);
+                }
+              })()}
             </div>
           </div>
         ))}
