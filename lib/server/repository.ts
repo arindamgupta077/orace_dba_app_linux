@@ -257,11 +257,28 @@ function normalizeDatabaseOs(value: unknown): DatabaseTarget["os"] {
 }
 
 function normalizeDatabaseType(value: unknown): DatabaseTarget["db_type"] {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "_");
+  const raw = String(value || "").trim();
+  if (raw === "RAC & Datagaurd" || raw === "RAC & Dataguard") return "RAC & Datagaurd";
+  if (raw === "Active Dataguard") return "Active Dataguard";
+  if (raw === "Dataguard") return "Dataguard";
+  if (raw === "RAC") return "RAC";
+  if (raw === "Standalone") return "Standalone";
+
+  const normalized = raw
+    .toLowerCase()
+    .replace(/&/g, " ")
+    .replace(/[\s_-]+/g, "_");
   if (normalized === "rac") return "RAC";
   if (normalized === "dataguard" || normalized === "data_guard") return "Dataguard";
   if (normalized === "active_dataguard" || normalized === "active_data_guard") return "Active Dataguard";
-  if (normalized === "rac_datagaurd" || normalized === "rac_dataguard") return "RAC & Datagaurd";
+  if (
+    normalized === "rac_datagaurd" ||
+    normalized === "rac_dataguard" ||
+    normalized === "rac_and_datagaurd" ||
+    normalized === "rac_and_dataguard"
+  ) {
+    return "RAC & Datagaurd";
+  }
   return "Standalone";
 }
 
@@ -5138,7 +5155,7 @@ async function fetchShiftCoverage(
 // of the app keeps working.
 
 const DEFAULT_DB_INVENTORY_COLUMNS = [
-  "division", "database_name", "database_instance", "environment", "db_version",
+  "division", "database_name", "environment", "db_version",
   "db_edition", "server_name", "server_ip", "db_port", "zone", "location",
   "operating_system", "database_type"
 ] as const;

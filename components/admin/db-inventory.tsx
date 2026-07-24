@@ -72,7 +72,7 @@ const INVENTORY_COLUMNS = [
 
 type InventoryColumnKey = (typeof INVENTORY_COLUMNS)[number][0];
 const DEFAULT_VISIBLE_COLUMNS: InventoryColumnKey[] = [
-  "division", "database_name", "database_instance", "environment", "db_version",
+  "division", "database_name", "environment", "db_version",
   "db_edition", "server_name", "server_ip", "db_port", "zone", "location",
   "operating_system", "database_type"
 ];
@@ -183,8 +183,8 @@ export function DbInventory() {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedEnvLabel, setSelectedEnvLabel] = useState<string>("all");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all");
-  const [selectedDbType, setSelectedDbType] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("active");
+  const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedOs, setSelectedOs] = useState<string>("all");
   const [selectedZone, setSelectedZone] = useState<string>("all");
   const [selectedDivision, setSelectedDivision] = useState<string>("all");
@@ -274,8 +274,8 @@ export function DbInventory() {
         return false;
       }
 
-      // 4. DB Type Filter
-      if (selectedDbType !== "all" && database.db_type !== selectedDbType) {
+      // 4. Location Filter
+      if (selectedLocation !== "all" && database.location !== selectedLocation) {
         return false;
       }
 
@@ -301,26 +301,26 @@ export function DbInventory() {
 
       return true;
     });
-  }, [databases, query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone, selectedDivision, selectedServerType]);
+  }, [databases, query, selectedEnvLabel, selectedStatus, selectedLocation, selectedOs, selectedZone, selectedDivision, selectedServerType]);
 
   const hasActiveFilters = useMemo(() => {
     return (
       query.trim() !== "" ||
       selectedEnvLabel !== "all" ||
-      selectedStatus !== "all" ||
-      selectedDbType !== "all" ||
+      selectedStatus !== "active" ||
+      selectedLocation !== "all" ||
       selectedOs !== "all" ||
       selectedZone !== "all" ||
       selectedDivision !== "all" ||
       selectedServerType !== "all"
     );
-  }, [query, selectedEnvLabel, selectedStatus, selectedDbType, selectedOs, selectedZone, selectedDivision, selectedServerType]);
+  }, [query, selectedEnvLabel, selectedStatus, selectedLocation, selectedOs, selectedZone, selectedDivision, selectedServerType]);
 
   const handleClearFilters = () => {
     setQuery("");
     setSelectedEnvLabel("all");
-    setSelectedStatus("all");
-    setSelectedDbType("all");
+    setSelectedStatus("active");
+    setSelectedLocation("all");
     setSelectedOs("all");
     setSelectedZone("all");
     setSelectedDivision("all");
@@ -734,18 +734,18 @@ export function DbInventory() {
   const renderInventoryCell = (database: DatabaseInventoryItem, column: InventoryColumnKey) => {
     switch (column) {
       case "division": return (
-        <Badge variant="outline" className="border-violet-500/40 bg-violet-500/10 text-violet-300 font-semibold tracking-wide text-[10px] uppercase px-2">
+        <Badge variant="outline" className="border-violet-500/40 bg-violet-500/10 text-violet-300 font-semibold tracking-wide text-xs uppercase px-2 py-0.5">
           {database.division}
         </Badge>
       );
       case "database_name": return (
-        <span className="font-semibold text-foreground flex items-center gap-1.5">
-          <DatabaseZap className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+        <span className="font-semibold text-sm text-foreground flex items-center gap-1.5">
+          <DatabaseZap className="h-4 w-4 text-cyan-400 shrink-0" />
           {database.database_name}
         </span>
       );
       case "database_instance": return (
-        <span className="font-mono text-xs text-cyan-300/80 bg-cyan-500/5 border border-cyan-500/15 rounded px-1.5 py-0.5">
+        <span className="font-mono text-sm text-cyan-300/80 bg-cyan-500/5 border border-cyan-500/15 rounded px-1.5 py-0.5">
           {database.database_instance || <span className="text-muted-foreground/50">—</span>}
         </span>
       );
@@ -757,94 +757,94 @@ export function DbInventory() {
           DEV:  "border-slate-500/40 bg-slate-500/15 text-slate-700 dark:text-slate-300",
         };
         return (
-          <Badge variant="outline" className={cn("font-semibold text-[10px] uppercase tracking-wider px-2", envColors[database.env_label] ?? "border-border/50 bg-muted/30 text-muted-foreground")}>
+          <Badge variant="outline" className={cn("font-semibold text-xs uppercase tracking-wider px-2 py-0.5", envColors[database.env_label] ?? "border-border/50 bg-muted/30 text-muted-foreground")}>
             {database.env_label}
           </Badge>
         );
       }
       case "db_version": return (
-        <span className="font-mono text-xs">{database.db_version || <span className="text-muted-foreground/40">—</span>}</span>
+        <span className="font-mono text-sm">{database.db_version || <span className="text-muted-foreground/40">—</span>}</span>
       );
       case "db_edition": {
         const isEnterprise = (database.db_edition || "").toLowerCase().includes("enterprise");
         return (
-          <span className={cn("text-xs font-medium", isEnterprise ? "text-amber-300" : "text-muted-foreground")}>
+          <span className={cn("text-sm font-medium", isEnterprise ? "text-amber-300" : "text-muted-foreground")}>
             {database.db_edition || "—"}
           </span>
         );
       }
       case "server_type": return (
-        <Badge variant="outline" className="border-sky-500/30 bg-sky-500/8 text-sky-300 text-[10px] uppercase tracking-wide">
+        <Badge variant="outline" className="border-sky-500/30 bg-sky-500/8 text-sky-300 text-xs uppercase tracking-wide py-0.5">
           {database.server_type}
         </Badge>
       );
       case "server_name": return (
-        <span className="font-mono text-xs text-slate-300">{database.server_name || <span className="text-muted-foreground/40">—</span>}</span>
+        <span className="font-mono text-sm text-slate-300">{database.server_name || <span className="text-muted-foreground/40">—</span>}</span>
       );
       case "server_ip": return (
-        <span className="font-mono text-xs text-emerald-300/80">{database.server_ip || <span className="text-muted-foreground/40">—</span>}</span>
+        <span className="font-mono text-sm text-emerald-300/80">{database.server_ip || <span className="text-muted-foreground/40">—</span>}</span>
       );
       case "db_port": return (
-        <span className="font-mono text-xs bg-muted/40 border border-border/40 rounded px-1.5 py-0.5 text-slate-300">
+        <span className="font-mono text-sm bg-muted/40 border border-border/40 rounded px-1.5 py-0.5 text-slate-300">
           {database.db_port ?? <span className="text-muted-foreground/40">—</span>}
         </span>
       );
       case "zone": return (
-        <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/8 text-indigo-300 text-[10px] uppercase tracking-wide">
+        <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/8 text-indigo-300 text-xs uppercase tracking-wide py-0.5">
           {database.zone || "—"}
         </Badge>
       );
       case "location": return (
-        <span className="text-xs font-medium text-slate-400">{database.location || <span className="text-muted-foreground/40">—</span>}</span>
+        <span className="text-sm font-medium text-slate-400">{database.location || <span className="text-muted-foreground/40">—</span>}</span>
       );
       case "operating_system": return (
-        <span className="text-xs font-medium text-slate-300">{database.os}</span>
+        <span className="text-sm font-medium text-slate-300">{database.os}</span>
       );
       case "owner": return (
-        <span className="text-xs text-muted-foreground">{database.owner?.username || "—"}</span>
+        <span className="text-sm text-muted-foreground">{database.owner?.username || "—"}</span>
       );
       case "database_role": {
         const roleColors: Record<string, string> = {
-          primary:   "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
-          standby:   "border-blue-500/40 bg-blue-500/10 text-blue-300",
-          reporting: "border-purple-500/40 bg-purple-500/10 text-purple-300",
+          primary:   "border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+          standby:   "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+          reporting: "border-purple-500/40 bg-purple-500/10 text-purple-700 dark:text-purple-300",
         };
         return (
-          <Badge variant="outline" className={cn("text-[10px] uppercase tracking-wide", roleColors[(database.role || "").toLowerCase()] ?? "border-border/50 text-muted-foreground")}>
+          <Badge variant="outline" className={cn("text-xs uppercase tracking-wide py-0.5", roleColors[(database.role || "").toLowerCase()] ?? "border-border/50 text-muted-foreground")}>
             {database.role}
           </Badge>
         );
       }
       case "database_type": {
         const typeColors: Record<string, string> = {
-          "Standalone":        "border-slate-500/40 bg-slate-500/10 text-slate-300",
-          "RAC":               "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
-          "Dataguard":         "border-violet-500/40 bg-violet-500/10 text-violet-300",
-          "Active Dataguard":  "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300",
-          "RAC & Datagaurd":   "border-teal-500/40 bg-teal-500/10 text-teal-300",
+          "Standalone":        "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+          "RAC":               "border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+          "Dataguard":         "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+          "Active Dataguard":  "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300",
+          "RAC & Datagaurd":   "border-teal-600/40 bg-teal-500/15 text-teal-800 dark:text-teal-300 dark:border-teal-500/40 dark:bg-teal-500/10",
         };
         return (
-          <Badge variant="outline" className={cn("text-[10px] font-semibold", typeColors[database.db_type] ?? "border-border/50 text-muted-foreground")}>
+          <Badge variant="outline" className={cn("text-xs font-semibold py-0.5", typeColors[database.db_type] ?? "border-border/50 text-muted-foreground")}>
             {database.db_type}
           </Badge>
         );
       }
       case "status": {
         const statusMap: Record<string, { cls: string; icon: React.ReactNode }> = {
-          active:       { cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300", icon: <CheckCircle2 className="h-3 w-3" /> },
-          inactive:     { cls: "border-amber-500/40 bg-amber-500/10 text-amber-300",   icon: <AlertTriangle className="h-3 w-3" /> },
-          decomissioned:{ cls: "border-red-500/40 bg-red-500/10 text-red-300",         icon: <XCircle className="h-3 w-3" /> },
+          active:       { cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+          inactive:     { cls: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",   icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+          decomissioned:{ cls: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",         icon: <XCircle className="h-3.5 w-3.5" /> },
         };
         const s = statusMap[database.status] ?? { cls: "border-border/50 text-muted-foreground", icon: null };
         return (
-          <Badge variant="outline" className={cn("gap-1 font-semibold text-[10px] uppercase tracking-wide", s.cls)}>
+          <Badge variant="outline" className={cn("gap-1 font-semibold text-xs uppercase tracking-wide py-0.5", s.cls)}>
             {s.icon}{database.status}
           </Badge>
         );
       }
       case "enable_access": return (
-        <Badge variant="outline" className={database.enable_access ? "gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "gap-1 border-rose-500/40 bg-rose-500/10 text-rose-300"}>
-          <Power className="h-3 w-3" />
+        <Badge variant="outline" className={cn("text-xs py-0.5 font-semibold", database.enable_access ? "gap-1 border-emerald-500/70 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/10" : "gap-1 border-amber-500/70 bg-amber-500/15 text-amber-700 dark:text-amber-300 dark:bg-amber-500/10")}>
+          <Power className="h-3.5 w-3.5 stroke-[2.5]" />
           {database.enable_access ? "On" : "Off"}
         </Badge>
       );
@@ -977,8 +977,8 @@ export function DbInventory() {
                     {
                       (query.trim() ? 1 : 0) +
                       (selectedEnvLabel !== "all" ? 1 : 0) +
-                      (selectedStatus !== "all" ? 1 : 0) +
-                      (selectedDbType !== "all" ? 1 : 0) +
+                      (selectedStatus !== "active" ? 1 : 0) +
+                      (selectedLocation !== "all" ? 1 : 0) +
                       (selectedOs !== "all" ? 1 : 0) +
                       (selectedZone !== "all" ? 1 : 0) +
                       (selectedDivision !== "all" ? 1 : 0) +
@@ -1060,15 +1060,15 @@ export function DbInventory() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">DB Type</label>
-                <Select value={selectedDbType} onValueChange={setSelectedDbType}>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Location</label>
+                <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                   <SelectTrigger className="h-9 bg-background/50 border-border/80 text-sm">
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All DB Types</SelectItem>
-                    {DB_TYPE_OPTIONS.map((type) => (
-                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    <SelectItem value="all">All Locations</SelectItem>
+                    {LOCATION_OPTIONS.map((loc) => (
+                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1159,19 +1159,19 @@ export function DbInventory() {
                 </Badge>
               )}
 
-              {selectedStatus !== "all" && (
+              {selectedStatus !== "active" && (
                 <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
                   Status: {selectedStatus}
-                  <button onClick={() => setSelectedStatus("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                  <button onClick={() => setSelectedStatus("active")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
               )}
 
-              {selectedDbType !== "all" && (
+              {selectedLocation !== "all" && (
                 <Badge variant="secondary" className="gap-1 px-2.5 py-0.5 text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 border border-cyan-500/25">
-                  Type: {selectedDbType}
-                  <button onClick={() => setSelectedDbType("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
+                  Location: {selectedLocation}
+                  <button onClick={() => setSelectedLocation("all")} className="rounded-full hover:bg-cyan-500/30 p-0.5 text-cyan-300 transition-colors">
                     <X className="h-3 w-3" />
                   </button>
                 </Badge>
@@ -1223,21 +1223,21 @@ export function DbInventory() {
             </div>
           ) : (
             <div className="overflow-auto">
-              <Table className="min-w-[1300px]">
+              <Table className="min-w-[1300px] text-sm">
                 <TableHeader>
                   <TableRow className="border-b border-border/60 bg-muted/30 hover:bg-muted/30">
                     {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key, label]) => (
                       <TableHead
                         key={key}
                         className={cn(
-                          "text-[11px] font-bold uppercase tracking-wider py-3 whitespace-nowrap",
+                          "text-xs font-bold uppercase tracking-wider py-3 whitespace-nowrap",
                           key === "division" ? "text-violet-300" : "text-muted-foreground"
                         )}
                       >
                         {label}
                       </TableHead>
                     ))}
-                    <TableHead className="text-right text-[11px] font-bold uppercase tracking-wider py-3 text-muted-foreground pr-4">
+                    <TableHead className="text-right text-xs font-bold uppercase tracking-wider py-3 text-muted-foreground pr-4">
                       Actions
                     </TableHead>
                   </TableRow>
@@ -1273,16 +1273,16 @@ export function DbInventory() {
                             variant="ghost"
                             size="icon"
                             className={cn(
-                              "h-7 w-7 rounded-md border transition-colors",
+                              "h-7 w-7 rounded-md border transition-all duration-200 shadow-sm",
                               database.enable_access
-                                ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50"
-                                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/50"
+                                ? "border-emerald-500/80 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 dark:border-emerald-500/50 dark:bg-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-600 hover:text-emerald-700 dark:hover:text-emerald-300"
+                                : "border-amber-500/80 bg-amber-500/15 text-amber-600 dark:text-amber-400 dark:border-amber-500/50 dark:bg-amber-500/20 hover:bg-amber-500/25 hover:border-amber-600 hover:text-amber-700 dark:hover:text-amber-300"
                             )}
                             onClick={() => void handleAccessToggle(database)}
                             disabled={saving}
                             title={database.enable_access ? "Disable selector access" : "Enable selector access"}
                           >
-                            <Power className="h-3.5 w-3.5" />
+                            <Power className="h-3.5 w-3.5 stroke-[2.5]" />
                           </Button>
                           <Button
                             variant="ghost"
