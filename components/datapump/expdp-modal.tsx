@@ -44,16 +44,14 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TerminalViewer } from "@/components/visual/terminal-viewer";
 import { SchemaPicker } from "@/components/datapump/schema-picker";
-import { createExpdpTemplateApi, deleteExpdpTemplateApi, executeDBAAction, fetchExpdpTemplatesApi, recordDataPumpJobApi } from "@/services/api";
+import { createExpdpTemplateApi, deleteExpdpTemplateApi, executeDBAAction, fetchDatabases, fetchExpdpTemplatesApi, recordDataPumpJobApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
-import type { DataPumpJob, DbaResponse, ExpdpParams, ExpdpTemplate } from "@/types/dba";
+import type { DataPumpJob, DatabaseInventoryItem, DbaResponse, ExpdpParams, ExpdpTemplate } from "@/types/dba";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                             */
 /* ------------------------------------------------------------------ */
-
-const TRANSFER_SERVERS = ["DMPSERVER01", "DMPSERVER02", "DMPSERVER03"];
 
 const OPTIONAL_PARAMS = [
   "TABLES", "TABLESPACES", "COMPRESSION", "EXCLUDE", "INCLUDE",
@@ -156,6 +154,8 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   const deleteExpdpTemplate = useAppStore((s) => s.deleteExpdpTemplate);
   const dbTarget = databases.find((db) => db.name === selectedDb);
 
+  const [inventoryList, setInventoryList] = useState<DatabaseInventoryItem[]>([]);
+
   useEffect(() => {
     if (open) {
       fetchExpdpTemplatesApi()
@@ -167,6 +167,16 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
         .catch(() => {
           // Silently retain existing templates on network error
         });
+
+      fetchDatabases()
+        .then((res) => {
+          if (Array.isArray(res.databases)) {
+            setInventoryList(res.databases);
+          }
+        })
+        .catch(() => {
+          // Silently retain existing databases on error
+        });
     }
   }, [open, setExpdpTemplates]);
 
@@ -174,7 +184,30 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   const [params, setParams] = useState<ExpdpParams>({ ...DEFAULT_PARAMS });
   const [extraParams, setExtraParams] = useState<Array<{ key: string; value: string }>>([]);
   const [dumpTransfer, setDumpTransfer] = useState(false);
-  const [transferServer, setTransferServer] = useState(TRANSFER_SERVERS[0]);
+  const [transferServer, setTransferServer] = useState("");
+
+  // Extract unique SERVER_IPs from database_inventory
+  const serverIpOptions = useMemo(() => {
+    const allItems = [...databases, ...inventoryList];
+    const ipMap = new Map<string, { ip: string; label: string }>();
+
+    for (const db of allItems) {
+      if (db.server_ip && db.server_ip.trim()) {
+        const ip = db.server_ip.trim();
+        if (!ipMap.has(ip)) {
+          const info = db.server_name?.trim() || db.name?.trim() || "";
+          const label = info ? `${ip} (${info})` : ip;
+          ipMap.set(ip, { ip, label });
+        }
+      }
+    }
+
+    if (transferServer && !ipMap.has(transferServer)) {
+      ipMap.set(transferServer, { ip: transferServer, label: transferServer });
+    }
+
+    return Array.from(ipMap.values());
+  }, [databases, inventoryList, transferServer]);
 
   // UI state
   const [tab, setTab] = useState<"form" | "json" | "templates">("form");
@@ -222,7 +255,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
       setParams({ ...DEFAULT_PARAMS });
       setExtraParams([]);
       setDumpTransfer(false);
-      setTransferServer(TRANSFER_SERVERS[0]);
+      setTransferServer(serverIpOptions[0]?.ip || "");
       setTab("form");
       setStatus("idle");
       setResponse(null);
@@ -230,6 +263,14 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
       setTemplateName("");
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && (!transferServer || transferServer === "DMPSERVER01")) {
+      if (serverIpOptions.length > 0) {
+        setTransferServer(serverIpOptions[0].ip);
+      }
+    }
+  }, [open, serverIpOptions, transferServer]);
 
   const recordJob = (job: DataPumpJob) => {
     const fullJob: DataPumpJob = {
@@ -599,14 +640,24 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                         <div className="space-y-1.5">
                           <Label htmlFor="expdp-transfer-server" className="flex items-center gap-1.5 text-xs">
                             <Server className="h-3.5 w-3.5 text-amber-400" />
-                            Destination Server
+                            Destination Server IP
                           </Label>
                           <Select value={transferServer} onValueChange={setTransferServer}>
-                            <SelectTrigger id="expdp-transfer-server"><SelectValue /></SelectTrigger>
+                            <SelectTrigger id="expdp-transfer-server">
+                              <SelectValue placeholder="Select Destination Server IP" />
+                            </SelectTrigger>
                             <SelectContent>
-                              {TRANSFER_SERVERS.map((s) => (
-                                <SelectItem key={s} value={s}>{s}</SelectItem>
-                              ))}
+                              {serverIpOptions.length > 0 ? (
+                                serverIpOptions.map((opt) => (
+                                  <SelectItem key={opt.ip} value={opt.ip}>
+                                    {opt.label}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <SelectItem value="none" disabled>
+                                  No SERVER_IP found in database_inventory
+                                </SelectItem>
+                              )}
                             </SelectContent>
                           </Select>
                         </div>
