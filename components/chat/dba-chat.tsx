@@ -665,16 +665,16 @@ export function ChatWithDb() {
                 : m
             )
           );
-        } else {
-          const reply = data.reply || "No response received from the AI.";
+        } else if (data.reply) {
+          const reply = data.reply;
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? m.status === "waiting_approval"
-                  ? m
-                  : { ...m, content: reply, status: "done" }
-                : m
-            )
+            prev.map((m) => {
+              if (m.id === assistantId || m.sqlApproval?.sessionId === sessionId) {
+                if (m.sqlApproval?.status === "rejected") return m;
+                return { ...m, content: reply, status: "done" };
+              }
+              return m;
+            })
           );
         }
       } catch (error) {
@@ -699,40 +699,39 @@ export function ChatWithDb() {
   );
 
   // ---------------------------------------------------------------------------
-  // Fix #2 — Handle approval decision: don't replace old messages, add new ones
+  // Handle approval decision (in-place single-card updates)
   // ---------------------------------------------------------------------------
   const handleDecision = useCallback(
     async (sessionId: string, decision: "approved" | "rejected", sql: string) => {
       setSubmittingSessionId(sessionId);
 
-      // Step 1: Update the approval card to resolved state (remove the approval panel)
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.sqlApproval?.sessionId === sessionId
-            ? {
-                ...m,
-                status: "done",
-                content:
-                  decision === "approved"
-                    ? "✅ Query approved and submitted for execution."
-                    : "❌ Query rejected.",
-                sqlApproval: { ...m.sqlApproval!, status: decision }
-              }
-            : m
-        )
-      );
-
-      if (decision === "approved") {
-        // Step 2: Add "Workflow was started" status message immediately
-        const workflowMsg: ChatMessage = {
-          id: `WF-${Date.now()}`,
-          role: "assistant",
-          content: "🔄 **Workflow was started** — waiting for execution result…",
-          timestamp: new Date(),
-          status: "done"
-        };
-        setMessages((prev) => [...prev, workflowMsg]);
-        scrollToBottom();
+      if (decision === "rejected") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.sqlApproval?.sessionId === sessionId
+              ? {
+                  ...m,
+                  status: "done",
+                  content: "❌ Query rejected.",
+                  sqlApproval: { ...m.sqlApproval!, status: "rejected" }
+                }
+              : m
+          )
+        );
+      } else {
+        // Approved: transition card in-place to streaming state with executing indicator
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.sqlApproval?.sessionId === sessionId
+              ? {
+                  ...m,
+                  status: "streaming",
+                  content: "⏳ Executing query…",
+                  sqlApproval: { ...m.sqlApproval!, status: "approved" }
+                }
+              : m
+          )
+        );
       }
 
       try {
@@ -753,29 +752,34 @@ export function ChatWithDb() {
           throw new Error(data.message || `HTTP ${response.status}`);
         }
 
-        // Fix #2: If n8n returned a result, add it as a BRAND NEW message (not replacing anything)
-        // Only show the execution result when the query was approved — rejected
-        // decisions should NOT display workflow output.
+        // If n8n returned a direct execution reply on the resume call, update the card in-place
         if (decision === "approved" && data.reply) {
-          const resultMsg: ChatMessage = {
-            id: `R-${Date.now()}`,
-            role: "assistant",
-            content: data.reply,
-            timestamp: new Date(),
-            status: "done"
-          };
-          setMessages((prev) => [...prev, resultMsg]);
+          const reply = data.reply;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.sqlApproval?.sessionId === sessionId
+                ? {
+                    ...m,
+                    content: reply,
+                    status: "done"
+                  }
+                : m
+            )
+          );
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Failed to submit decision.";
-        const errMsg: ChatMessage = {
-          id: `E-${Date.now()}`,
-          role: "assistant",
-          content: `⚠ ${msg}`,
-          timestamp: new Date(),
-          status: "error"
-        };
-        setMessages((prev) => [...prev, errMsg]);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.sqlApproval?.sessionId === sessionId
+              ? {
+                  ...m,
+                  content: `⚠ ${msg}`,
+                  status: "error"
+                }
+              : m
+          )
+        );
       } finally {
         setSubmittingSessionId(null);
         scrollToBottom();

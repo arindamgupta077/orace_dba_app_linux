@@ -106,11 +106,14 @@ export async function POST(request: Request) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const json = (await response.json()) as unknown;
-      return NextResponse.json({ reply: extractReply(json), session_id: sessionId });
+      const extracted = extractReply(json);
+      return NextResponse.json({ reply: extracted, session_id: sessionId });
     }
 
     const text = await response.text();
-    return NextResponse.json({ reply: text.trim(), session_id: sessionId });
+    const cleanText = text.trim();
+    const finalReply = isControlMessage(cleanText) ? null : cleanText;
+    return NextResponse.json({ reply: finalReply, session_id: sessionId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error contacting n8n.";
     return NextResponse.json({ message }, { status: 500 });
@@ -121,29 +124,51 @@ export async function POST(request: Request) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function extractReply(value: unknown): string {
-  if (typeof value === "string") return value;
+function isControlMessage(str: string): boolean {
+  const s = str.trim().toLowerCase();
+  return (
+    s === "workflow resumed" ||
+    s === "node executed" ||
+    s === "workflow was started" ||
+    s.includes("workflow resumed") ||
+    s.includes("node executed successfully")
+  );
+}
+
+function extractReply(value: unknown): string | null {
+  if (typeof value === "string") {
+    return isControlMessage(value) ? null : value || null;
+  }
   if (Array.isArray(value) && value.length > 0) {
     const first = value[0] as Record<string, unknown>;
     if (first && typeof first === "object") {
-      for (const key of ["reply", "message", "text", "output", "ai_summary", "result"]) {
-        if (typeof first[key] === "string") return first[key] as string;
+      for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
+        if (typeof first[key] === "string") {
+          const val = (first[key] as string).trim();
+          if (val && !isControlMessage(val)) return val;
+        }
       }
       // Unwrap n8n { json: { ... } } envelope
       const jsonField = first.json as Record<string, unknown> | undefined;
       if (jsonField && typeof jsonField === "object") {
-        for (const key of ["reply", "message", "text", "output", "ai_summary", "result"]) {
-          if (typeof jsonField[key] === "string") return jsonField[key] as string;
+        for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
+          if (typeof jsonField[key] === "string") {
+            const val = (jsonField[key] as string).trim();
+            if (val && !isControlMessage(val)) return val;
+          }
         }
       }
     }
-    return JSON.stringify(value);
+    return null;
   }
   if (value && typeof value === "object") {
     const obj = value as Record<string, unknown>;
-    for (const key of ["reply", "message", "text", "output", "ai_summary", "result"]) {
-      if (typeof obj[key] === "string") return obj[key] as string;
+    for (const key of ["text", "output", "reply", "ai_summary", "result", "message"]) {
+      if (typeof obj[key] === "string") {
+        const val = (obj[key] as string).trim();
+        if (val && !isControlMessage(val)) return val;
+      }
     }
   }
-  return JSON.stringify(value);
+  return null;
 }
