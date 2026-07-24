@@ -1955,7 +1955,7 @@ export async function revokeSession(sessionToken: string) {
   });
 }
 
-const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow"]);
+const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow", "expdp", "impdp"]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
   "acknowledged",
@@ -1965,7 +1965,13 @@ const APP_AUDITED_STATUSES = new Set<string>([
   "failed",
   "error",
   "open",
-  "resolved"
+  "resolved",
+  // Data Pump lifecycle states. "running"/"initiated" capture the start of
+  // an EXPDP/IMPDP job; "success" captures a clean completion (the callback
+  // route records the final state).
+  "success",
+  "running",
+  "initiated"
 ]);
 
 export async function insertAuditLog(input: {
@@ -2036,6 +2042,50 @@ export async function insertAuditLog(input: {
       }
     } catch (checkError) {
       console.error(`[Audit Log Duplicate Check Failed]`, checkError);
+    }
+  }
+
+  // Data Pump job dedup: when both /api/dba/actions (sync n8n completion)
+  // AND /api/datapump/callback (async n8n callback) record the success/error
+  // for the same job_id, suppress the second insert so the audit page shows
+  // one canonical completion row per job. Start ("initiated") rows remain
+  // unaffected because their status is not success/error/completed.
+  // (The trigger also fires for "running" but that is filtered out above.)
+  const jobId = input.metadata?.job_id;
+  if (
+    jobId &&
+    typeof jobId === "string" &&
+    (statusValue === "success" || statusValue === "completed" || statusValue === "failed" || statusValue === "error")
+  ) {
+    try {
+      const exists = await executeOne(async (connection) => {
+        // Exclude the "initiated" start row when checking for an existing
+        // completion. The start audit also carries job_id in its metadata, so
+        // we must filter to non-start statuses (success/error/completed/
+        // failed) — otherwise the dedup looks at the start row, believes the
+        // completion has already been recorded, and skips the completion
+        // audit entirely.
+        const checkResult = await connection.execute<DbRow>(
+          `SELECT COUNT(*) AS count FROM app_audit_logs
+           WHERE action = :action
+             AND (db_name = :dbName OR (db_name IS NULL AND :dbName IS NULL))
+             AND UPPER(status) IN ('SUCCESS','ERROR','COMPLETED','FAILED')
+             AND DBMS_LOB.INSTR(metadata_json, :jobIdStr) > 0`,
+          {
+            action: safeAction,
+            dbName,
+            jobIdStr: `"job_id":"${jobId}"`
+          }
+        );
+        return Number(checkResult.rows?.[0]?.COUNT || 0) > 0;
+      });
+
+      if (exists) {
+        console.log(`[Audit Log Duplicate Avoided] job_id: ${jobId}, action: ${safeAction}`);
+        return;
+      }
+    } catch (checkError) {
+      console.error(`[Audit Log Duplicate Check Failed (job_id)]`, checkError);
     }
   }
 
@@ -6111,15 +6161,28 @@ export async function upsertDataPumpJobHistory(job: DataPumpJob): Promise<void> 
       const transferStatus = job.transfer_status ? String(job.transfer_status).slice(0, 500) : null;
       const messageVal = job.message ? String(job.message) : null;
 
-      // 1. Try UPDATE
+      // 1. Try UPDATE.
+      //
+      // NOTE: The `message` and `params_json` columns are CLOBs while the
+      // incoming bind values are plain JavaScript strings (VARCHAR2). Oracle's
+      // CASE / COALESCE expressions refuse to reconcile VARCHAR2 binds with
+      // CLOB columns in their branches — the statement fails at parse time
+      // with ORA-00932 ("inconsistent datatypes: expected CHAR got CLOB") and
+      // the entire upsert is aborted before the INSERT fallback (below) ever
+      // runs. That left DATA_PUMP_JOB_HISTORY permanently empty even though a
+      // direct INSERT (without CASE/COALESCE) succeeds.
+      //
+      // Wrapping the binds in TO_CLOB() forces the value into the LOB type
+      // family before the branch reconciliation so the assignment type-matches
+      // the existing CLOB column. NULL values pass through TO_CLOB unchanged.
       const updateResult = await connection.execute(
         `UPDATE datapump_job_history
             SET status = :statusVal,
                 completed_at = CASE WHEN :completedAtIso IS NOT NULL THEN TO_TIMESTAMP_TZ(:completedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') ELSE completed_at END,
                 dump_file = COALESCE(:dumpFile, dump_file),
                 transfer_status = COALESCE(:transferStatus, transfer_status),
-                message = COALESCE(:messageVal, message),
-                params_json = CASE WHEN :paramsJson IS NOT NULL AND :paramsJson <> '{}' THEN :paramsJson ELSE params_json END
+                message = COALESCE(TO_CLOB(:messageVal), message),
+                params_json = CASE WHEN :paramsJson IS NOT NULL AND :paramsJson <> '{}' THEN TO_CLOB(:paramsJson) ELSE params_json END
           WHERE job_id = :jobId`,
         {
           jobId: jobIdStr,

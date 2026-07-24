@@ -16,17 +16,18 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const clearCompletedDataPumpJobs = useAppStore((s) => s.clearCompletedDataPumpJobs);
 
-  // Sync database jobs into store without wiping locally created jobs
+  // Periodically sync RUNNING jobs from the server only. We deliberately do
+  // NOT upsert `res.history` here — that would resurrect completed rows the
+  // user just cleared with "Clear completed". History rows are fetched
+  // on-demand from the Job History modal.
   useEffect(() => {
     const syncJobs = () => {
       fetchDataPumpJobsApi()
         .then((res) => {
-          if (Array.isArray(res.active)) {
-            res.active.forEach((j) => upsertDataPumpJob(j));
-          }
-          if (Array.isArray(res.history)) {
-            res.history.forEach((j) => upsertDataPumpJob(j));
-          }
+          // Only the running rows belong in the banner; merging fresh
+          // completions in here is fine since they transitioned the UX.
+          const active = Array.isArray(res.active) ? res.active : [];
+          active.forEach((j) => upsertDataPumpJob(j));
         })
         .catch(() => {});
     };

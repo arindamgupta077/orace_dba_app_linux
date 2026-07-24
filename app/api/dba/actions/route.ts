@@ -4,6 +4,8 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { requiresApproval, createApprovalRequest } from "@/lib/server/approval-workflow";
 import { normalizeDbaResponse } from "@/lib/server/dba-response-normalizer";
 import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sql-detector";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
+import { notifyDataPumpJob, type DataPumpCallbackPayload } from "@/lib/server/datapump-events";
 import { getServerEnv } from "@/lib/server/env";
 import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -119,6 +121,72 @@ export async function POST(request: Request) {
     }
     // ─────────────────────────────────────────────────────
 
+    // Data Pump start: fire the global bell + write the audit row BEFORE
+    // dispatching to n8n. EXPDP/IMPDP can run for hours, so auditing at the
+    // completion callback would leave the start event (who/when) unrecorded
+    // if the callback never returns. Emitting here guarantees the start
+    // event is captured regardless of what happens next.
+    const isDataPumpAction = action === "expdp" || action === "impdp";
+    const dataPumpJobId = isDataPumpAction
+      ? ((params.job_id as string) || requestId)
+      : undefined;
+
+    if (isDataPumpAction && dataPumpJobId) {
+      // 1) Persist the "running" row immediately so the active-job banner
+      //    is visible to every authenticated user via /api/datapump/jobs
+      //    polling, even before n8n acknowledges the webhook.
+      await upsertDataPumpJobHistory({
+        id: dataPumpJobId,
+        operation: action,
+        db,
+        status: "running",
+        started_at: new Date(startedAt).toISOString(),
+        message: "Operation dispatched to server — waiting for n8n acknowledgement…",
+        dump_file: (params.DUMPFILE as string) || (params.dump_file as string) || undefined,
+        transfer_status: (params.dump_transfer_required as string) === "yes"
+          ? `Will transfer to ${params.transfer_server as string || "DMPSERVER01"}`
+          : "No transfer requested",
+        requested_by: session.user.username,
+        params
+      }).catch((err) => {
+        console.error("[dba/actions] Failed to persist Data Pump job start row:", err);
+      });
+
+      // 2) Audit the start so the audit page shows who/when/what immediately.
+      await insertAuditLog({
+        actor: session.user.username,
+        action,
+        db,
+        status: "initiated",
+        detail: `${action.toUpperCase()} job ${dataPumpJobId} initiated by ${session.user.username} on ${db}.`,
+        metadata: { job_id: dataPumpJobId, requested_by: session.user.username, environment: dbTarget.env_label }
+      });
+
+      // 3) Push to any dashboard SSE listeners (wildcard subscribers too) so
+      //    the running banner updates in real time before the poll fires.
+      notifyDataPumpJob({
+        job_id: dataPumpJobId,
+        status: "running",
+        action,
+        db,
+        message: "Operation dispatched to server — waiting for n8n acknowledgement…"
+      });
+
+      // 4) Broadcast a global bell notification so every logged-in user is
+      //    informed that the EXPDP/IMPDP just started, exactly like a shift
+      //    handover or filesystem alert.
+      emitGlobalNotification({
+        id: `${dataPumpJobId}-start`,
+        type: "generic",
+        severity: "warning",
+        db,
+        title: `${action.toUpperCase()} started`,
+        message: `${session.user.username} initiated an ${action.toUpperCase()} job on ${db} at ${new Date(startedAt).toLocaleString()}. Status will update on the n8n callback.`,
+        timestamp: new Date().toISOString(),
+        targetPath: "/data-pump"
+      });
+    }
+
     const env = getServerEnv();
     let result: DbaResponse;
 
@@ -199,23 +267,42 @@ export async function POST(request: Request) {
       findings: result.findings,
       recommendations: result.recommendations
     });
-    await insertAuditLog({
-      actor: session.user.username,
-      action,
-      db,
-      status: result.status,
-      detail: `${action} submitted to n8n webhook for ${db}.`,
-      metadata: { request_id: result.request_id, duration_ms: durationMs }
-    });
+    // Data Pump actions are audited through dedicated start + completion
+    // audit-log entries (an "initiated" row is written before the webhook
+    // dispatch above, and a success/error row is written inside the expdp/
+    // impdp branch below for sync completions, plus the n8n callback route
+    // also writes a completion row). Skipping the generic "submitted to n8n
+    // webhook" audit here keeps the audit page from showing duplicate rows
+    // for the same Data Pump job. (The generic audit remains active for
+    // every other DBA action.)
+    if (action !== "expdp" && action !== "impdp") {
+      await insertAuditLog({
+        actor: session.user.username,
+        action,
+        db,
+        status: result.status,
+        detail: `${action} submitted to n8n webhook for ${db}.`,
+        metadata: { request_id: result.request_id, duration_ms: durationMs }
+      });
+    }
 
-    if (action === "expdp" || action === "impdp") {
-      const jobIdStr = (params.job_id as string) || requestId;
+if (action === "expdp" || action === "impdp") {
+      const jobIdStr = dataPumpJobId || (params.job_id as string) || requestId;
       const isStillRunning = (result.raw_data as Record<string, unknown>)?.status === "running" || (result.raw_data as Record<string, unknown>)?.async === true;
+      const finalStatus = isStillRunning
+        ? "running"
+        : result.status === "success"
+          ? "success"
+          : "error";
+
+      // Refresh the row with whatever n8n returned. For long-running jobs
+      // (async timeout branch) this leaves status="running"; for immediate
+      // failures/successes it stamps the completion timestamp.
       await upsertDataPumpJobHistory({
         id: jobIdStr,
         operation: action,
         db,
-        status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
+        status: finalStatus,
         started_at: new Date(startedAt).toISOString(),
         ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
         message: result.ai_summary || (isStillRunning ? "Operation running on server (waiting for n8n callback...)" : "Operation completed"),
@@ -226,6 +313,46 @@ export async function POST(request: Request) {
       }).catch((err) => {
         console.error("[dba/actions] Failed to save Data Pump job history:", err);
       });
+
+      // Live push to dashboard SSE listeners. The "start" notification was
+      // already emitted above, so only emit the completion bell when the
+      // action actually finished here (n8n returned within the socket
+      // timeout). Long-running jobs will instead surface the completion bell
+      // from /api/datapump/callback once n8n posts the final status.
+      const ssePayload: DataPumpCallbackPayload = {
+        job_id: jobIdStr,
+        status: finalStatus as "running" | "success" | "error" | "completed",
+        action,
+        db,
+        dump_file: (result.raw_data as Record<string, unknown>)?.dump_file as string | undefined,
+        transfer_status: (result.raw_data as Record<string, unknown>)?.transfer_status as string | undefined,
+        message: result.ai_summary || (isStillRunning ? "Operation running on server (waiting for n8n callback...)" : "Operation completed")
+      };
+      notifyDataPumpJob(ssePayload);
+
+      if (!isStillRunning) {
+        // Audit the completion (success/error) so it appears on the audit
+        // page even though the start audit was written earlier.
+        await insertAuditLog({
+          actor: session.user.username,
+          action,
+          db,
+          status: finalStatus,
+          detail: `${action.toUpperCase()} job ${jobIdStr} ${finalStatus === "success" ? "completed successfully" : "failed"} on ${db}.`,
+          metadata: { job_id: jobIdStr, duration_ms: Date.now() - startedAt, environment: dbTarget.env_label }
+        });
+
+        emitGlobalNotification({
+          id: `${jobIdStr}-done`,
+          type: "generic",
+          severity: finalStatus === "success" ? "info" : "critical",
+          db,
+          title: `${action.toUpperCase()} ${finalStatus === "success" ? "completed" : "failed"}`,
+          message: result.ai_summary || `${action.toUpperCase()} job ${jobIdStr} on ${db} finished with status "${finalStatus}".`,
+          timestamp: new Date().toISOString(),
+          targetPath: "/data-pump"
+        });
+      }
     }
 
     return NextResponse.json(result);

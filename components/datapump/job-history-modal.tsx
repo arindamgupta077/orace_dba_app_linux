@@ -129,7 +129,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="rounded-xl border border-violet-400/30 bg-violet-400/10 p-2.5">
-                <History className="h-5 w-5 text-violet-300" />
+                <History className="h-5 w-5 text-violet-700 dark:text-violet-300" />
               </div>
               <div>
                 <DialogTitle className="text-xl">Data Pump Job History</DialogTitle>
@@ -195,7 +195,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 
         {/* Error message */}
         {error && (
-          <div className="flex items-center gap-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-200">
+          <div className="flex items-center gap-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-200">
             <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
             <span>{error}</span>
           </div>
@@ -246,8 +246,8 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
                         className={cn(
                           "rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
                           isExpdp
-                            ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
-                            : "border-violet-400/30 bg-violet-400/10 text-violet-300"
+                            ? "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300"
+                            : "border-violet-400/30 bg-violet-400/10 text-violet-700 dark:text-violet-300"
                         )}
                       >
                         {job.operation.toUpperCase()}
@@ -280,20 +280,24 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 
                   {/* Dump file & message */}
                   {(job.dump_file || job.message) && (
-                    <div className="mt-1 space-y-1 rounded-lg border border-border/30 bg-black/20 p-2.5">
+                    <div className="mt-1 space-y-1 rounded-lg border border-border/30 bg-muted/30 dark:bg-black/20 p-2.5">
                       {job.dump_file && (
-                        <div className="flex items-center gap-1.5 font-mono text-[11px] text-cyan-200">
-                          <Server className="h-3 w-3 text-cyan-400 shrink-0" />
+                        <div className="flex items-center gap-1.5 font-mono text-[11px] text-cyan-700 dark:text-cyan-200">
+                          <Server className="h-3 w-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
                           <span>Dump File: {job.dump_file}</span>
                           {job.transfer_status && (
-                            <span className="text-amber-300">({job.transfer_status})</span>
+                            <span className="text-amber-700 dark:text-amber-300">({job.transfer_status})</span>
                           )}
                         </div>
                       )}
                       {job.message && (
                         <p className={cn(
                           "text-[11px]",
-                          isRunning ? "text-amber-200/90" : isError ? "text-red-200/90" : "text-emerald-200/90"
+                          isRunning
+                            ? "text-amber-700 dark:text-amber-200/90"
+                            : isError
+                              ? "text-red-700 dark:text-red-200/90"
+                              : "text-emerald-700 dark:text-emerald-200/90"
                         )}>
                           {job.message}
                         </p>
