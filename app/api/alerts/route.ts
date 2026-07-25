@@ -779,8 +779,8 @@ export async function POST(request: Request) {
     }
 
     const alertType = normalizeAlertType(readString(body, ["alert_type", "alertType", "type", "action"]) || "generic");
-    const db = readString(body, ["db", "database", "db_name", "dbName"]);
-    const tablespace = readString(body, ["tablespace", "tablespace_name", "tablespaceName"]);
+    const db = readString(body, ["db", "database", "db_name", "dbName", "database_name", "target_db", "dbname"]);
+    const tablespace = readString(body, ["tablespace", "tablespace_name", "tablespaceName", "ts_name"]);
     const objectName = readString(body, ["object_name", "objectName", "object"]);
     const utilizationPct = readNumber(body, ["utilization_pct", "utilizationPct", "pct_used", "pctUsed", "usage_pct", "usagePct"]);
     const thresholdPct = readNumber(body, ["threshold_pct", "thresholdPct", "threshold"]);

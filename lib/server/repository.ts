@@ -2240,7 +2240,7 @@ export async function listPerformanceAuditLogs(
            audit_id, user_id, actor, action, db_name, status, detail, metadata_json, created_at,
            ROW_NUMBER() OVER (PARTITION BY action ORDER BY created_at DESC) AS rn
          FROM app_audit_logs
-         WHERE db_name = :dbName
+         WHERE UPPER(db_name) = UPPER(:dbName)
            AND action IN (${inPlaceholders})
        )
        WHERE rn = 1`,
@@ -2536,7 +2536,7 @@ export async function findPendingAlertNotificationOccurrence(
          completed_at,
          metadata_json
        FROM app_alert_notifications
-       WHERE db_name = :dbName
+       WHERE UPPER(db_name) = UPPER(:dbName)
          AND alert_type = :alertType
          AND alert_status = 'pending_approval'
          AND (
@@ -2632,7 +2632,7 @@ export async function listAlertNotifications(input: ListAlertNotificationsInput 
   const binds: BindParameters = {};
 
   if (input.db) {
-    where.push("db_name = :dbName");
+    where.push("UPPER(db_name) = UPPER(:dbName)");
     binds.dbName = input.db;
   }
 

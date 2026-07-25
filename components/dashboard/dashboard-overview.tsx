@@ -929,7 +929,7 @@ export function DashboardOverview() {
                 <p className={`truncate text-sm font-bold ${dbHealth?.connection_test === "SUCCESS" ? "text-emerald-300" : dbHealth?.connection_test === "FAILED" ? "text-red-300" : "text-slate-400"}`}>
                   {dbHealth?.connection_test ?? "UNKNOWN"}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">sqlplus ORA-01017 = reachable</p>
+                <p className="truncate text-xs text-muted-foreground">connected successfully</p>
               </div>
               <div className="ml-auto">
                 <StatusPill ok={dbHealth?.connection_test === "SUCCESS"} label={dbHealth?.connection_test === "SUCCESS" ? "OK" : "FAIL"} />

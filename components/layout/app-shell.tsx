@@ -319,6 +319,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <RmanRunningBadge />
               {/* Active DBA on-shift indicator — shown on right side when db selector row is hidden */}
               {!isDbSelectorVisible && <ActiveDbaPill />}
+              {!isClient && <WorkflowStatusModal />}
+              {!isClient && <NotificationBell />}
+              <ThemeToggle />
               {user && (
                 <div className="hidden md:flex items-center gap-2.5 rounded-lg border border-border/70 bg-background/40 py-1.5 pl-1.5 pr-3 transition-colors hover:border-border">
                   <span
@@ -342,9 +345,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               )}
-              {!isClient && <WorkflowStatusModal />}
-              {!isClient && <NotificationBell />}
-              <ThemeToggle />
               <Button variant="ghost" size="icon" onClick={logout} title="Sign out" aria-label="Sign out">
                 <LogOut className="h-4 w-4" />
               </Button>

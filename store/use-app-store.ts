@@ -38,8 +38,8 @@ interface AppState {
   triggerTablespaceRefresh: () => void;
   addNotification: (item: Omit<NotificationItem, "read">) => void;
   markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: () => void;
-  clearNotifications: () => void;
+  markAllNotificationsRead: (category?: "db" | "console") => void;
+  clearNotifications: (category?: "db" | "console") => void;
   dismissNotification: (id: string) => void;
   /** Forget a single previously-dismissed notification id so it can reappear. */
   undismissNotification: (id: string) => void;
@@ -150,20 +150,24 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: true } : n))
         })),
-      markAllNotificationsRead: () =>
+      markAllNotificationsRead: (category) =>
         set((state) => ({
-          notifications: state.notifications.map((n) => ({ ...n, read: true }))
+          notifications: state.notifications.map((n) => {
+            if (!category) return { ...n, read: true };
+            const isConsole = n.type === "dba_shift";
+            if (category === "console" && isConsole) return { ...n, read: true };
+            if (category === "db" && !isConsole) return { ...n, read: true };
+            return n;
+          })
         })),
-      clearNotifications: () =>
+      clearNotifications: (category) =>
         set((state) => {
-          // Remember every currently-visible notification id as dismissed so
-          // that the next SSE replay (after reload/reconnect) doesn't pull
-          // them back. New alerts get fresh ids, so they still surface.
-          const ids = state.notifications.map((n) => String(n.id));
-          if (!ids.length) return { notifications: [] };
+          const toClear = category
+            ? state.notifications.filter((n) => (category === "console" ? n.type === "dba_shift" : n.type !== "dba_shift"))
+            : state.notifications;
+          const ids = toClear.map((n) => String(n.id));
+          if (!ids.length) return state;
           const merged = [...ids, ...state.dismissedNotificationIds];
-          // Keep insertion order while dropping duplicates; cap to limit to
-          // avoid unbounded growth over long sessions.
           const seen = new Set<string>();
           const deduped: string[] = [];
           for (const id of merged) {
@@ -172,7 +176,10 @@ export const useAppStore = create<AppState>()(
             deduped.push(id);
           }
           const trimmed = deduped.slice(-DISMISSED_NOTIFICATION_ID_LIMIT);
-          return { notifications: [], dismissedNotificationIds: trimmed };
+          return {
+            notifications: state.notifications.filter((n) => !ids.includes(String(n.id))),
+            dismissedNotificationIds: trimmed
+          };
         }),
       dismissNotification: (id) =>
         set((state) => {
