@@ -54,10 +54,22 @@ export async function POST(request: Request) {
     if (!isAdminOverride && !isGeneral) {
       const checklist = await getLogoutChecklistReadiness(activeSession);
       if (!checklist.is_complete) {
+        const parts: string[] = [];
+        if (checklist.database_status.completed < checklist.database_status.total ||
+            checklist.backup_status.completed < checklist.backup_status.total) {
+          parts.push(
+            `Daily Checklist incomplete for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: ` +
+            `PROD database availability ${checklist.database_status.completed}/${checklist.database_status.total}; ` +
+            `backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+          );
+        }
+        if (!checklist.alert_clearance.is_clear) {
+          parts.push(
+            `${checklist.alert_clearance.pending} unacknowledged alert notification${checklist.alert_clearance.pending !== 1 ? "s" : ""} pending.`
+          );
+        }
         return NextResponse.json(
-          {
-            message: `Logout blocked: Daily Checklist is incomplete for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}. PROD database availability: ${checklist.database_status.completed}/${checklist.database_status.total}; backup status: ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
-          },
+          { message: `Logout blocked: ${parts.join(" ")}` },
           { status: 409 }
         );
       }

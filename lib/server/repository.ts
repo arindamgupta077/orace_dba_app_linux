@@ -62,7 +62,8 @@ import type {
   DataPumpJobStatus,
   DataPumpOperation,
   MonitoringIncident,
-  MonitoringIncidentStatus
+  MonitoringIncidentStatus,
+  AlertClearanceStatus
 } from "@/types/dba";
 
 type UserRole = UserSession["role"];
@@ -3667,9 +3668,114 @@ export async function setDatabaseAccess(id: number, enableAccess: boolean, actor
 
 
 /**
+ * Returns the cumulative IST time window for a time-based shift on the given
+ * shift_date. The window always starts at 07:00 IST on the shift date.
+ *
+ *   Shift 1 → 07:00 to 15:30 same day
+ *   Shift 2 → 07:00 to 23:00 same day (cumulative)
+ *   Shift 3 → 07:00 to 07:00 next day  (cumulative, full 24h)
+ *
+ * Returns Oracle TIMESTAMP literals for direct use in SQL.
+ */
+function getCumulativeShiftWindowIST(
+  shiftDate: string,
+  shiftNumber: 1 | 2 | 3
+): { windowStart: string; windowEnd: string } {
+  // shiftDate is 'YYYY-MM-DD' (IST calendar day).
+  const windowStart = `${shiftDate} 07:00:00`;
+  let windowEnd: string;
+  switch (shiftNumber) {
+    case 1:
+      windowEnd = `${shiftDate} 15:30:00`;
+      break;
+    case 2:
+      windowEnd = `${shiftDate} 23:00:00`;
+      break;
+    case 3: {
+      // Next day 07:00 IST.
+      const parts = shiftDate.split("-").map(Number);
+      const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      d.setUTCDate(d.getUTCDate() + 1);
+      const nextDay = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      windowEnd = `${nextDay} 07:00:00`;
+      break;
+    }
+  }
+  return { windowStart, windowEnd };
+}
+
+/**
+ * Counts unresolved n8n-delivered alerts that arrived within the cumulative
+ * shift time window across three tables:
+ *   1. app_alert_notifications (tablespace / datafile_extend / filesystem_drive)
+ *   2. app_db_monitoring_incidents
+ *   3. dba_alert_log
+ */
+async function getShiftAlertClearanceStatus(
+  connection: Connection,
+  shiftDate: string,
+  shiftNumber: 1 | 2 | 3
+): Promise<AlertClearanceStatus> {
+  const { windowStart, windowEnd } = getCumulativeShiftWindowIST(shiftDate, shiftNumber);
+  const tsFormat = "YYYY-MM-DD HH24:MI:SS";
+
+  // All three queries run in parallel.
+  const [alertNotifResult, monitoringResult, alertLogResult] = await Promise.all([
+    // 1. app_alert_notifications — tablespace, datafile_extend, filesystem_drive
+    connection.execute<DbRow>(
+      `SELECT
+         COUNT(*) AS total_count,
+         SUM(CASE WHEN alert_status = 'pending_approval' THEN 1 ELSE 0 END) AS pending_count
+       FROM app_alert_notifications
+       WHERE alert_type IN ('tablespace', 'datafile_extend', 'filesystem_drive')
+         AND created_at >= TO_TIMESTAMP(:windowStart, '${tsFormat}')
+         AND created_at <  TO_TIMESTAMP(:windowEnd,   '${tsFormat}')`,
+      { windowStart, windowEnd }
+    ),
+    // 2. app_db_monitoring_incidents
+    connection.execute<DbRow>(
+      `SELECT
+         COUNT(*) AS total_count,
+         SUM(CASE WHEN incident_status = 'DOWN' THEN 1 ELSE 0 END) AS pending_count
+       FROM app_db_monitoring_incidents
+       WHERE first_reported >= TO_TIMESTAMP(:windowStart, '${tsFormat}')
+         AND first_reported <  TO_TIMESTAMP(:windowEnd,   '${tsFormat}')`,
+      { windowStart, windowEnd }
+    ),
+    // 3. dba_alert_log
+    connection.execute<DbRow>(
+      `SELECT
+         COUNT(*) AS total_count,
+         SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS pending_count
+       FROM dba_alert_log
+       WHERE created_at >= TO_TIMESTAMP(:windowStart, '${tsFormat}')
+         AND created_at <  TO_TIMESTAMP(:windowEnd,   '${tsFormat}')`,
+      { windowStart, windowEnd }
+    )
+  ]);
+
+  const sum = (rows: DbRow[] | undefined, col: string): number =>
+    rows?.[0] ? Number(rows[0][col] ?? 0) : 0;
+
+  const total =
+    sum(alertNotifResult.rows, "TOTAL_COUNT") +
+    sum(monitoringResult.rows, "TOTAL_COUNT") +
+    sum(alertLogResult.rows, "TOTAL_COUNT");
+  const pending =
+    sum(alertNotifResult.rows, "PENDING_COUNT") +
+    sum(monitoringResult.rows, "PENDING_COUNT") +
+    sum(alertLogResult.rows, "PENDING_COUNT");
+
+  return { total, pending, is_clear: pending === 0 };
+}
+
+/**
  * Calculates the Daily Checklist work required for a time-based shift to
  * logout. Shift 2 inherits Shift 1's checks and Shift 3 inherits both prior
  * shifts. General Shift deliberately has no checklist requirement.
+ *
+ * Also checks that all n8n alert notifications within the cumulative shift
+ * time window have been acknowledged / approved / rejected.
  */
 export async function getLogoutChecklistReadiness(
   session: ShiftSession
@@ -3680,6 +3786,7 @@ export async function getLogoutChecklistReadiness(
       required_shifts: [],
       database_status: { total: 0, completed: 0, completion_pct: 100 },
       backup_status: { total: 0, completed: 0, completion_pct: 100 },
+      alert_clearance: { total: 0, pending: 0, is_clear: true },
       is_complete: true
     };
   }
@@ -3764,12 +3871,22 @@ export async function getLogoutChecklistReadiness(
     const databaseStatus = completion(databaseCompleted, databaseTotal);
     const backupStatus = completion(backupCompleted, backupTotal);
 
+    const alertClearance = await getShiftAlertClearanceStatus(
+      connection,
+      session.shift_date,
+      session.shift_number as 1 | 2 | 3
+    );
+
     return {
       shift_date: session.shift_date,
       required_shifts: requiredShifts,
       database_status: databaseStatus,
       backup_status: backupStatus,
-      is_complete: databaseCompleted === databaseTotal && backupCompleted === backupTotal
+      alert_clearance: alertClearance,
+      is_complete:
+        databaseCompleted === databaseTotal &&
+        backupCompleted === backupTotal &&
+        alertClearance.is_clear
     };
   });
 }

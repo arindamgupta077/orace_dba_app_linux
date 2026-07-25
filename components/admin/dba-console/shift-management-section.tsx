@@ -228,12 +228,25 @@ export function ShiftManagementSection() {
   const isMySessionGeneral = mySession ? mySession.shift_number === GENERAL_SHIFT_NUMBER : false;
   const myHandoverAcknowledged = mySession?.handover_status === "ACKNOWLEDGED";
   const checklistReady = state?.logout_checklist?.is_complete === true;
-  // General Shift is exempt from both handover and Daily Checklist requirements.
+  // General Shift is exempt from handover, Daily Checklist, and alert clearance requirements.
   const canLogout = isMySessionGeneral || (myHandoverAcknowledged && checklistReady);
   const checklist = state?.logout_checklist;
-  const checklistSummary = checklist
-    ? `Daily Checklist required for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: PROD database availability ${checklist.database_status.completed}/${checklist.database_status.total}; backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
-    : "Daily Checklist completion is being checked.";
+  const checklistSummary = (() => {
+    if (!checklist) return "Daily Checklist completion is being checked.";
+    const parts: string[] = [];
+    if (checklist.database_status.completed < checklist.database_status.total ||
+        checklist.backup_status.completed < checklist.backup_status.total) {
+      parts.push(
+        `Daily Checklist required for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}: PROD database availability ${checklist.database_status.completed}/${checklist.database_status.total}; backup status ${checklist.backup_status.completed}/${checklist.backup_status.total}.`
+      );
+    }
+    if (checklist.alert_clearance && !checklist.alert_clearance.is_clear) {
+      parts.push(
+        `${checklist.alert_clearance.pending} unacknowledged alert notification${checklist.alert_clearance.pending !== 1 ? "s" : ""} pending.`
+      );
+    }
+    return parts.length > 0 ? parts.join(" ") : "";
+  })();
 
   // Pagination for handover history dialog.
   const historyTotalPages = Math.max(1, Math.ceil(handoverHistory.length / historyPageSize));
@@ -717,7 +730,7 @@ export function ShiftManagementSection() {
                       : !checklistReady
                         ? `${checklistSummary} Complete all required checks before logout.`
                         : canLogout
-                          ? "Your handover has been acknowledged and the required Daily Checklist checks are complete. You can safely logout."
+                          ? "Your handover has been acknowledged, the required Daily Checklist checks are complete, and all alert notifications are cleared. You can safely logout."
                           : "Logout is disabled until your handover is acknowledged by another DBA."}
                   </p>
                 </div>

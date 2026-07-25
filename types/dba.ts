@@ -933,14 +933,31 @@ export interface ChecklistCompletion {
 }
 
 /**
+ * Tracks how many n8n-delivered alerts in the cumulative shift window are
+ * still pending action (approve / reject / acknowledge).
+ */
+export interface AlertClearanceStatus {
+  /** Total alerts received during the cumulative shift window. */
+  total: number;
+  /** Alerts still in an unresolved state (pending_approval / DOWN / OPEN). */
+  pending: number;
+  /** True when all alerts have been acted upon (pending === 0). */
+  is_clear: boolean;
+}
+
+/**
  * Logout readiness for a time-based shift. A DBA must complete the checklist
- * for every shift from Shift 1 through their own shift on the session date.
+ * for every shift from Shift 1 through their own shift on the session date,
+ * and all n8n alert notifications within the cumulative shift window must be
+ * acknowledged / approved / rejected.
  */
 export interface ShiftLogoutChecklistReadiness {
   shift_date: string;
   required_shifts: Array<1 | 2 | 3>;
   database_status: ChecklistCompletion;
   backup_status: ChecklistCompletion;
+  /** n8n alert clearance status for the cumulative shift time window. */
+  alert_clearance: AlertClearanceStatus;
   is_complete: boolean;
 }
 
