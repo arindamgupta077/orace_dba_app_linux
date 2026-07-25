@@ -151,23 +151,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
-  const [showDatabase, setShowDatabase] = useState(true);
 
   const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
   const isClient = user?.role === "client";
   const isDbaAdmin = user?.role === "dba_admin";
-  const isSidebarVisible = !!user && !isClient && showDatabase && !isNonDbRoute;
-  const isDbSelectorVisible = !!user && showDatabase && !isNonDbRoute;
-  const isDatabaseActive = !isNonDbRoute && showDatabase;
-
-  const handleDatabaseToggle = () => {
-    if (isNonDbRoute) {
-      setShowDatabase(true);
-      router.push("/dashboard");
-    } else {
-      setShowDatabase(!showDatabase);
-    }
-  };
+  const isSidebarVisible = !!user && !isClient && !isNonDbRoute;
+  const isDbSelectorVisible = !!user && !isNonDbRoute;
+  const isDatabaseActive = !isNonDbRoute;
 
   // Redirect "client" users away from pages they are not authorised to view.
   useEffect(() => {
@@ -256,19 +246,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-5 w-5" />
                 </Button>
               )}
-              {/* Database Toggle Button */}
+              {/* Database Navigation Button */}
               <Button
+                asChild
                 variant={isDatabaseActive ? "secondary" : "outline"}
                 size="sm"
-                onClick={handleDatabaseToggle}
                 className={cn(
                   "gap-1.5 transition-all",
                   isDbaAdmin ? "order-2" : "order-1",
                   isDatabaseActive && "bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
                 )}
               >
-                <Database className="h-4 w-4" />
-                <span className="hidden sm:inline">Database</span>
+                <Link href="/dashboard">
+                  <Database className="h-4 w-4" />
+                  <span className="hidden sm:inline">Database</span>
+                </Link>
               </Button>
 
               {/* DBA Console button — visible to app_admin and dba_admin */}
