@@ -1253,6 +1253,7 @@ In the **User Management** sub-router, create a Switch node with the following `
 | 22     | `object_privilege`   | Grant/Revoke Object Privileges |
 | 23     | `create_role`        | Create Role                    |
 | 24     | `role_to_user`       | Grant/Revoke Role to User      |
+| 25     | `drop_role`          | Drop Role                      |
 
 ---
 
@@ -1272,7 +1273,7 @@ In the **User Management** sub-router, create a Switch node with the following `
 
 1. **`rename_user`** requires Oracle 19c Database Update 19.27+ or Oracle 21c+. On older versions, Oracle does not support `ALTER USER … RENAME TO`. As a workaround, use Data Pump export/import.
 
-2. **`drop_user`** uses `CASCADE` — this permanently drops all objects owned by the user. Add a **Wait for Approval** step in n8n (HTTP Request node to your app's approval endpoint) before executing.
+2. **`drop_user` and `drop_role`** — these destructive operations follow the approval workflow on production databases (`PROD` and `DR`) and require authorization from an App Administrator before execution.
 
 3. **Quota values** must be valid Oracle quota formats: `500M`, `1G`, `UNLIMITED`, or `0` (revoke quota).
 

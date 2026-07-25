@@ -119,9 +119,13 @@ export type DbaAction =
   | "drop_profile"
   | "system_privilege"
   | "object_privilege"
+  | "bulk_object_privilege"
   | "create_role"
   | "fetch_roles"
   | "role_to_user"
+  | "grant_sys_privs_role"
+  | "grant_obj_privs_role"
+  | "drop_role"
   | "list_objects"
   // ── General Administration ───────────────────────────────
   | "status_database"

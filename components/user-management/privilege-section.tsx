@@ -4,12 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
   BadgePlus,
+  Boxes,
   CheckCircle2,
   Loader2,
   Shield,
   ShieldAlert,
+  ShieldCheck,
+  Trash2,
   XCircle
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -28,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
+import { ApprovalTimeline } from "@/components/visual/approval-timeline";
 import { useUserMgmt } from "@/hooks/use-user-mgmt";
 import type { DbaResponse } from "@/types/dba";
 
@@ -36,19 +41,24 @@ import type { DbaResponse } from "@/types/dba";
 type PrivModal =
   | "system_privilege"
   | "object_privilege"
+  | "bulk_object_privilege"
   | "create_role"
   | "role_to_user"
+  | "grant_sys_privs_role"
+  | "grant_obj_privs_role"
+  | "drop_role"
   | null;
 
 type ModalStep = "form" | "result";
 
 interface DropdownState {
   items: string[];
+  typesMap?: Record<string, string>;
   loading: boolean;
   loaded: boolean;
 }
 
-const emptyDropdown = (): DropdownState => ({ items: [], loading: false, loaded: false });
+const emptyDropdown = (): DropdownState => ({ items: [], typesMap: {}, loading: false, loaded: false });
 
 /* ── Constants ─────────────────────────────────────── */
 
@@ -75,13 +85,100 @@ const OBJECT_PRIVILEGES = [
   "ALTER"
 ] as const;
 
+/** Oracle Object Type -> Supported Privileges Matrix */
+const OBJECT_TYPE_PRIVILEGES: Record<string, string[]> = {
+  TABLE: ["SELECT", "INSERT", "UPDATE", "DELETE", "ALTER", "REFERENCES"],
+  VIEW: ["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES"],
+  SEQUENCE: ["SELECT", "ALTER"],
+  PROCEDURE: ["EXECUTE"],
+  FUNCTION: ["EXECUTE"],
+  PACKAGE: ["EXECUTE"],
+  TYPE: ["EXECUTE"],
+  "MATERIALIZED VIEW": ["SELECT", "ALTER"],
+  DIRECTORY: ["READ", "WRITE", "EXECUTE"]
+};
+
+/** Calculate valid privileges for selected objects based on their Oracle object types */
+function getValidPrivilegesForSelectedObjects(
+  selectedNames: string[],
+  typesMap: Record<string, string> = {}
+): {
+  validPrivileges: Set<string>;
+  disabledPrivilegeReasons: Record<string, string>;
+  selectedTypes: string[];
+  isIncompatible: boolean;
+} {
+  if (selectedNames.length === 0) {
+    return {
+      validPrivileges: new Set(OBJECT_PRIVILEGES),
+      disabledPrivilegeReasons: {},
+      selectedTypes: [],
+      isIncompatible: false
+    };
+  }
+
+  const typesSet = new Set<string>();
+  for (const name of selectedNames) {
+    const rawType = typesMap[name] || "TABLE";
+    typesSet.add(rawType.toUpperCase());
+  }
+
+  const selectedTypes = Array.from(typesSet);
+  let intersection: Set<string> | null = null;
+
+  for (const type of selectedTypes) {
+    const supported = OBJECT_TYPE_PRIVILEGES[type] || OBJECT_PRIVILEGES;
+    const supportedSet = new Set(supported);
+
+    if (intersection === null) {
+      intersection = new Set(supported);
+    } else {
+      const nextIntersection = new Set<string>();
+      for (const priv of intersection) {
+        if (supportedSet.has(priv)) {
+          nextIntersection.add(priv);
+        }
+      }
+      intersection = nextIntersection;
+    }
+  }
+
+  const validPrivileges = intersection || new Set<string>();
+  const disabledReasons: Record<string, string> = {};
+
+  for (const priv of OBJECT_PRIVILEGES) {
+    if (!validPrivileges.has(priv)) {
+      const incompatibleTypes = selectedTypes.filter((type) => {
+        const supported = OBJECT_TYPE_PRIVILEGES[type] || OBJECT_PRIVILEGES;
+        return !supported.includes(priv);
+      });
+      disabledReasons[priv] = `Not supported for ${incompatibleTypes.join(", ")}`;
+    }
+  }
+
+  const isIncompatible = selectedNames.length > 0 && validPrivileges.size === 0;
+
+  return {
+    validPrivileges,
+    disabledPrivilegeReasons: disabledReasons,
+    selectedTypes,
+    isIncompatible
+  };
+}
+
 /** Oracle GRANT uses TO; REVOKE uses FROM. */
 const grantRevokeTarget = (operation: string) =>
   operation === "REVOKE" ? "FROM" : "TO";
 
 /* ── Privilege Cards ───────────────────────────────── */
 
-const PRIV_CARDS = [
+const PRIV_CARDS: {
+  modal: PrivModal;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  destructive?: boolean;
+}[] = [
   {
     modal: "system_privilege" as PrivModal,
     label: "Grant / Revoke System Privileges",
@@ -95,6 +192,12 @@ const PRIV_CARDS = [
     icon: Shield
   },
   {
+    modal: "bulk_object_privilege" as PrivModal,
+    label: "Bulk Object Privileges",
+    description: "Grant or revoke privileges on multiple objects (or all objects of a schema) in one operation.",
+    icon: Boxes
+  },
+  {
     modal: "create_role" as PrivModal,
     label: "Create Role",
     description: "Create a new Oracle role to group privileges for easy assignment.",
@@ -105,53 +208,211 @@ const PRIV_CARDS = [
     label: "Grant / Revoke Role",
     description: "Grant or revoke an Oracle role to/from a database user.",
     icon: BadgeCheck
+  },
+  {
+    modal: "grant_sys_privs_role" as PrivModal,
+    label: "Grant / Revoke System Privileges to Role",
+    description: "Grant or revoke Oracle system-level privileges to/from a role.",
+    icon: ShieldCheck
+  },
+  {
+    modal: "grant_obj_privs_role" as PrivModal,
+    label: "Grant / Revoke Object Privileges to Role",
+    description: "Grant or revoke SELECT, INSERT, UPDATE, DELETE, EXECUTE on objects to a role.",
+    icon: ShieldAlert
+  },
+  {
+    modal: "drop_role" as PrivModal,
+    label: "Drop Role",
+    description: "Permanently drop an Oracle role from the database.",
+    icon: Trash2,
+    destructive: true
   }
 ];
 
 /* ── Result Panel ──────────────────────────────────── */
 
 function ResultPanel({ result, error }: { result: DbaResponse | null; error: string | null }) {
-  const isError = error || result?.status === "error";
-  const rows = result?.raw_data?.rows ?? [];
+  const isError = Boolean(error) || result?.status === "error";
+  const isPendingApproval = result?.status === "pending_approval";
+  const rows = (result?.raw_data?.rows ?? []) as Record<string, unknown>[];
   const summary = result?.ai_summary || error || "";
+  const [filterText, setFilterText] = useState("");
+  const [showRawOutput, setShowRawOutput] = useState(false);
+
+  // Extract key metadata from first row if available
+  const sampleRow = rows[0] || {};
+  const grantee = String(sampleRow.GRANTEE || sampleRow.grantee || "");
+  const owner = String(sampleRow.OWNER || sampleRow.owner || "");
+
+  // Filter rows based on search text
+  const filteredRows = useMemo(() => {
+    if (!filterText.trim()) return rows;
+    const q = filterText.toLowerCase();
+    return rows.filter((r) =>
+      Object.values(r).some((val) => String(val ?? "").toLowerCase().includes(q))
+    );
+  }, [rows, filterText]);
+
+  const getPrivilegeBadge = (priv: string) => {
+    const upper = priv.toUpperCase();
+    if (upper.includes("SELECT")) return "bg-cyan-500/15 text-cyan-300 border-cyan-500/30";
+    if (upper.includes("INSERT")) return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+    if (upper.includes("UPDATE")) return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+    if (upper.includes("DELETE")) return "bg-red-500/15 text-red-300 border-red-500/30";
+    if (upper.includes("EXECUTE")) return "bg-purple-500/15 text-purple-300 border-purple-500/30";
+    return "bg-secondary text-secondary-foreground border-border/40";
+  };
 
   return (
     <div className="space-y-4">
-      <div className={`flex items-start gap-3 rounded-lg border p-4 ${isError ? "border-red-500/30 bg-red-500/10" : "border-emerald-500/30 bg-emerald-500/10"}`}>
-        {isError
-          ? <XCircle className="h-5 w-5 shrink-0 text-red-400 mt-0.5" />
-          : <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400 mt-0.5" />
-        }
-        <div className="min-w-0">
-          <p className="font-medium text-sm">{isError ? "Action Failed" : "Action Succeeded"}</p>
-          {summary && <p className="mt-1 text-sm text-muted-foreground">{summary}</p>}
+      {/* Status Banner */}
+      <div
+        className={`flex items-start gap-3 rounded-lg border p-4 ${
+          isError
+            ? "border-red-500/40 bg-red-500/10 text-red-200"
+            : isPendingApproval
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+            : "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+        }`}
+      >
+        {isError ? (
+          <XCircle className="h-5 w-5 shrink-0 text-red-400 mt-0.5" />
+        ) : isPendingApproval ? (
+          <ShieldAlert className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+        ) : (
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400 mt-0.5" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-sm leading-none">
+            {isError ? "Action Failed" : isPendingApproval ? "Pending Administrator Approval" : "Action Succeeded"}
+          </p>
+          {summary && <p className="mt-1.5 text-xs opacity-90 leading-relaxed">{summary}</p>}
         </div>
       </div>
+
+      {isPendingApproval && result?.approval?.steps && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="mb-3 text-xs font-semibold text-amber-300">Approval Workflow Steps</p>
+          <ApprovalTimeline steps={result.approval.steps} />
+        </div>
+      )}
+
+      {/* Metadata Badges Bar */}
       {rows.length > 0 && (
-        <div className="rounded-lg border border-border/60 overflow-auto max-h-60">
-          <p className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/60">
-            Confirmation Query Result
-          </p>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/40 bg-muted/30">
-                {Object.keys(rows[0]).map((col) => (
-                  <th key={col} className="px-4 py-2 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider whitespace-nowrap">
-                    {col.replace(/_/g, " ")}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i} className="border-b border-border/30 hover:bg-muted/20">
-                  {Object.values(row as Record<string, unknown>).map((val, j) => (
-                    <td key={j} className="px-4 py-2 font-mono text-xs">{String(val ?? "—")}</td>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {grantee && (
+            <Badge variant="outline" className="bg-background/40 font-mono">
+              Grantee: <span className="text-cyan-400 ml-1">{grantee}</span>
+            </Badge>
+          )}
+          {owner && (
+            <Badge variant="outline" className="bg-background/40 font-mono">
+              Owner: <span className="text-cyan-400 ml-1">{owner}</span>
+            </Badge>
+          )}
+          <Badge variant="outline" className="bg-background/40 font-mono">
+            Verified Privileges: <span className="text-emerald-400 ml-1">{rows.length}</span>
+          </Badge>
+        </div>
+      )}
+
+      {/* Table Results */}
+      {rows.length > 0 && (
+        <div className="rounded-lg border border-border/60 overflow-hidden bg-background/50">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/60 bg-muted/20 gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Confirmation Query Result
+            </span>
+            <input
+              type="text"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder="Search table or privilege…"
+              className="h-7 w-48 rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="overflow-auto max-h-72">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur border-b border-border/60 z-10">
+                <tr>
+                  {Object.keys(rows[0]).map((col) => (
+                    <th key={col} className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      {col.replace(/_/g, " ")}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border/30 font-mono">
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={Object.keys(rows[0]).length} className="px-3 py-4 text-center text-muted-foreground italic">
+                      No matching records found for &ldquo;{filterText}&rdquo;
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRows.map((row, i) => (
+                    <tr key={i} className="hover:bg-muted/20 transition-colors">
+                      {Object.entries(row).map(([col, val], j) => {
+                        const strVal = String(val ?? "—");
+                        const upperCol = col.toUpperCase();
+
+                        if (upperCol === "PRIVILEGE") {
+                          return (
+                            <td key={j} className="px-3 py-1.5 whitespace-nowrap">
+                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-mono ${getPrivilegeBadge(strVal)}`}>
+                                {strVal}
+                              </Badge>
+                            </td>
+                          );
+                        }
+
+                        if (upperCol === "GRANTABLE") {
+                          return (
+                            <td key={j} className="px-3 py-1.5 whitespace-nowrap">
+                              <span className={strVal === "YES" ? "text-emerald-400 font-semibold" : "text-muted-foreground"}>
+                                {strVal}
+                              </span>
+                            </td>
+                          );
+                        }
+
+                        return (
+                          <td key={j} className="px-3 py-1.5 whitespace-nowrap text-foreground/90">
+                            {strVal}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-3 py-1.5 border-t border-border/40 text-[11px] text-muted-foreground flex justify-between bg-muted/10">
+            <span>Showing {filteredRows.length} of {rows.length} records</span>
+            {filterText && <span>Filtered by &ldquo;{filterText}&rdquo;</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Collapsible Execution Output Details */}
+      {result?.raw_output && (
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => setShowRawOutput(!showRawOutput)}
+            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-1"
+          >
+            {showRawOutput ? "Hide" : "View"} Execution Output Details
+          </button>
+          {showRawOutput && (
+            <pre className="rounded-md border border-border/60 bg-black/60 p-3 text-[11px] font-mono text-emerald-300/90 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
+              {result.raw_output}
+            </pre>
+          )}
         </div>
       )}
     </div>
@@ -339,8 +600,8 @@ function SearchableObjectSelect({
                 key={item}
                 type="button"
                 onClick={() => handleSelect(item)}
-                className={`relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-secondary hover:text-secondary-foreground ${
-                  value === item ? "bg-secondary/60 text-secondary-foreground" : ""
+                className={`relative flex w-full cursor-default select-none items-center justify-between rounded-sm py-1.5 pl-8 pr-2.5 text-sm outline-none hover:bg-secondary hover:text-secondary-foreground ${
+                  value === item ? "bg-secondary/60 text-secondary-foreground font-medium" : ""
                 }`}
               >
                 {value === item && (
@@ -348,7 +609,12 @@ function SearchableObjectSelect({
                     <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400" />
                   </span>
                 )}
-                {item}
+                <span className="font-mono text-xs truncate">{item}</span>
+                {state.typesMap?.[item] && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-muted-foreground/80 border-border/40 font-mono shrink-0">
+                    {state.typesMap[item]}
+                  </Badge>
+                )}
               </button>
             ))}
             {totalMatches > MAX_VISIBLE_ITEMS && (
@@ -368,20 +634,286 @@ function SearchableObjectSelect({
   );
 }
 
+/* ── Searchable Multi-Object Select (handles huge lists + multi-selection) ─── */
+
+function SearchableMultiObjectSelect({
+  selected,
+  onChange,
+  placeholder,
+  state,
+  onOpen
+}: {
+  selected: string[];
+  onChange: (items: string[]) => void;
+  placeholder: string;
+  state: DropdownState;
+  onOpen: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Deduplicate items
+  const uniqueItems = useMemo(() => [...new Set(state.items)], [state.items]);
+
+  // Filter + cap rendered items
+  const filtered = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    const source = q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)) : uniqueItems;
+    return source.slice(0, MAX_VISIBLE_ITEMS);
+  }, [uniqueItems, search]);
+
+  const totalMatches = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    return q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)).length : uniqueItems.length;
+  }, [uniqueItems, search]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Reset search when items change (owner changed)
+  useEffect(() => {
+    setSearch("");
+  }, [state.items]);
+
+  const toggleItem = (item: string) => {
+    if (selected.includes(item)) {
+      onChange(selected.filter((s) => s !== item));
+    } else {
+      onChange([...selected, item]);
+    }
+  };
+
+  const selectAllFiltered = () => {
+    const q = search.trim().toUpperCase();
+    const matching = q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)) : uniqueItems;
+    const combined = [...new Set([...selected, ...matching])];
+    onChange(combined);
+  };
+
+  const deselectAllFiltered = () => {
+    const q = search.trim().toUpperCase();
+    const matchingSet = new Set(q ? uniqueItems.filter((item) => item.toUpperCase().includes(q)) : uniqueItems);
+    onChange(selected.filter((s) => !matchingSet.has(s)));
+  };
+
+  const clearAll = () => {
+    onChange([]);
+  };
+
+  const MAX_DISPLAY_CHIPS = 3;
+  const displayedChips = selected.slice(0, MAX_DISPLAY_CHIPS);
+  const hiddenChipCount = selected.length - MAX_DISPLAY_CHIPS;
+
+  return (
+    <div ref={containerRef} className="relative space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label>
+          Object Names{" "}
+          {selected.length > 0 && (
+            <span className="text-cyan-400 text-xs font-normal">
+              ({selected.length} selected{uniqueItems.length > 0 ? ` of ${uniqueItems.length}` : ""})
+            </span>
+          )}
+        </Label>
+        {selected.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={clearAll}
+          >
+            Clear selection
+          </Button>
+        )}
+      </div>
+
+      <div
+        className="flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-background/50 p-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring cursor-text"
+        onClick={() => {
+          setIsOpen(true);
+          onOpen();
+          inputRef.current?.focus();
+        }}
+      >
+        {displayedChips.map((item) => (
+          <span
+            key={item}
+            className="inline-flex items-center gap-1 rounded bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-xs text-cyan-300 font-mono shrink-0"
+          >
+            {item}
+            <button
+              type="button"
+              className="hover:text-cyan-100 focus:outline-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleItem(item);
+              }}
+            >
+              <XCircle className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+
+        {hiddenChipCount > 0 && (
+          <span className="inline-flex items-center rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground font-mono shrink-0">
+            +{hiddenChipCount} more
+          </span>
+        )}
+
+        <input
+          ref={inputRef}
+          type="text"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            onOpen();
+          }}
+          placeholder={
+            state.loading
+              ? "Loading objects…"
+              : selected.length === 0
+              ? placeholder
+              : "Filter objects…"
+          }
+          className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-[120px] text-sm"
+          autoComplete="off"
+        />
+
+        {state.loading && <Loader2 className="h-3.5 w-3.5 animate-spin ml-auto shrink-0 text-muted-foreground" />}
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+          {uniqueItems.length > 0 && !state.loading && (
+            <div className="flex items-center justify-between border-b border-border/40 px-3 py-1.5 text-xs bg-muted/20">
+              <span className="text-muted-foreground font-medium">
+                {search ? `Matching "${search}" (${totalMatches})` : `All Objects (${uniqueItems.length})`}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-cyan-400 hover:text-cyan-300 font-medium hover:underline text-[11px]"
+                >
+                  Select {search ? "Matching" : "All"}
+                </button>
+                {selected.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={deselectAllFiltered}
+                    className="text-muted-foreground hover:text-foreground font-medium hover:underline text-[11px]"
+                  >
+                    Deselect {search ? "Matching" : "All"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-60 overflow-y-auto p-1">
+            {state.loading && uniqueItems.length === 0 && (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading objects…
+              </div>
+            )}
+            {!state.loading && uniqueItems.length === 0 && (
+              <div className="py-3 text-center text-sm text-muted-foreground">
+                No objects found — select an owner first
+              </div>
+            )}
+            {filtered.length === 0 && uniqueItems.length > 0 && !state.loading && (
+              <div className="py-3 text-center text-sm text-muted-foreground">
+                No objects match &ldquo;{search}&rdquo;
+              </div>
+            )}
+            {filtered.map((item) => {
+              const isSelected = selected.includes(item);
+              const objectType = state.typesMap?.[item];
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleItem(item);
+                  }}
+                  className={`relative flex w-full cursor-pointer select-none items-center justify-between gap-2.5 rounded-sm py-1.5 px-2.5 text-sm outline-none transition-colors hover:bg-secondary hover:text-secondary-foreground ${
+                    isSelected ? "bg-secondary/60 text-secondary-foreground font-medium" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className={`h-4 w-4 shrink-0 rounded border transition-colors flex items-center justify-center ${
+                        isSelected ? "border-cyan-400 bg-cyan-400/20 text-cyan-400" : "border-border/60"
+                      }`}
+                    >
+                      {isSelected && (
+                        <svg className="h-2.5 w-2.5 stroke-current" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="font-mono text-xs truncate">{item}</span>
+                  </div>
+                  {objectType && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-muted-foreground/80 border-border/40 font-mono shrink-0">
+                      {objectType}
+                    </Badge>
+                  )}
+                </button>
+              );
+            })}
+            {totalMatches > MAX_VISIBLE_ITEMS && (
+              <div className="border-t border-border/40 px-3 py-2 text-xs text-muted-foreground text-center">
+                Showing {MAX_VISIBLE_ITEMS} of {totalMatches} matches — type to narrow results
+              </div>
+            )}
+          </div>
+          {uniqueItems.length > 0 && (
+            <div className="border-t border-border/40 px-3 py-1.5 text-xs text-muted-foreground flex justify-between">
+              <span>{totalMatches} object{totalMatches !== 1 ? "s" : ""}{search ? " matching" : " total"}</span>
+              <span>{selected.length} selected</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Multi-Checkbox select ─────────────────────────── */
 
 function MultiPrivilegeSelector<T extends string>({
   options,
   selected,
   onChange,
-  label
+  label,
+  disabledOptions = {}
 }: {
   options: readonly T[];
   selected: T[];
   onChange: (items: T[]) => void;
   label: string;
+  disabledOptions?: Record<string, string>;
 }) {
   const toggle = (item: T) => {
+    if (disabledOptions[item]) return;
     if (selected.includes(item)) onChange(selected.filter((s) => s !== item));
     else onChange([...selected, item]);
   };
@@ -390,21 +922,46 @@ function MultiPrivilegeSelector<T extends string>({
     <div className="space-y-1.5">
       <Label>{label} {selected.length > 0 && <span className="text-cyan-400 text-xs">({selected.length} selected)</span>}</Label>
       <div className="rounded-md border border-border/60 p-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-        {options.map((opt) => (
-          <label key={opt} className="flex items-center gap-2 cursor-pointer group">
-            <div
-              className={`h-4 w-4 shrink-0 rounded border transition-colors ${selected.includes(opt) ? "border-cyan-400 bg-cyan-400/20" : "border-border/60"} flex items-center justify-center`}
-              onClick={() => toggle(opt)}
+        {options.map((opt) => {
+          const isDisabled = !!disabledOptions[opt];
+          const isSelected = selected.includes(opt);
+          const reason = disabledOptions[opt];
+
+          return (
+            <label
+              key={opt}
+              title={reason || ""}
+              className={`flex items-start gap-2 group ${isDisabled ? "opacity-45 cursor-not-allowed select-none" : "cursor-pointer"}`}
             >
-              {selected.includes(opt) && (
-                <svg className="h-2.5 w-2.5 text-cyan-400" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </div>
-            <span className="text-xs group-hover:text-foreground text-muted-foreground transition-colors" onClick={() => toggle(opt)}>{opt}</span>
-          </label>
-        ))}
+              <div
+                className={`h-4 w-4 shrink-0 rounded border transition-colors mt-0.5 ${
+                  isSelected
+                    ? "border-cyan-400 bg-cyan-400/20"
+                    : isDisabled
+                    ? "border-border/40 bg-muted/30"
+                    : "border-border/60"
+                } flex items-center justify-center`}
+                onClick={() => toggle(opt)}
+              >
+                {isSelected && (
+                  <svg className="h-2.5 w-2.5 text-cyan-400" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex flex-col min-w-0" onClick={() => toggle(opt)}>
+                <span className={`text-xs ${isDisabled ? "text-muted-foreground/60 line-through decoration-muted-foreground/40" : "group-hover:text-foreground text-muted-foreground"} transition-colors`}>
+                  {opt}
+                </span>
+                {isDisabled && reason && (
+                  <span className="text-[9px] text-amber-400/90 font-normal truncate">
+                    {reason}
+                  </span>
+                )}
+              </div>
+            </label>
+          );
+        })}
       </div>
       {selected.length > 0 && (
         <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onChange([])}>Clear all</Button>
@@ -416,7 +973,7 @@ function MultiPrivilegeSelector<T extends string>({
 /* ── Main Section ──────────────────────────────────── */
 
 export function PrivilegeManagementSection() {
-  const { execute, loadDropdown, executing, selectedDb } = useUserMgmt();
+  const { execute, loadDropdown, loadObjectsWithMetadata, executing, selectedDb } = useUserMgmt();
 
   const [activeModal, setActiveModal] = useState<PrivModal>(null);
   const [modalStep, setModalStep] = useState<ModalStep>("form");
@@ -426,6 +983,8 @@ export function PrivilegeManagementSection() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [selectedSysPrivs, setSelectedSysPrivs] = useState<string[]>([]);
   const [selectedObjPrivs, setSelectedObjPrivs] = useState<string[]>([]);
+  const [selectedObjectNames, setSelectedObjectNames] = useState<string[]>([]);
+  const [allObjectsSelected, setAllObjectsSelected] = useState(false);
 
   const [schemas, setSchemas] = useState<DropdownState>(emptyDropdown);
   const [roles, setRoles] = useState<DropdownState>(emptyDropdown);
@@ -454,11 +1013,68 @@ export function PrivilegeManagementSection() {
   const loadObjects = useCallback(async (owner: string) => {
     if (!owner) return;
     loadingRef.current["objects"] = true;
-    setObjects({ items: [], loading: true, loaded: false });
-    const items = await loadDropdown("list_objects", { owner }, "object_name");
-    setObjects({ items, loading: false, loaded: true });
+    setObjects({ items: [], typesMap: {}, loading: true, loaded: false });
+    const metaList = await loadObjectsWithMetadata(owner);
+    const items = metaList.map((item) => item.name);
+    const typesMap: Record<string, string> = {};
+    for (const item of metaList) {
+      typesMap[item.name] = item.type;
+    }
+    setObjects({ items, typesMap, loading: false, loaded: true });
     loadingRef.current["objects"] = false;
-  }, [loadDropdown]);
+  }, [loadObjectsWithMetadata]);
+
+  // Validation calculations for Bulk Object Privileges
+  const bulkPrivValidation = useMemo(() => {
+    if (allObjectsSelected || selectedObjectNames.length === 0) {
+      return {
+        validPrivileges: new Set(OBJECT_PRIVILEGES),
+        disabledPrivilegeReasons: {},
+        selectedTypes: [],
+        isIncompatible: false
+      };
+    }
+    return getValidPrivilegesForSelectedObjects(selectedObjectNames, objects.typesMap || {});
+  }, [allObjectsSelected, selectedObjectNames, objects.typesMap]);
+
+  // Validation calculations for Single Object Privileges
+  const singleObjectValidation = useMemo(() => {
+    const objName = form.object_name;
+    if (!objName) {
+      return {
+        validPrivileges: new Set(OBJECT_PRIVILEGES),
+        disabledPrivilegeReasons: {},
+        selectedTypes: [],
+        isIncompatible: false
+      };
+    }
+    return getValidPrivilegesForSelectedObjects([objName], objects.typesMap || {});
+  }, [form.object_name, objects.typesMap]);
+
+  // Automatically deselect invalid privileges when object selection changes in bulk mode
+  useEffect(() => {
+    if (activeModal === "bulk_object_privilege" && !allObjectsSelected && selectedObjectNames.length > 0) {
+      const cleaned = selectedObjPrivs.filter((priv) => bulkPrivValidation.validPrivileges.has(priv));
+      if (cleaned.length !== selectedObjPrivs.length) {
+        setSelectedObjPrivs(cleaned);
+      }
+    }
+  }, [selectedObjectNames, allObjectsSelected, activeModal, bulkPrivValidation.validPrivileges, selectedObjPrivs]);
+
+  // Automatically deselect invalid privileges when single object changes
+  useEffect(() => {
+    if ((activeModal === "object_privilege" || activeModal === "grant_obj_privs_role") && form.object_name) {
+      const cleaned = selectedObjPrivs.filter((priv) => singleObjectValidation.validPrivileges.has(priv));
+      if (cleaned.length !== selectedObjPrivs.length) {
+        setSelectedObjPrivs(cleaned);
+      }
+    }
+  }, [form.object_name, activeModal, singleObjectValidation.validPrivileges, selectedObjPrivs]);
+
+  // When "All Objects" is selected, keep the visible selection in sync with loaded objects
+  useEffect(() => {
+    if (allObjectsSelected) setSelectedObjectNames(objects.items);
+  }, [objects.items, allObjectsSelected]);
 
   const setField = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -471,9 +1087,14 @@ export function PrivilegeManagementSection() {
     setForm({});
     setSelectedSysPrivs([]);
     setSelectedObjPrivs([]);
+    setSelectedObjectNames([]);
+    setAllObjectsSelected(false);
     setObjects({ items: [], loading: false, loaded: false });
-    if (modal !== "create_role") ensureSchemas();
-    if (modal === "role_to_user") ensureRoles();
+    // Schemas are used as usernames and object owners
+    const needsSchemas = ["system_privilege", "object_privilege", "bulk_object_privilege", "role_to_user", "grant_obj_privs_role"].includes(modal ?? "");
+    const needsRoles = ["role_to_user", "grant_sys_privs_role", "grant_obj_privs_role", "drop_role"].includes(modal ?? "");
+    if (needsSchemas) ensureSchemas();
+    if (needsRoles) ensureRoles();
   };
 
   const closeModal = () => {
@@ -484,6 +1105,8 @@ export function PrivilegeManagementSection() {
     setForm({});
     setSelectedSysPrivs([]);
     setSelectedObjPrivs([]);
+    setSelectedObjectNames([]);
+    setAllObjectsSelected(false);
   };
 
   const handleSubmit = async () => {
@@ -516,6 +1139,46 @@ export function PrivilegeManagementSection() {
             operation: form.operation
           });
           break;
+        case "bulk_object_privilege":
+          res = await execute(
+            "bulk_object_privilege",
+            allObjectsSelected
+              ? {
+                  username: form.username,
+                  operation: form.operation,
+                  owner_name: form.owner_name,
+                  object_privilege: selectedObjPrivs,
+                  all_objects: true
+                }
+              : {
+                  username: form.username,
+                  operation: form.operation,
+                  owner_name: form.owner_name,
+                  object_name: selectedObjectNames,
+                  object_privilege: selectedObjPrivs,
+                  all_objects: false
+                }
+          );
+          break;
+        case "grant_sys_privs_role":
+          res = await execute("grant_sys_privs_role", {
+            role: form.role,
+            operation: form.operation,
+            system_privilege: selectedSysPrivs
+          });
+          break;
+        case "grant_obj_privs_role":
+          res = await execute("grant_obj_privs_role", {
+            role: form.role,
+            operation: form.operation,
+            owner_name: form.owner_name,
+            object_name: form.object_name,
+            object_privilege: selectedObjPrivs
+          });
+          break;
+        case "drop_role":
+          res = await execute("drop_role", { role: form.role });
+          break;
         default:
           return;
       }
@@ -533,11 +1196,41 @@ export function PrivilegeManagementSection() {
       case "system_privilege":
         return !form.username || !form.operation || selectedSysPrivs.length === 0;
       case "object_privilege":
-        return !form.username || !form.operation || !form.owner_name || !form.object_name || selectedObjPrivs.length === 0;
+        return (
+          !form.username ||
+          !form.operation ||
+          !form.owner_name ||
+          !form.object_name ||
+          selectedObjPrivs.length === 0 ||
+          selectedObjPrivs.some((p) => !singleObjectValidation.validPrivileges.has(p))
+        );
+      case "bulk_object_privilege":
+        return (
+          !form.username ||
+          !form.operation ||
+          !form.owner_name ||
+          (!allObjectsSelected && selectedObjectNames.length === 0) ||
+          selectedObjPrivs.length === 0 ||
+          bulkPrivValidation.isIncompatible ||
+          (!allObjectsSelected && selectedObjPrivs.some((p) => !bulkPrivValidation.validPrivileges.has(p)))
+        );
       case "create_role":
         return !form.role_name;
       case "role_to_user":
         return !form.username || !form.role || !form.operation;
+      case "grant_sys_privs_role":
+        return !form.role || !form.operation || selectedSysPrivs.length === 0;
+      case "grant_obj_privs_role":
+        return (
+          !form.role ||
+          !form.operation ||
+          !form.owner_name ||
+          !form.object_name ||
+          selectedObjPrivs.length === 0 ||
+          selectedObjPrivs.some((p) => !singleObjectValidation.validPrivileges.has(p))
+        );
+      case "drop_role":
+        return !form.role;
       default:
         return true;
     }
@@ -641,6 +1334,7 @@ export function PrivilegeManagementSection() {
               options={OBJECT_PRIVILEGES}
               selected={selectedObjPrivs as typeof OBJECT_PRIVILEGES[number][]}
               onChange={setSelectedObjPrivs as (items: typeof OBJECT_PRIVILEGES[number][]) => void}
+              disabledOptions={singleObjectValidation.disabledPrivilegeReasons}
               label="Object Privileges"
             />
             {form.username && form.operation && form.owner_name && form.object_name && selectedObjPrivs.length > 0 && (
@@ -703,6 +1397,209 @@ export function PrivilegeManagementSection() {
           </div>
         );
 
+      case "bulk_object_privilege":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Grantee (Username)</Label>
+              <LazySelect
+                value={form.username ?? ""}
+                onChange={(v) => setField("username", v)}
+                placeholder="Select user…"
+                state={schemas}
+                onOpen={ensureSchemas}
+              />
+            </div>
+            <OperationToggle />
+            <div className="space-y-1.5">
+              <Label>Object Owner</Label>
+              <LazySelect
+                value={form.owner_name ?? ""}
+                onChange={(v) => {
+                  setField("owner_name", v);
+                  setSelectedObjectNames([]);
+                  setAllObjectsSelected(false);
+                  loadObjects(v);
+                }}
+                placeholder="Select owner…"
+                state={schemas}
+                onOpen={ensureSchemas}
+              />
+            </div>
+            {form.owner_name && (
+              <label className="flex items-start gap-2 cursor-pointer rounded-md border border-border/60 p-2.5">
+                <input
+                  type="checkbox"
+                  checked={allObjectsSelected}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setAllObjectsSelected(checked);
+                    if (checked) {
+                      if (!objects.loaded && !objects.loading) loadObjects(form.owner_name);
+                      setSelectedObjectNames(objects.items);
+                    }
+                  }}
+                  className="h-4 w-4 mt-0.5 accent-cyan-500"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {form.operation === "REVOKE" ? "Revoke" : "Grant"} on <strong className="text-foreground">all objects</strong> owned by {form.owner_name}
+                </span>
+              </label>
+            )}
+            {!allObjectsSelected && (
+              <SearchableMultiObjectSelect
+                selected={selectedObjectNames}
+                onChange={setSelectedObjectNames}
+                placeholder={form.owner_name ? "Search and select objects…" : "Select owner first…"}
+                state={objects}
+                onOpen={() => { if (form.owner_name) loadObjects(form.owner_name); }}
+              />
+            )}
+            {objects.loading && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading objects…
+              </p>
+            )}
+            {bulkPrivValidation.isIncompatible && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2.5 text-xs text-amber-300">
+                <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-200">Incompatible Object Types Selected</p>
+                  <p className="mt-0.5 text-amber-300/80 leading-relaxed">
+                    You have selected objects of types: <strong className="font-mono text-amber-200">{bulkPrivValidation.selectedTypes.join(", ")}</strong>. These object types do not share any common Oracle privileges (e.g. Table vs Procedure). Please select objects of compatible types.
+                  </p>
+                </div>
+              </div>
+            )}
+            <MultiPrivilegeSelector
+              options={OBJECT_PRIVILEGES}
+              selected={selectedObjPrivs as typeof OBJECT_PRIVILEGES[number][]}
+              onChange={setSelectedObjPrivs as (items: typeof OBJECT_PRIVILEGES[number][]) => void}
+              disabledOptions={bulkPrivValidation.disabledPrivilegeReasons}
+              label="Object Privileges"
+            />
+            {form.username && form.operation && form.owner_name && (allObjectsSelected || selectedObjectNames.length > 0) && selectedObjPrivs.length > 0 && !bulkPrivValidation.isIncompatible && (
+              <p className="text-xs text-muted-foreground">
+                n8n will execute: <code className="text-cyan-400">
+                  {form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.
+                  {allObjectsSelected ? "*" : selectedObjectNames.join(", ")}{" "}
+                  {grantRevokeTarget(form.operation)} {form.username};
+                </code>
+              </p>
+            )}
+          </div>
+        );
+
+      case "grant_sys_privs_role":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <LazySelect
+                value={form.role ?? ""}
+                onChange={(v) => setField("role", v)}
+                placeholder="Select role…"
+                state={roles}
+                onOpen={ensureRoles}
+              />
+            </div>
+            <OperationToggle />
+            <MultiPrivilegeSelector
+              options={SYSTEM_PRIVILEGES}
+              selected={selectedSysPrivs as typeof SYSTEM_PRIVILEGES[number][]}
+              onChange={setSelectedSysPrivs as (items: typeof SYSTEM_PRIVILEGES[number][]) => void}
+              label="System Privileges"
+            />
+            {form.role && form.operation && selectedSysPrivs.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedSysPrivs.join(", ")} {grantRevokeTarget(form.operation)} {form.role};</code>
+              </p>
+            )}
+          </div>
+        );
+
+      case "grant_obj_privs_role":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Role (Grantee)</Label>
+              <LazySelect
+                value={form.role ?? ""}
+                onChange={(v) => setField("role", v)}
+                placeholder="Select role…"
+                state={roles}
+                onOpen={ensureRoles}
+              />
+            </div>
+            <OperationToggle />
+            <div className="space-y-1.5">
+              <Label>Object Owner</Label>
+              <LazySelect
+                value={form.owner_name ?? ""}
+                onChange={(v) => {
+                  setField("owner_name", v);
+                  setField("object_name", "");
+                  loadObjects(v);
+                }}
+                placeholder="Select owner…"
+                state={schemas}
+                onOpen={ensureSchemas}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Object Name</Label>
+              <SearchableObjectSelect
+                value={form.object_name ?? ""}
+                onChange={(v) => setField("object_name", v)}
+                placeholder={form.owner_name ? "Search object…" : "Select owner first…"}
+                state={objects}
+                onOpen={() => { if (form.owner_name) loadObjects(form.owner_name); }}
+              />
+            </div>
+            <MultiPrivilegeSelector
+              options={OBJECT_PRIVILEGES}
+              selected={selectedObjPrivs as typeof OBJECT_PRIVILEGES[number][]}
+              onChange={setSelectedObjPrivs as (items: typeof OBJECT_PRIVILEGES[number][]) => void}
+              disabledOptions={singleObjectValidation.disabledPrivilegeReasons}
+              label="Object Privileges"
+            />
+            {form.role && form.operation && form.owner_name && form.object_name && selectedObjPrivs.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.{form.object_name} {grantRevokeTarget(form.operation)} {form.role};</code>
+              </p>
+            )}
+          </div>
+        );
+
+      case "drop_role":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <LazySelect
+                value={form.role ?? ""}
+                onChange={(v) => setField("role", v)}
+                placeholder="Select role…"
+                state={roles}
+                onOpen={ensureRoles}
+              />
+            </div>
+            {form.role && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-1">
+                <p className="text-sm font-medium text-red-400">Destructive Operation</p>
+                <p className="text-xs text-muted-foreground">
+                  n8n will execute: <code className="text-red-400">DROP ROLE {form.role};</code>
+                  <br />The role and its privilege grants will be permanently removed.
+                </p>
+                <p className="text-[11px] text-amber-300/90 pt-1 flex items-center gap-1.5">
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  On production databases (PROD/DR), this action requires App Administrator approval before execution.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+
       default:
         return null;
     }
@@ -712,17 +1609,18 @@ export function PrivilegeManagementSection() {
     <div className="space-y-6">
       {/* Action cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {PRIV_CARDS.map(({ modal, label, description, icon: Icon }) => (
+        {PRIV_CARDS.map(({ modal, label, description, icon: Icon, destructive }) => (
           <Card
             key={modal}
             className="hover:border-border/80 transition-colors cursor-pointer group"
             onClick={() => openModal(modal)}
           >
             <CardContent className="flex flex-col p-4 h-full">
-              <div className="flex items-start gap-2">
-                <span className="rounded-md border border-cyan-400/30 bg-cyan-400/10 text-cyan-300 p-2 group-hover:scale-105 transition-transform">
+              <div className="flex items-start justify-between gap-2">
+                <span className={`rounded-md border p-2 ${destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"} group-hover:scale-105 transition-transform`}>
                   <Icon className="h-4 w-4" />
                 </span>
+                {destructive && <Badge variant="outline" className="text-red-400 border-red-400/40 text-[10px]">Destructive</Badge>}
               </div>
               <div className="mt-3 flex-1">
                 <p className="text-sm font-semibold">{label}</p>
@@ -735,7 +1633,7 @@ export function PrivilegeManagementSection() {
 
       {/* Modal */}
       <Dialog open={!!activeModal} onOpenChange={(open) => { if (!open) closeModal(); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={modalStep === "result" ? "max-w-2xl sm:max-w-3xl transition-all" : "max-w-lg"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {getModalTitle()}
@@ -751,14 +1649,18 @@ export function PrivilegeManagementSection() {
             {modalStep === "form" ? (
               <>
                 <Button variant="outline" onClick={closeModal} disabled={executing}>Cancel</Button>
-                <Button onClick={handleSubmit} disabled={isSubmitDisabled()}>
+                <Button
+                  onClick={handleSubmit}
+                  disabled={isSubmitDisabled()}
+                  variant={activeModal === "drop_role" ? "destructive" : "default"}
+                >
                   {executing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Execute
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="outline" onClick={() => { setModalStep("form"); setForm({}); setSelectedSysPrivs([]); setSelectedObjPrivs([]); }}>New Action</Button>
+                <Button variant="outline" onClick={() => { setModalStep("form"); setForm({}); setSelectedSysPrivs([]); setSelectedObjPrivs([]); setSelectedObjectNames([]); setAllObjectsSelected(false); }}>New Action</Button>
                 <Button onClick={closeModal}>Done</Button>
               </>
             )}

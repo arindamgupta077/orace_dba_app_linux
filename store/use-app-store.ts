@@ -82,16 +82,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           tablespaceRefreshTrigger: state.tablespaceRefreshTrigger + 1
       })),
-      setUser: (user) =>
-        set((state) => {
-          const notifications =
-            user?.role === "dba_admin"
-              ? state.notifications.filter(
-                  (n) => n.type !== "approval_workflow" && n.title !== "Approval Required"
-                )
-              : state.notifications;
-          return { user, notifications };
-        }),
+      setUser: (user) => set({ user }),
       setSelectedDb: (selectedDb) => set({ selectedDb }),
       setDatabases: (databases) =>
         set((state) => {
@@ -128,13 +119,6 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
-          // Hide "approval_workflow" / "Approval Required" notifications for dba_admin users
-          if (
-            state.user?.role === "dba_admin" &&
-            (item.type === "approval_workflow" || item.title === "Approval Required")
-          ) {
-            return state;
-          }
           if (state.dismissedNotificationIds.includes(String(item.id))) {
             return state;
           }

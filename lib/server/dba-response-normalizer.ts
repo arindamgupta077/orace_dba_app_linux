@@ -112,8 +112,22 @@ function readTextOutput(value: unknown, depth = 0): string {
 
 export function normalizeDbaResponse(input: unknown, action: DbaAction): DbaResponse {
   const isArrayInput = Array.isArray(input);
-  const payload = !isArrayInput && input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  const status = payload.status === "pending_approval" || payload.status === "error" ? payload.status : "success";
+  let payload: Record<string, unknown> = {};
+
+  if (isArrayInput && input.length > 0) {
+    const unwrappedFirst = unwrapN8nItem(input[0]);
+    if (isRecord(unwrappedFirst)) {
+      payload = unwrappedFirst;
+    }
+  } else if (isRecord(input)) {
+    payload = unwrapN8nItem(input) as Record<string, unknown>;
+  }
+
+  const rawStatus = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
+  const status =
+    rawStatus === "pending_approval" || rawStatus === "error"
+      ? rawStatus
+      : "success";
 
   const rawData: DbaResponse["raw_data"] =
     payload.raw_data && typeof payload.raw_data === "object"

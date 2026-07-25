@@ -716,6 +716,41 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
     base.raw_output = tableOutput("Schemas", rows);
   }
 
+  if (action === "list_objects") {
+    const owner = String(params.owner || "HR");
+    const rows = [
+      { object_name: "EMPLOYEES", object_type: "TABLE" },
+      { object_name: "DEPARTMENTS", object_type: "TABLE" },
+      { object_name: "JOBS", object_type: "TABLE" },
+      { object_name: "JOB_HISTORY", object_type: "TABLE" },
+      { object_name: "LOCATIONS", object_type: "TABLE" },
+      { object_name: "REGIONS", object_type: "TABLE" },
+      { object_name: "EMP_DETAILS_VIEW", object_type: "VIEW" },
+      { object_name: "DEPT_SUMMARY_VW", object_type: "VIEW" },
+      { object_name: "EMP_SEQ", object_type: "SEQUENCE" },
+      { object_name: "DEPT_SEQ", object_type: "SEQUENCE" },
+      { object_name: "ADD_JOB_HISTORY", object_type: "PROCEDURE" },
+      { object_name: "CALC_TAX_PKG", object_type: "PACKAGE" },
+      { object_name: "GET_EMP_NAME", object_type: "FUNCTION" }
+    ];
+    base.ai_summary = `Loaded ${rows.length} objects for schema ${owner} from ${db}.`;
+    base.raw_data.rows = rows;
+    base.raw_output = tableOutput("Objects", rows);
+  }
+
+  if (action === "fetch_roles") {
+    const rows = [
+      { role: "DBA" },
+      { role: "CONNECT" },
+      { role: "RESOURCE" },
+      { role: "APP_DEVELOPER_ROLE" },
+      { role: "READONLY_ROLE" }
+    ];
+    base.ai_summary = `Loaded ${rows.length} roles from ${db}.`;
+    base.raw_data.rows = rows;
+    base.raw_output = tableOutput("Roles", rows);
+  }
+
   if (action === "recompile_invalid") {
     const schemaName = String(params.schema_name || "UNKNOWN");
     base.ai_summary = `Invalid objects recompile submitted for schema ${schemaName}.`;

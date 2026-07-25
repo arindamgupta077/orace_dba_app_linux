@@ -484,6 +484,14 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
     params: []
   },
   {
+    action: "bulk_object_privilege",
+    title: "Bulk Object Privilege",
+    description: "Grant or revoke object-level privileges on multiple objects (or all objects of a schema) in one operation.",
+    category: "user_management",
+    icon: "Boxes",
+    params: []
+  },
+  {
     action: "create_role",
     title: "Create Role",
     description: "Create a new Oracle role for grouping privileges.",
@@ -497,6 +505,31 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
     description: "Grant or revoke an Oracle role to/from a database user.",
     category: "user_management",
     icon: "BadgeCheck",
+    params: []
+  },
+  {
+    action: "grant_sys_privs_role",
+    title: "Grant / Revoke System Privileges to Role",
+    description: "Grant or revoke one or more Oracle system privileges to/from a role.",
+    category: "user_management",
+    icon: "ShieldCheck",
+    params: []
+  },
+  {
+    action: "grant_obj_privs_role",
+    title: "Grant / Revoke Object Privileges to Role",
+    description: "Grant or revoke object-level privileges (SELECT, INSERT, etc.) on a specific object to a role.",
+    category: "user_management",
+    icon: "ShieldAlert",
+    params: []
+  },
+  {
+    action: "drop_role",
+    title: "Drop Role",
+    description: "Permanently drop an Oracle role from the database.",
+    category: "user_management",
+    destructive: true,
+    icon: "Trash2",
     params: []
   },
 

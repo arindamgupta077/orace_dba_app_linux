@@ -46,6 +46,40 @@ function extractStringList(res: DbaResponse, columnHint?: string): string[] {
   return [...new Set(list)];
 }
 
+export interface DbObjectInfo {
+  name: string;
+  type: string;
+}
+
+/** Extract object list with object types (e.g. TABLE, VIEW, SEQUENCE, PROCEDURE) */
+function extractObjectInfoList(res: DbaResponse): DbObjectInfo[] {
+  const rows = res.raw_data?.rows;
+  if (Array.isArray(rows) && rows.length > 0) {
+    const list: DbObjectInfo[] = [];
+    const seen = new Set<string>();
+
+    for (const row of rows) {
+      const rowObj = row as Record<string, unknown>;
+      const name = String(
+        rowObj.object_name || rowObj.OBJECT_NAME || rowObj.name || Object.values(rowObj)[0] || ""
+      ).trim();
+      const type = String(
+        rowObj.object_type || rowObj.OBJECT_TYPE || rowObj.type || "TABLE"
+      ).trim().toUpperCase();
+
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        list.push({ name, type });
+      }
+    }
+    return list;
+  }
+
+  // Fallback if flat string list
+  const rawList = extractStringList(res, "object_name");
+  return rawList.map((name) => ({ name, type: "TABLE" }));
+}
+
 export function useUserMgmt() {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const [executing, setExecuting] = useState(false);
@@ -96,6 +130,19 @@ export function useUserMgmt() {
     [selectedDb]
   );
 
+  /** Load objects along with their Oracle object types (TABLE, VIEW, SEQUENCE, PROCEDURE, etc.) */
+  const loadObjectsWithMetadata = useCallback(
+    async (owner: string): Promise<DbObjectInfo[]> => {
+      try {
+        const res = await executeDBAAction("list_objects", selectedDb, { owner });
+        return extractObjectInfoList(res);
+      } catch {
+        return [];
+      }
+    },
+    [selectedDb]
+  );
+
   const reset = useCallback(() => {
     setResult(null);
     setError(null);
@@ -104,6 +151,7 @@ export function useUserMgmt() {
   return {
     execute,
     loadDropdown,
+    loadObjectsWithMetadata,
     executing,
     result,
     error,

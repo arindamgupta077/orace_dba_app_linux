@@ -22,9 +22,7 @@ async function buildReplayItems(userRole?: string): Promise<NotificationPayload[
       offset: 0
     });
 
-    const items = userRole === "dba_admin"
-      ? result.items.filter((alert) => alert.alert_type !== "approval_workflow")
-      : result.items;
+    const items = result.items;
 
     for (const alert of items) {
       replayItems.push({

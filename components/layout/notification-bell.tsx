@@ -110,7 +110,6 @@ export function DatabaseAlertsBell() {
 
   const notifications = rawNotifications.filter((n) => {
     if (n.type === "dba_shift") return false;
-    if (user?.role === "dba_admin" && (n.type === "approval_workflow" || n.title === "Approval Required")) return false;
     return true;
   });
 
@@ -140,6 +139,12 @@ export function DatabaseAlertsBell() {
     markNotificationRead(notification.id);
     if (notification.db) setSelectedDb(notification.db);
     setOpen(false);
+
+    if (user?.role === "dba_admin" && (notification.type === "approval_workflow" || notification.targetPath?.includes("pending-approvals"))) {
+      window.dispatchEvent(new CustomEvent("dba-open-workflow-modal"));
+      return;
+    }
+
     router.push(notification.targetPath);
   };
 

@@ -408,7 +408,7 @@ ORDER BY
 
 -- ============================================================================
 -- 5) Seed the initial protected actions
---    These four actions require approval when executed against PROD databases.
+--    These actions require approval when executed against PROD databases.
 --    To protect a new action in the future, simply INSERT a new row here.
 -- ============================================================================
 MERGE INTO app_protected_actions dst
@@ -416,7 +416,8 @@ USING (
   SELECT 'drop_user'          AS action_name, 'Drop User'                 AS display_name, 'user_management' AS category, 'critical' AS risk_level, 'Permanently drop an Oracle user and all owned objects (CASCADE).'           AS description FROM dual UNION ALL
   SELECT 'change_default_tbs' AS action_name, 'Change Default Tablespace' AS display_name, 'user_management' AS category, 'high'     AS risk_level, 'Reassign a user''s default tablespace to a different one.'                   AS description FROM dual UNION ALL
   SELECT 'rename_user'        AS action_name, 'Rename User'               AS display_name, 'user_management' AS category, 'high'     AS risk_level, 'Rename an Oracle database user using ALTER USER ... RENAME TO.'             AS description FROM dual UNION ALL
-  SELECT 'drop_profile'       AS action_name, 'Drop Profile'              AS display_name, 'user_management' AS category, 'critical' AS risk_level, 'Permanently remove an Oracle profile from the database.'                    AS description FROM dual
+  SELECT 'drop_profile'       AS action_name, 'Drop Profile'              AS display_name, 'user_management' AS category, 'critical' AS risk_level, 'Permanently remove an Oracle profile from the database.'                    AS description FROM dual UNION ALL
+  SELECT 'drop_role'          AS action_name, 'Drop Role'                 AS display_name, 'user_management' AS category, 'critical' AS risk_level, 'Permanently drop an Oracle role from the database.'                        AS description FROM dual
 ) src
 ON (UPPER(dst.action_name) = UPPER(src.action_name))
 WHEN NOT MATCHED THEN
@@ -437,5 +438,5 @@ PROMPT  View created:
 PROMPT    - app_vw_pending_approvals (admin panel query)
 PROMPT
 PROMPT  Seed data:
-PROMPT    - drop_user, change_default_tbs, rename_user, drop_profile
+PROMPT    - drop_user, change_default_tbs, rename_user, drop_profile, drop_role
 PROMPT ============================================================

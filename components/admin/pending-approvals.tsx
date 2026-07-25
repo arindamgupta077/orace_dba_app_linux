@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  Boxes,
   Calendar,
   CheckCircle2,
   ChevronDown,
@@ -198,7 +199,7 @@ interface DetailDialogProps {
 
 function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
   const [loading, setLoading]   = useState(false);
-  const [deciding, setDeciding] = useState(false);
+  const [decidingAction, setDecidingAction] = useState<"approved" | "rejected" | null>(null);
   const [request, setRequest]   = useState<ApprovalRequest | null>(null);
   const [history, setHistory]   = useState<ApprovalHistoryEvent[]>([]);
   const [comment, setComment]   = useState("");
@@ -253,7 +254,7 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
 
   const handleDecide = async (decision: "approved" | "rejected") => {
     if (!request) return;
-    setDeciding(true);
+    setDecidingAction(decision);
     setExecutionResult(null);
     try {
       const res = await decideApproval(request.request_id, decision, comment || undefined);
@@ -284,7 +285,7 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
       const msg = err instanceof Error ? err.message : "Decision failed.";
       toast.error("Execution / Decision failed", { description: msg });
     } finally {
-      setDeciding(false);
+      setDecidingAction(null);
     }
   };
 
@@ -292,17 +293,24 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
 
   return (
     <Dialog open={!!requestId} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-xl max-h-[88vh] flex flex-col p-6 overflow-hidden">
+      <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col p-6 overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-background/95 backdrop-blur-md shadow-2xl">
         <DialogHeader className="pb-3 border-b border-slate-200/80 dark:border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-500/20 shadow-2xs">
-              <ShieldAlert className="h-5 w-5" />
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/15 to-amber-600/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs">
+              <ShieldAlert className="h-5.5 w-5.5" />
             </div>
-            <div>
-              <DialogTitle className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                Approval Request
-              </DialogTitle>
-              <DialogDescription className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  Approval Request
+                </DialogTitle>
+                {request && (
+                  <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60">
+                    {request.request_id}
+                  </span>
+                )}
+              </div>
+              <DialogDescription className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Review the details below and approve or reject this DBA operation.
               </DialogDescription>
             </div>
@@ -311,29 +319,29 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
 
         <div className="flex-1 overflow-y-auto space-y-4 py-3 pr-1 text-sm">
           {loading ? (
-            <div className="flex min-h-36 items-center justify-center text-xs text-muted-foreground">
+            <div className="flex min-h-40 items-center justify-center text-xs text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin text-amber-600 dark:text-amber-400" />
               Loading approval request details…
             </div>
           ) : request ? (
             <>
               {/* Summary Grid */}
-              <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50 p-4 shadow-2xs space-y-3">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50 p-4 sm:p-5 shadow-2xs space-y-3">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 text-xs">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <Activity className="h-3.5 w-3.5 text-slate-400" /> Action
                     </p>
-                    <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{request.display_name}</p>
+                    <p className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-tight">{request.display_name}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <Database className="h-3.5 w-3.5 text-slate-400" /> Database
                     </p>
-                    <p className="font-mono font-semibold text-slate-900 dark:text-slate-100 mt-0.5">{request.db_name}</p>
+                    <p className="font-mono font-bold text-cyan-600 dark:text-cyan-400 text-sm">{request.db_name}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <Server className="h-3.5 w-3.5 text-slate-400" /> Environment
                     </p>
                     <div className="mt-0.5">
@@ -341,7 +349,7 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
                     </div>
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <ShieldAlert className="h-3.5 w-3.5 text-slate-400" /> Risk Level
                     </p>
                     <div className="mt-0.5">
@@ -349,16 +357,16 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
                     </div>
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <User className="h-3.5 w-3.5 text-slate-400" /> Requested By
                     </p>
-                    <p className="font-medium text-slate-900 dark:text-slate-100 mt-0.5">{request.requester_username}</p>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">{request.requester_username}</p>
                     {request.requester_email && (
-                      <p className="text-[11px] text-muted-foreground">{request.requester_email}</p>
+                      <p className="text-[11px] text-muted-foreground font-mono">{request.requester_email}</p>
                     )}
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <Clock className="h-3.5 w-3.5 text-slate-400" /> Status
                     </p>
                     <div className="mt-0.5">
@@ -366,17 +374,17 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
                     </div>
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                       <Calendar className="h-3.5 w-3.5 text-slate-400" /> Requested At
                     </p>
-                    <p className="text-slate-900 dark:text-slate-100 mt-0.5 font-mono text-[11px]">{formatDate(request.created_at)}</p>
+                    <p className="text-slate-900 dark:text-slate-100 font-mono text-[11px]">{formatDate(request.created_at)}</p>
                   </div>
                   {request.reviewed_at && (
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mb-0.5">
                         <Calendar className="h-3.5 w-3.5 text-slate-400" /> Reviewed At
                       </p>
-                      <p className="text-slate-900 dark:text-slate-100 mt-0.5 font-mono text-[11px]">{formatDate(request.reviewed_at)}</p>
+                      <p className="text-slate-900 dark:text-slate-100 font-mono text-[11px]">{formatDate(request.reviewed_at)}</p>
                     </div>
                   )}
                 </div>
@@ -384,8 +392,10 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
 
               {/* Parameters Display */}
               {request.request_params && Object.keys(request.request_params).filter((k) => !k.startsWith("_")).length > 0 && (
-                <div className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/60 p-3.5 shadow-2xs space-y-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Parameters</p>
+                <div className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/60 p-4 shadow-2xs space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <Boxes className="h-3.5 w-3.5 text-slate-400" /> Parameters
+                  </p>
                   <ParamsDisplay params={request.request_params} />
                 </div>
               )}
@@ -406,16 +416,17 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
               {/* Comment Textarea for Pending Status */}
               {isPending && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="approval-comment" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Reviewer Comment (optional)
+                  <Label htmlFor="approval-comment" className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <MessageSquareQuote className="h-3.5 w-3.5 text-slate-400" />
+                    Reviewer Comment <span className="text-slate-400 font-normal">(optional)</span>
                   </Label>
                   <Textarea
                     id="approval-comment"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     placeholder="Add an optional note explaining your decision…"
-                    rows={2}
-                    className="text-xs rounded-lg border-slate-200 focus-visible:ring-amber-500 dark:border-slate-800 dark:bg-slate-900"
+                    rows={2.5}
+                    className="text-xs rounded-xl border-slate-200 focus-visible:ring-amber-500 dark:border-slate-800 dark:bg-slate-900/80"
                   />
                 </div>
               )}
@@ -462,8 +473,8 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
           )}
         </div>
 
-        <DialogFooter className="pt-3 border-t border-slate-200/80 dark:border-slate-800 gap-2 sm:gap-2">
-          <Button variant="outline" onClick={onClose} disabled={deciding} className="text-xs font-medium">
+        <DialogFooter className="pt-3.5 border-t border-slate-200/80 dark:border-slate-800 gap-2 sm:gap-2.5">
+          <Button variant="outline" onClick={onClose} disabled={decidingAction !== null} className="text-xs font-medium">
             Close
           </Button>
           {isPending && (
@@ -471,19 +482,27 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
               <Button
                 variant="destructive"
                 onClick={() => void handleDecide("rejected")}
-                disabled={deciding || loading}
-                className="bg-rose-600 hover:bg-rose-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                disabled={decidingAction !== null || loading}
+                className="bg-rose-600 hover:bg-rose-700 dark:bg-rose-600 dark:hover:bg-rose-500 text-white text-xs font-semibold gap-1.5 shadow-2xs active:scale-[0.98] transition-all"
               >
-                {deciding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
-                Reject Request
+                {decidingAction === "rejected" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ShieldX className="h-3.5 w-3.5" />
+                )}
+                {decidingAction === "rejected" ? "Rejecting..." : "Reject Request"}
               </Button>
               <Button
                 onClick={() => void handleDecide("approved")}
-                disabled={deciding || loading}
-                className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                disabled={decidingAction !== null || loading}
+                className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white text-xs font-semibold gap-1.5 shadow-2xs active:scale-[0.98] transition-all"
               >
-                {deciding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-                Approve Request
+                {decidingAction === "approved" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                {decidingAction === "approved" ? "Approving..." : "Approve Request"}
               </Button>
             </>
           )}

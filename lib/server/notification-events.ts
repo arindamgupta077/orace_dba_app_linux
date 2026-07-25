@@ -65,11 +65,6 @@ export function addGlobalNotificationListener(
       const replayedIds = new Set((replayItems ?? []).map((r) => r.id));
       for (const item of recentBroadcasts) {
         if (replayedIds.has(item.id)) continue;
-        // dba_admin never sees approval-workflow notifications in the bell —
-        // they surface in the dedicated WorkflowStatusModal instead.
-        if (userRole === "dba_admin" && item.type === "approval_workflow") {
-          continue;
-        }
         try {
           writeSse(listener, "notification", { ...item, replayed: true });
         } catch {

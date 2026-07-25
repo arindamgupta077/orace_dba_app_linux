@@ -258,10 +258,20 @@ export function WorkflowStatusModal() {
     }
 
     window.addEventListener("dba-approval-update", handleApprovalEvent);
+    function handleOpenModalEvent() {
+      setOpen(true);
+      setHasUnreadUpdate(false);
+      setFilter("all");
+      setPage(1);
+      void loadRequests(1, "all", pageSize);
+    }
+
+    window.addEventListener("dba-open-workflow-modal", handleOpenModalEvent);
     return () => {
       window.removeEventListener("dba-approval-update", handleApprovalEvent);
+      window.removeEventListener("dba-open-workflow-modal", handleOpenModalEvent);
     };
-  }, [loadRequests, isActiveRole]);
+  }, [loadRequests, isActiveRole, pageSize]);
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);

@@ -28,11 +28,20 @@ import type {
 /** Protected environments — only these require approval */
 const PROTECTED_ENVIRONMENTS = new Set(["PROD", "DR"]);
 
+/** Fallback static protected actions list (used if DB registry row is missing) */
+const STATIC_PROTECTED_ACTIONS = new Set([
+  "drop_user",
+  "change_default_tbs",
+  "rename_user",
+  "drop_profile",
+  "drop_role"
+]);
+
 /**
  * Returns true when the given action + environment combination
  * requires an approval request before the webhook may be sent.
  *
- * For static protected actions (drop_user, drop_profile, etc.) the decision
+ * For static protected actions (drop_user, drop_profile, drop_role, etc.) the decision
  * is driven by the `app_protected_actions` registry.
  *
  * For the dynamic `query` action, the `params` object is inspected: on PROD,
@@ -51,7 +60,7 @@ export async function requiresApproval(
   if (!PROTECTED_ENVIRONMENTS.has(environment)) return false;
 
   // Static registry-based check for known destructive DBA operations.
-  if (await getProtectedAction(action)) return true;
+  if (await getProtectedAction(action) || STATIC_PROTECTED_ACTIONS.has(action)) return true;
 
   // Dynamic check: destructive SQL on the Execute Query panel.
   if (action === "query") {
