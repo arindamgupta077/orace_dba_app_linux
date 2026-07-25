@@ -114,6 +114,7 @@ export function alertTypeToTargetPath(alertType: string): string {
   if (t === "tablespace") return "/tablespaces";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "/filesystem-drive";
   if (t === "approval_workflow") return "/admin-panel/pending-approvals";
+  if (t === "db_monitoring") return "/general-admin";
   return "/tablespaces";
 }
 
@@ -122,6 +123,7 @@ export function resolveNotificationType(alertType: string): NotificationItemType
   if (t === "tablespace") return "tablespace";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
   if (t === "approval_workflow") return "approval_workflow";
+  if (t === "db_monitoring") return "db_monitoring";
   return "generic";
 }
 
@@ -130,6 +132,7 @@ export function alertTypeToAuditAction(alertType: string): string {
   if (t === "tablespace") return "Tablespace Alert";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "disk_utilization";
   if (t === "approval_workflow") return "approval_workflow";
+  if (t === "db_monitoring") return "db_monitoring";
   return "alert_log";
 }
 

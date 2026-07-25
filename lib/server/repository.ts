@@ -60,7 +60,9 @@ import type {
   ImpdpTemplate,
   DataPumpJob,
   DataPumpJobStatus,
-  DataPumpOperation
+  DataPumpOperation,
+  MonitoringIncident,
+  MonitoringIncidentStatus
 } from "@/types/dba";
 
 type UserRole = UserSession["role"];
@@ -1955,7 +1957,7 @@ export async function revokeSession(sessionToken: string) {
   });
 }
 
-const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow", "expdp", "impdp"]);
+const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow", "expdp", "impdp", "db_monitoring", "test_connection"]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
   "acknowledged",
@@ -1971,7 +1973,12 @@ const APP_AUDITED_STATUSES = new Set<string>([
   // route records the final state).
   "success",
   "running",
-  "initiated"
+  "initiated",
+  // Database monitoring lifecycle states.
+  "down",
+  "up",
+  "duplicate",
+  "info"
 ]);
 
 export async function insertAuditLog(input: {
@@ -6258,5 +6265,172 @@ export async function upsertDataPumpJobHistory(job: DataPumpJob): Promise<void> 
       console.error("[upsertDataPumpJobHistory] Oracle DB Error:", error);
       throw error;
     }
+  });
+}
+
+// ============================================================
+// Database Monitoring — Availability Incidents
+// ============================================================
+
+function mapMonitoringIncidentRow(row: DbRow): MonitoringIncident {
+  const status = String(row.INCIDENT_STATUS || "DOWN").toUpperCase();
+  return {
+    incident_id: String(row.INCIDENT_ID),
+    db_name: String(row.DB_NAME),
+    status: (status === "DOWN" || status === "ACKNOWLEDGED" || status === "RESOLVED" ? status : "DOWN") as MonitoringIncidentStatus,
+    first_reported: toIstIsoString(row.FIRST_REPORTED),
+    last_reported: toIstIsoString(row.LAST_REPORTED),
+    report_count: Number(row.REPORT_COUNT || 1),
+    acknowledged_by: row.ACKNOWLEDGED_BY ? String(row.ACKNOWLEDGED_BY) : undefined,
+    acknowledged_at: row.ACKNOWLEDGED_AT ? toIstIsoString(row.ACKNOWLEDGED_AT) : undefined,
+    resolved_at: row.RESOLVED_AT ? toIstIsoString(row.RESOLVED_AT) : undefined,
+    created_at: toIstIsoString(row.CREATED_AT),
+    updated_at: toIstIsoString(row.UPDATED_AT)
+  };
+}
+
+/**
+ * Find an active (DOWN or ACKNOWLEDGED) monitoring incident for the given database.
+ */
+export async function findActiveMonitoringIncident(dbName: string): Promise<MonitoringIncident | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT * FROM app_db_monitoring_incidents
+       WHERE UPPER(db_name) = UPPER(:dbName)
+         AND incident_status IN ('DOWN', 'ACKNOWLEDGED')
+       ORDER BY last_reported DESC
+       FETCH FIRST 1 ROWS ONLY`,
+      { dbName }
+    );
+    const row = result.rows?.[0];
+    return row ? mapMonitoringIncidentRow(row) : null;
+  });
+}
+
+/**
+ * Get a monitoring incident by ID.
+ */
+export async function getMonitoringIncident(incidentId: string): Promise<MonitoringIncident | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT * FROM app_db_monitoring_incidents WHERE incident_id = :incidentId`,
+      { incidentId }
+    );
+    const row = result.rows?.[0];
+    return row ? mapMonitoringIncidentRow(row) : null;
+  });
+}
+
+/**
+ * Create a new monitoring incident.
+ */
+export async function insertMonitoringIncident(input: {
+  id: string;
+  dbName: string;
+}): Promise<MonitoringIncident> {
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `INSERT INTO app_db_monitoring_incidents (
+         incident_id, db_name, incident_status, first_reported, last_reported, report_count
+       ) VALUES (
+         :incidentId, :dbName, 'DOWN', SYSTIMESTAMP, SYSTIMESTAMP, 1
+       )`,
+      { incidentId: input.id, dbName: input.dbName },
+      { autoCommit: true }
+    );
+  });
+
+  const incident = await getMonitoringIncident(input.id);
+  if (!incident) {
+    throw new Error(`Unable to read monitoring incident after insert: ${input.id}`);
+  }
+  return incident;
+}
+
+/**
+ * Update the status of a monitoring incident (e.g. ACKNOWLEDGED or RESOLVED).
+ */
+export async function updateMonitoringIncidentStatus(
+  incidentId: string,
+  status: MonitoringIncidentStatus,
+  actor?: string
+): Promise<MonitoringIncident | null> {
+  await executeOne(async (connection) => {
+    if (status === "ACKNOWLEDGED" && actor) {
+      await connection.execute(
+        `UPDATE app_db_monitoring_incidents
+         SET incident_status = :status,
+             acknowledged_by = :actor,
+             acknowledged_at = SYSTIMESTAMP
+         WHERE incident_id = :incidentId`,
+        { status, actor, incidentId },
+        { autoCommit: true }
+      );
+    } else if (status === "RESOLVED") {
+      await connection.execute(
+        `UPDATE app_db_monitoring_incidents
+         SET incident_status = :status,
+             resolved_at = SYSTIMESTAMP
+         WHERE incident_id = :incidentId`,
+        { status, incidentId },
+        { autoCommit: true }
+      );
+    } else {
+      await connection.execute(
+        `UPDATE app_db_monitoring_incidents
+         SET incident_status = :status
+         WHERE incident_id = :incidentId`,
+        { status, incidentId },
+        { autoCommit: true }
+      );
+    }
+  });
+
+  return getMonitoringIncident(incidentId);
+}
+
+/**
+ * Bump the report count and last_reported timestamp for an existing incident
+ * when a duplicate DOWN notification is received.
+ */
+export async function bumpMonitoringIncidentReportCount(incidentId: string): Promise<void> {
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `UPDATE app_db_monitoring_incidents
+       SET report_count = report_count + 1,
+           last_reported = SYSTIMESTAMP
+       WHERE incident_id = :incidentId`,
+      { incidentId },
+      { autoCommit: true }
+    );
+  });
+}
+
+/**
+ * List all active (DOWN or ACKNOWLEDGED) monitoring incidents, ordered by last_reported DESC.
+ */
+export async function listActiveMonitoringIncidents(): Promise<MonitoringIncident[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT * FROM app_db_monitoring_incidents
+       WHERE incident_status IN ('DOWN', 'ACKNOWLEDGED')
+       ORDER BY last_reported DESC`
+    );
+    return (result.rows || []).map(mapMonitoringIncidentRow);
+  });
+}
+
+/**
+ * List all monitoring incidents (historical & active), ordered by last_reported DESC.
+ */
+export async function listAllMonitoringIncidents(limit: number = 200): Promise<MonitoringIncident[]> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT * FROM app_db_monitoring_incidents
+       ORDER BY last_reported DESC, created_at DESC
+       FETCH FIRST :limit ROWS ONLY`,
+      { limit }
+    );
+    return (result.rows || []).map(mapMonitoringIncidentRow);
   });
 }

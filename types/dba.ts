@@ -277,7 +277,7 @@ export interface AlertLinesResponse {
   database_name: string;
 }
 
-export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "approval_workflow" | "generic";
+export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "approval_workflow" | "db_monitoring" | "generic";
 
 /** Shared shape of the SSE notification payload broadcast to clients */
 export interface NotificationPayload {
@@ -1055,4 +1055,24 @@ export interface ApprovalHistoryEvent {
   snapshot_status: ApprovalRequestStatus;
   metadata?: Record<string, unknown>;
   created_at: string;
+}
+
+// ============================================================
+// Database Monitoring — Availability Incidents
+// ============================================================
+
+export type MonitoringIncidentStatus = "DOWN" | "ACKNOWLEDGED" | "RESOLVED";
+
+export interface MonitoringIncident {
+  incident_id: string;
+  db_name: string;
+  status: MonitoringIncidentStatus;
+  first_reported: string;
+  last_reported: string;
+  report_count: number;
+  acknowledged_by?: string;
+  acknowledged_at?: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
 }

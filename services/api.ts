@@ -27,6 +27,7 @@ import type {
   ImpdpTemplate,
   DataPumpJob,
   Handover,
+  MonitoringIncident,
   ShiftReportData,
   ShiftReportFilters,
   ShiftSession,
@@ -787,4 +788,36 @@ export async function recordDataPumpJobApi(job: DataPumpJob): Promise<{ job: Dat
     method: "POST",
     body: JSON.stringify(job)
   });
+}
+
+// ── Database Monitoring ─────────────────────────────────────────────────
+
+export async function fetchMonitoringIncidents(): Promise<MonitoringIncident[]> {
+  const data = await requestJson<{ incidents: MonitoringIncident[] }>("/api/monitoring/incidents");
+  return data.incidents;
+}
+
+export async function acknowledgeMonitoringIncident(
+  incidentId: string
+): Promise<{ incident: MonitoringIncident }> {
+  return requestJson<{ incident: MonitoringIncident }>(
+    `/api/monitoring/incidents/${encodeURIComponent(incidentId)}/acknowledge`,
+    { method: "POST" }
+  );
+}
+
+export async function checkMonitoringIncidentStatus(
+  incidentId: string
+): Promise<{ status: "UP" | "DOWN"; resolved: boolean; incident?: MonitoringIncident; message: string }> {
+  return requestJson<{ status: "UP" | "DOWN"; resolved: boolean; incident?: MonitoringIncident; message: string }>(
+    `/api/monitoring/incidents/${encodeURIComponent(incidentId)}/check-status`,
+    { method: "POST" }
+  );
+}
+
+export async function fetchMonitoringIncidentHistory(limit: number = 200): Promise<MonitoringIncident[]> {
+  const data = await requestJson<{ incidents: MonitoringIncident[] }>(
+    `/api/monitoring/incidents/history?limit=${limit}`
+  );
+  return data.incidents;
 }

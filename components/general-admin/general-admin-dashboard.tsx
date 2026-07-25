@@ -3,13 +3,17 @@
 import {
   DatabaseZap,
   HardDrive,
+  History,
   Radio,
   Settings2,
   Terminal
 } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { DbControlPanel } from "@/components/general-admin/db-control-panel";
 import { ListenerControlPanel } from "@/components/general-admin/listener-control-panel";
+import { MonitoringIncidentHistoryModal } from "@/components/general-admin/monitoring-incident-history-modal";
+import { MonitoringIncidentsPanel } from "@/components/general-admin/monitoring-incidents-panel";
 import { QueryPanel } from "@/components/general-admin/query-panel";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +57,7 @@ const TABS: Tab[] = [
 
 export function GeneralAdminDashboard() {
   const [activeTab, setActiveTab] = useState<TabKey>("db-control");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const activeTabDef = TABS.find((t) => t.key === activeTab)!;
 
   return (
@@ -62,13 +67,26 @@ export function GeneralAdminDashboard() {
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-200 to-slate-300 shadow-lg dark:from-slate-600 dark:to-slate-800">
           <Settings2 className="h-6 w-6 text-slate-700 dark:text-slate-200" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-bold tracking-tight text-foreground">General Administration</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Database lifecycle control, listener management, and ad-hoc SQL execution via SSH
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setHistoryOpen(true)}
+          className="ml-auto flex items-center gap-1.5 border-border/60 bg-card/60 text-xs font-medium hover:bg-card hover:border-border transition-all"
+        >
+          <History className="h-3.5 w-3.5 text-cyan-400" />
+          <span className="hidden sm:inline">Monitoring History</span>
+          <span className="sm:hidden">History</span>
+        </Button>
       </div>
+
+      {/* Monitoring Notifications Panel (renders only when active incidents exist) */}
+      <MonitoringIncidentsPanel />
 
       {/* Tab bar */}
       <div className="flex flex-wrap gap-2 rounded-xl border border-border/60 bg-muted/20 p-1.5">
@@ -131,6 +149,12 @@ export function GeneralAdminDashboard() {
         {activeTab === "listener-control" && <ListenerControlPanel />}
         {activeTab === "query" && <QueryPanel />}
       </div>
+
+      {/* Historical Monitoring Incidents Modal */}
+      <MonitoringIncidentHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
     </div>
   );
 }

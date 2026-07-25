@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, BellRing, Check, Database, FileWarning, HardDrive, Trash2, X } from "lucide-react";
+import { AlertTriangle, Bell, BellRing, Check, Database, FileWarning, HardDrive, ShieldAlert, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,8 @@ function NotificationTypeIcon({ type }: { type: NotificationItemType }) {
       return <FileWarning className="h-3.5 w-3.5" />;
     case "dba_shift":
       return <Bell className="h-3.5 w-3.5" />;
+    case "db_monitoring":
+      return <ShieldAlert className="h-3.5 w-3.5" />;
     default:
       return <Bell className="h-3.5 w-3.5" />;
   }
@@ -73,6 +75,8 @@ function typeLabel(type: NotificationItemType) {
       return "Alert Log";
     case "dba_shift":
       return "DBA Console";
+    case "db_monitoring":
+      return "DB Monitoring";
     default:
       return "Alert";
   }

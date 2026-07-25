@@ -40,6 +40,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // n8n calls this webhook to report database availability monitoring events
+  if (pathname.startsWith("/api/monitoring/webhook")) {
+    return NextResponse.next();
+  }
+
   if (pathname.startsWith("/api")) {
     if (!hasSessionCookie && !pathname.startsWith("/api/auth/session")) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });

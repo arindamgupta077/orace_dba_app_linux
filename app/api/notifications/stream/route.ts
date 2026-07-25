@@ -1,5 +1,5 @@
 import { addGlobalNotificationListener } from "@/lib/server/notification-events";
-import { listAlertNotifications } from "@/lib/server/repository";
+import { listActiveMonitoringIncidents, listAlertNotifications } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { alertTypeToTargetPath, resolveNotificationType } from "@/lib/server/notification-events";
 import type { NotificationPayload } from "@/types/dba";
@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Build replay items from recent pending / unresolved alerts so the bell
- * icon is populated immediately when the browser reconnects after being closed.
+ * Build replay items from recent pending / unresolved alerts and active
+ * database monitoring incidents so the bell icon is populated immediately
+ * when the browser reconnects after being closed.
  */
 async function buildReplayItems(userRole?: string): Promise<NotificationPayload[]> {
+  const replayItems: NotificationPayload[] = [];
+
   try {
     const result = await listAlertNotifications({
       status: "pending_approval",
@@ -23,24 +26,46 @@ async function buildReplayItems(userRole?: string): Promise<NotificationPayload[
       ? result.items.filter((alert) => alert.alert_type !== "approval_workflow")
       : result.items;
 
-    return items.map((alert) => ({
-      id: alert.id,
-      type: resolveNotificationType(alert.alert_type),
-      severity: alert.severity,
-      db: alert.db,
-      title: (() => {
-        const sev = alert.severity.toUpperCase();
-        if (alert.alert_type === "tablespace") return `Tablespace ${sev}: ${alert.tablespace || alert.db}`;
-        if (alert.alert_type === "filesystem_drive") return `Filesystem ${sev}: ${alert.object_name || alert.db}`;
-        return `Alert ${sev}: ${alert.db}`;
-      })(),
-      message: alert.message,
-      timestamp: alert.created_at,
-      targetPath: alertTypeToTargetPath(alert.alert_type)
-    }));
+    for (const alert of items) {
+      replayItems.push({
+        id: alert.id,
+        type: resolveNotificationType(alert.alert_type),
+        severity: alert.severity,
+        db: alert.db,
+        title: (() => {
+          const sev = alert.severity.toUpperCase();
+          if (alert.alert_type === "tablespace") return `Tablespace ${sev}: ${alert.tablespace || alert.db}`;
+          if (alert.alert_type === "filesystem_drive") return `Filesystem ${sev}: ${alert.object_name || alert.db}`;
+          return `Alert ${sev}: ${alert.db}`;
+        })(),
+        message: alert.message,
+        timestamp: alert.created_at,
+        targetPath: alertTypeToTargetPath(alert.alert_type)
+      });
+    }
   } catch {
-    return [];
+    // Ignore alert notification replay errors
   }
+
+  try {
+    const activeIncidents = await listActiveMonitoringIncidents();
+    for (const incident of activeIncidents) {
+      replayItems.push({
+        id: `MON-${incident.db_name}-${incident.incident_id}`,
+        type: "db_monitoring",
+        severity: incident.status === "DOWN" ? "critical" : "warning",
+        db: incident.db_name,
+        title: `Database ${incident.status}: ${incident.db_name}`,
+        message: `Monitoring Agent reports database ${incident.db_name} is ${incident.status.toLowerCase()} (reported ${incident.report_count}x).`,
+        timestamp: incident.last_reported || incident.created_at,
+        targetPath: "/general-admin"
+      });
+    }
+  } catch {
+    // Ignore monitoring incident replay errors
+  }
+
+  return replayItems;
 }
 
 export async function GET(request: Request) {
