@@ -12,8 +12,10 @@ import {
   WifiOff
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store/use-app-store";
 import {
   acknowledgeMonitoringIncident,
   checkMonitoringIncidentStatus,
@@ -60,6 +62,7 @@ function StatusBadge({ status }: { status: MonitoringIncident["status"] }) {
 }
 
 export function MonitoringIncidentsPanel() {
+  const selectedDb = useAppStore((s) => s.selectedDb);
   const [incidents, setIncidents] = useState<MonitoringIncident[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
@@ -67,7 +70,7 @@ export function MonitoringIncidentsPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await fetchMonitoringIncidents();
+      const data = await fetchMonitoringIncidents(selectedDb);
       if (mountedRef.current) {
         setIncidents(data);
       }
@@ -76,7 +79,7 @@ export function MonitoringIncidentsPanel() {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [selectedDb]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -104,11 +107,12 @@ export function MonitoringIncidentsPanel() {
     setActionLoading((prev) => ({ ...prev, [incidentId]: "acknowledge" }));
     try {
       const { incident } = await acknowledgeMonitoringIncident(incidentId);
+      toast.info(`Incident acknowledged for database ${incident.db_name}`);
       setIncidents((prev) =>
         prev.map((inc) => (inc.incident_id === incidentId ? incident : inc))
       );
     } catch (err) {
-      console.error("[MonitoringIncidentsPanel] acknowledge error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to acknowledge incident");
     } finally {
       setActionLoading((prev) => {
         const next = { ...prev };
@@ -121,19 +125,28 @@ export function MonitoringIncidentsPanel() {
   const handleCheckStatus = async (incidentId: string) => {
     setActionLoading((prev) => ({ ...prev, [incidentId]: "check" }));
     try {
+      const targetInc = incidents.find((i) => i.incident_id === incidentId);
+      const dbName = targetInc?.db_name || "database";
       const result = await checkMonitoringIncidentStatus(incidentId);
-      if (result.resolved) {
+
+      if (result.resolved || result.status === "UP") {
+        toast.success(`Database ${dbName} is confirmed UP!`, {
+          description: "Status check test_connection returned UP. Incident resolved."
+        });
         // Remove resolved incident from list
         setIncidents((prev) => prev.filter((inc) => inc.incident_id !== incidentId));
-      } else if (result.incident) {
-        setIncidents((prev) =>
-          prev.map((inc) =>
-            inc.incident_id === incidentId ? result.incident! : inc
-          )
-        );
+      } else {
+        toast.warning(`Database ${dbName} is still unreachable (DOWN).`, {
+          description: "Status check test_connection returned DOWN."
+        });
+        if (result.incident) {
+          setIncidents((prev) =>
+            prev.map((inc) => (inc.incident_id === incidentId ? result.incident! : inc))
+          );
+        }
       }
     } catch (err) {
-      console.error("[MonitoringIncidentsPanel] check-status error:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to check status");
     } finally {
       setActionLoading((prev) => {
         const next = { ...prev };
@@ -143,8 +156,12 @@ export function MonitoringIncidentsPanel() {
     }
   };
 
-  // Don't render anything if there are no active incidents (prevents loading flash when opening page)
-  if (incidents.length === 0) return null;
+  const visibleIncidents = incidents.filter(
+    (inc) => !selectedDb || inc.db_name.toUpperCase() === selectedDb.toUpperCase()
+  );
+
+  // Don't render anything if there are no active incidents for the selected database
+  if (visibleIncidents.length === 0) return null;
 
   return (
     <div className="space-y-4">
@@ -156,9 +173,9 @@ export function MonitoringIncidentsPanel() {
         <div className="flex-1">
           <h2 className="text-base font-bold tracking-tight text-foreground flex items-center gap-2">
             Monitoring Notifications
-            {incidents.length > 0 && (
+            {visibleIncidents.length > 0 && (
               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-bold text-white shadow-sm shadow-red-500/40">
-                {incidents.length}
+                {visibleIncidents.length}
               </span>
             )}
           </h2>
@@ -178,7 +195,7 @@ export function MonitoringIncidentsPanel() {
 
       {/* Incident cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {incidents.map((incident) => {
+        {visibleIncidents.map((incident) => {
           const action = actionLoading[incident.incident_id];
           const isAcking = action === "acknowledge";
           const isChecking = action === "check";

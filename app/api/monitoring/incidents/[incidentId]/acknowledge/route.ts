@@ -51,7 +51,7 @@ export async function POST(
     );
 
     await insertAuditLog({
-      actor: MONITORING_ACTOR,
+      actor: session.user.username,
       action: "db_monitoring",
       db: incident.db_name,
       status: "acknowledged",

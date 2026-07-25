@@ -190,8 +190,8 @@ export default function AuditPage() {
 
   const getStatusType = (status: string) => {
     const s = status.toLowerCase();
-    if (["error", "failed", "rejected", "critical"].includes(s)) return "critical";
-    if (["success", "completed", "healthy", "approved", "done", "resolved"].includes(s)) return "healthy";
+    if (["error", "failed", "rejected", "critical", "down"].includes(s)) return "critical";
+    if (["success", "completed", "healthy", "approved", "done", "resolved", "up"].includes(s)) return "healthy";
     if (["pending", "pending_approval", "warning", "running", "open"].includes(s)) return "warning";
     if (["acknowledged"].includes(s)) return "acknowledged";
     return "unknown";
@@ -458,7 +458,9 @@ export default function AuditPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={getStatusType(item.status)}>{item.status}</StatusBadge>
+                    <StatusBadge status={getStatusType(item.status)}>
+                      {item.status.toLowerCase() === "down" ? "DOWN" : item.status.toLowerCase() === "up" ? "UP" : item.status}
+                    </StatusBadge>
                   </TableCell>
                   <TableCell className="max-w-[200px] lg:max-w-[300px] xl:max-w-lg text-muted-foreground leading-relaxed break-words">{item.detail}</TableCell>
                   <TableCell>

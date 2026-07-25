@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getServerEnv } from "@/lib/server/env";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 import {
   getMonitoringIncident,
   insertAuditLog,
@@ -127,6 +128,18 @@ export async function POST(
         db: incident.db_name,
         status: "resolved",
         detail: `Database ${incident.db_name} confirmed UP — incident ${incidentId} resolved by ${session.user.username}.`
+      });
+
+      // ── Emit global notification for UP / resolved ───────────────────
+      emitGlobalNotification({
+        id: `MON-UP-${incident.db_name}-${Date.now()}`,
+        type: "db_monitoring",
+        severity: "info",
+        db: incident.db_name,
+        title: `Database Online: ${incident.db_name}`,
+        message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
+        timestamp: new Date().toISOString(),
+        targetPath: "/general-admin"
       });
 
       return NextResponse.json({

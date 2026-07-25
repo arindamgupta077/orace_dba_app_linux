@@ -21,8 +21,9 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const limitParam = url.searchParams.get("limit");
     const limit = limitParam ? Math.min(Math.max(Number(limitParam), 1), 500) : 200;
+    const db = url.searchParams.get("db") || undefined;
 
-    const incidents = await listAllMonitoringIncidents(limit);
+    const incidents = await listAllMonitoringIncidents(limit, db);
     return NextResponse.json({ incidents });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error listing monitoring incident history.";

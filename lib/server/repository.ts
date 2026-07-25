@@ -6407,30 +6407,39 @@ export async function bumpMonitoringIncidentReportCount(incidentId: string): Pro
 }
 
 /**
- * List all active (DOWN or ACKNOWLEDGED) monitoring incidents, ordered by last_reported DESC.
+ * List all active (DOWN or ACKNOWLEDGED) monitoring incidents, optionally filtered by dbName, ordered by last_reported DESC.
  */
-export async function listActiveMonitoringIncidents(): Promise<MonitoringIncident[]> {
+export async function listActiveMonitoringIncidents(dbName?: string): Promise<MonitoringIncident[]> {
   return executeOne(async (connection) => {
-    const result = await connection.execute<DbRow>(
-      `SELECT * FROM app_db_monitoring_incidents
-       WHERE incident_status IN ('DOWN', 'ACKNOWLEDGED')
-       ORDER BY last_reported DESC`
-    );
+    let sql = `SELECT * FROM app_db_monitoring_incidents WHERE incident_status IN ('DOWN', 'ACKNOWLEDGED')`;
+    const binds: BindParameters = {};
+
+    if (dbName && dbName.trim()) {
+      sql += ` AND UPPER(db_name) = UPPER(:dbName)`;
+      binds.dbName = dbName.trim();
+    }
+
+    sql += ` ORDER BY last_reported DESC`;
+    const result = await connection.execute<DbRow>(sql, binds);
     return (result.rows || []).map(mapMonitoringIncidentRow);
   });
 }
 
 /**
- * List all monitoring incidents (historical & active), ordered by last_reported DESC.
+ * List all monitoring incidents (historical & active), optionally filtered by dbName, ordered by last_reported DESC.
  */
-export async function listAllMonitoringIncidents(limit: number = 200): Promise<MonitoringIncident[]> {
+export async function listAllMonitoringIncidents(limit: number = 200, dbName?: string): Promise<MonitoringIncident[]> {
   return executeOne(async (connection) => {
-    const result = await connection.execute<DbRow>(
-      `SELECT * FROM app_db_monitoring_incidents
-       ORDER BY last_reported DESC, created_at DESC
-       FETCH FIRST :limit ROWS ONLY`,
-      { limit }
-    );
+    let sql = `SELECT * FROM app_db_monitoring_incidents`;
+    const binds: BindParameters = { limit };
+
+    if (dbName && dbName.trim()) {
+      sql += ` WHERE UPPER(db_name) = UPPER(:dbName)`;
+      binds.dbName = dbName.trim();
+    }
+
+    sql += ` ORDER BY last_reported DESC, created_at DESC FETCH FIRST :limit ROWS ONLY`;
+    const result = await connection.execute<DbRow>(sql, binds);
     return (result.rows || []).map(mapMonitoringIncidentRow);
   });
 }

@@ -792,8 +792,9 @@ export async function recordDataPumpJobApi(job: DataPumpJob): Promise<{ job: Dat
 
 // ── Database Monitoring ─────────────────────────────────────────────────
 
-export async function fetchMonitoringIncidents(): Promise<MonitoringIncident[]> {
-  const data = await requestJson<{ incidents: MonitoringIncident[] }>("/api/monitoring/incidents");
+export async function fetchMonitoringIncidents(db?: string): Promise<MonitoringIncident[]> {
+  const query = db ? `?db=${encodeURIComponent(db)}` : "";
+  const data = await requestJson<{ incidents: MonitoringIncident[] }>(`/api/monitoring/incidents${query}`);
   return data.incidents;
 }
 
@@ -815,9 +816,11 @@ export async function checkMonitoringIncidentStatus(
   );
 }
 
-export async function fetchMonitoringIncidentHistory(limit: number = 200): Promise<MonitoringIncident[]> {
+export async function fetchMonitoringIncidentHistory(limit: number = 200, db?: string): Promise<MonitoringIncident[]> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (db) query.set("db", db);
   const data = await requestJson<{ incidents: MonitoringIncident[] }>(
-    `/api/monitoring/incidents/history?limit=${limit}`
+    `/api/monitoring/incidents/history?${query.toString()}`
   );
   return data.incidents;
 }

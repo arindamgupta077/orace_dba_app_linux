@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
     const dbName = String(
       body.db_name || body.database_name || body.db || ""
-    ).trim().toUpperCase();
+    ).trim();
 
     if (!dbName) {
       return NextResponse.json(
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       actor: MONITORING_ACTOR,
       action: "db_monitoring",
       db: dbName,
-      status: "down",
+      status: "DOWN",
       detail: `Database DOWN notification received for ${dbName}.`
     });
 
