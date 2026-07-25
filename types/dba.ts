@@ -416,6 +416,7 @@ export interface DatabaseTarget {
   server_name?: string;
   server_ip?: string;
   zone?: string;
+  division?: DbDivision | string;
 }
 
 export type SecurityPostureProcessingStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";

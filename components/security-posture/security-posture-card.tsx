@@ -184,7 +184,7 @@ export function SecurityPostureCard() {
   };
 
   const isOutdated = report ? Date.now() - new Date(report.uploaded_at).getTime() > SECURITY_POSTURE_OUTDATED_AFTER_MS : false;
-  const canUpload = user?.role === "client";
+  const canUpload = user?.role === "client" || user?.role === "app_admin";
 
   /* ---------- Status-dependent inline indicator ---------- */
   const statusIndicator = (() => {
@@ -199,14 +199,14 @@ export function SecurityPostureCard() {
   const cardContent = (
     <section
       className={[
-        "flex w-fit max-w-full flex-wrap items-center gap-4 rounded-xl border px-3 py-2 sm:flex-nowrap transition-all duration-500",
+        "flex w-fit max-w-full flex-wrap items-center gap-3.5 rounded-xl border px-3 py-1.5 sm:flex-nowrap transition-all duration-500",
         isProcessing
           ? "border-cyan-500/25 bg-gradient-to-r from-cyan-500/[0.04] via-transparent to-cyan-500/[0.04] shadow-[0_0_20px_rgba(34,211,238,0.08)]"
           : "border-violet-400/20 bg-violet-500/[0.04] shadow-[0_0_16px_rgba(139,92,246,0.06)]"
       ].join(" ")}
       aria-label="Security Posture Management"
     >
-      <div className="flex min-w-0 shrink items-center gap-2">
+      <div className="flex min-w-0 shrink-0 items-center gap-2">
         <span className={`shrink-0 rounded-md border p-1 transition-colors duration-500 ${isProcessing ? "border-cyan-400/25 bg-cyan-400/10 text-cyan-300" : "border-violet-400/25 bg-violet-400/10 text-violet-300"}`}>
           <ShieldCheck className="h-3.5 w-3.5" />
         </span>
@@ -214,8 +214,15 @@ export function SecurityPostureCard() {
         {statusIndicator}
         {report && isOutdated && <span className="inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-400/60 bg-red-500/20 px-1.5 text-[9px] font-bold text-red-200 shadow-[0_0_10px_rgba(239,68,68,0.4)] motion-safe:animate-pulse"><AlertTriangle className="h-2.5 w-2.5 motion-safe:animate-bounce" />Outdated</span>}
       </div>
-      <div className="min-w-0 flex-1 text-[10px] text-muted-foreground sm:order-2">
-        {report ? <span className="block truncate">Uploaded {formatDate(report.uploaded_at)} by {report.uploaded_by}</span> : <span className="block truncate">Select a report to begin AI security analysis.</span>}
+      <div className="min-w-0 text-[11px] leading-tight text-muted-foreground pr-2.5 sm:order-2">
+        {report ? (
+          <div className="flex flex-col justify-center gap-0.5 whitespace-nowrap">
+            <span className="block truncate text-[11px]">Uploaded at {formatDate(report.uploaded_at)}</span>
+            <span className="block truncate text-[11px]">Uploaded by {report.uploaded_by}</span>
+          </div>
+        ) : (
+          <span className="block truncate text-[11px]">Select a report to begin AI security analysis.</span>
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:order-3">
         {report && <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSummaryOpen(true)} aria-label="Open AI security summary" title="AI Summary"><Bot className="h-3.5 w-3.5" /></Button>}

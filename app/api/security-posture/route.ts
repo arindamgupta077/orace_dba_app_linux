@@ -28,7 +28,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await requireAuthenticatedSession();
   if (!session) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-  if (session.user.role !== "client") return NextResponse.json({ message: "Only Client users can upload Nessus scan reports." }, { status: 403 });
+  if (session.user.role !== "client" && session.user.role !== "app_admin") {
+    return NextResponse.json({ message: "Only Client and App Admin users can upload Nessus scan reports." }, { status: 403 });
+  }
 
   let stored: Awaited<ReturnType<typeof storeSecurityPosturePdf>> | undefined;
   try {
