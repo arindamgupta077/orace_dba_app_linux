@@ -14,7 +14,7 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Alert Log</h1>
           <p className="text-sm text-muted-foreground">
-            Oracle alert monitoring · real-time ORA-error tracking · integrated n8n automation
+            Oracle alert monitoring · real-time ORA-error tracking
           </p>
         </div>
       </div>

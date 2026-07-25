@@ -8,6 +8,10 @@ import {
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronUp,
   Clock,
   Database,
@@ -784,6 +788,8 @@ function Section1() {
   const [statusFilter, setStatusFilter] = useState<DbaAlertLogStatus | "ALL">("OPEN");
   const [alerts, setAlerts] = useState<DbaAlertLogRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actingId, setActingId] = useState<number | null>(null);
@@ -793,10 +799,12 @@ function Section1() {
     setLoading(true);
     setError(null);
     try {
+      const offset = (page - 1) * pageSize;
       const result = await fetchDbaAlertLog({
         database_name: selectedDb || undefined,
         status: statusFilter === "ALL" ? undefined : statusFilter,
-        limit: 50
+        limit: pageSize,
+        offset
       });
       setAlerts(result.items);
       setTotal(result.total);
@@ -805,7 +813,7 @@ function Section1() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDb, statusFilter]);
+  }, [selectedDb, statusFilter, page, pageSize]);
 
   // Initial load + polling every 60 s
   useEffect(() => {
@@ -834,6 +842,16 @@ function Section1() {
     timerRef.current = setInterval(load, 60_000);
   }, [alertLogNotifCount, load]);
 
+  const handleStatusFilterChange = (newStatus: DbaAlertLogStatus | "ALL") => {
+    setStatusFilter(newStatus);
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
   const handleAck = async (id: number) => {
     setActingId(id);
     try {
@@ -860,6 +878,11 @@ function Section1() {
 
   const p1Count = alerts.filter((a) => a.severity === "P1").length;
   const p2Count = alerts.filter((a) => a.severity === "P2").length;
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startRow = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const endRow = Math.min(safePage * pageSize, total);
 
   return (
     <div className="space-y-4">
@@ -893,7 +916,7 @@ function Section1() {
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setStatusFilter(tab.value)}
+            onClick={() => handleStatusFilterChange(tab.value)}
             className={cn(
               "rounded-md px-3 py-1.5 text-xs font-medium transition-all",
               statusFilter === tab.value
@@ -935,6 +958,84 @@ function Section1() {
               actingId={actingId}
             />
           ))}
+        </div>
+      )}
+
+      {/* Pagination Footer */}
+      {total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-secondary/20 px-3 py-2 text-xs">
+          {/* Left: Row range info */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{startRow}</span>–<span className="font-semibold text-foreground">{endRow}</span> of{" "}
+              <span className="font-semibold text-foreground">{total}</span> alerts
+            </span>
+            {/* Page size selector */}
+            <div className="flex items-center gap-1.5 border-l border-border/50 pl-3">
+              <span className="text-muted-foreground">Per page:</span>
+              {[10, 20, 50].map((size) => (
+                <button
+                  key={size}
+                  onClick={() => handlePageSizeChange(size)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-xs transition-colors",
+                    pageSize === size
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  )}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: Page navigation */}
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safePage <= 1 || loading}
+              onClick={() => setPage(1)}
+              className="h-7 w-7 p-0"
+              title="First page"
+            >
+              <ChevronsLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safePage <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="h-7 w-7 p-0"
+              title="Previous page"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="px-2 font-medium text-foreground">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safePage >= totalPages || loading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="h-7 w-7 p-0"
+              title="Next page"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={safePage >= totalPages || loading}
+              onClick={() => setPage(totalPages)}
+              className="h-7 w-7 p-0"
+              title="Last page"
+            >
+              <ChevronsRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       )}
     </div>
