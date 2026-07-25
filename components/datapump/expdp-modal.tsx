@@ -8,8 +8,10 @@ import {
   ChevronDown,
   ChevronUp,
   Code2,
+  Database,
   Download,
   FileOutput,
+  HardDrive,
   Layers,
   Loader2,
   Play,
@@ -17,6 +19,7 @@ import {
   RotateCcw,
   Save,
   Server,
+  Table,
   Terminal,
   Trash2,
   XCircle
@@ -53,8 +56,10 @@ import type { DataPumpJob, DatabaseInventoryItem, DbaResponse, ExpdpParams, Expd
 /* Constants                                                             */
 /* ------------------------------------------------------------------ */
 
+type DataPumpMode = "FULL" | "SCHEMAS" | "TABLES" | "TABLESPACES";
+
 const OPTIONAL_PARAMS = [
-  "TABLES", "TABLESPACES", "COMPRESSION", "EXCLUDE", "INCLUDE",
+  "COMPRESSION", "EXCLUDE", "INCLUDE",
   "PARALLEL", "FLASHBACK_TIME", "FILESIZE", "CONTENT",
   "ESTIMATE_ONLY", "METRICS"
 ] as const;
@@ -68,8 +73,6 @@ const PARAM_OPTIONS: Record<string, string[] | null> = {
   CONTENT: ["ALL", "DATA_ONLY", "METADATA_ONLY"],
   ESTIMATE_ONLY: ["Y", "N"],
   METRICS: ["Y", "N"],
-  TABLES: null,
-  TABLESPACES: null,
   PARALLEL: null,
   FILESIZE: null
 };
@@ -79,21 +82,19 @@ const DEFAULT_PARAMS: ExpdpParams = {
   DUMPFILE: "exp_%U.dmp",
   LOGFILE: "exp.log",
   SCHEMAS: [],
+  TABLES: "",
+  TABLESPACES: "",
   FULL: "Y"
 };
 
 /* ------------------------------------------------------------------ */
-/* Props                                                                 */
+/* Props & Sub-components                                               */
 /* ------------------------------------------------------------------ */
 
 interface ExpdpModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-/* ------------------------------------------------------------------ */
-/* Sub-components                                                        */
-/* ------------------------------------------------------------------ */
 
 function ParamRow({
   paramKey,
@@ -140,7 +141,7 @@ function ParamRow({
 }
 
 /* ------------------------------------------------------------------ */
-/* Main modal                                                            */
+/* Main Modal Component                                                  */
 /* ------------------------------------------------------------------ */
 
 export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
@@ -180,7 +181,8 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
     }
   }, [open, setExpdpTemplates]);
 
-  // Form state
+  // Mode & Form state
+  const [mode, setMode] = useState<DataPumpMode>("FULL");
   const [params, setParams] = useState<ExpdpParams>({ ...DEFAULT_PARAMS });
   const [extraParams, setExtraParams] = useState<Array<{ key: string; value: string }>>([]);
   const [dumpTransfer, setDumpTransfer] = useState(false);
@@ -218,18 +220,73 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   const [templateName, setTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
 
+  /* ── Validation Engine ── */
+  const validation = useMemo(() => {
+    const isFullY = params.FULL === "Y" || mode === "FULL";
+    const schemas = params.SCHEMAS || [];
+    const hasSchemas = Array.isArray(schemas) && schemas.length > 0;
+
+    const tablesVal = (params.TABLES || extraParams.find((e) => e.key === "TABLES")?.value || "").trim();
+    const hasTables = Boolean(tablesVal);
+
+    const tablespacesVal = (params.TABLESPACES || extraParams.find((e) => e.key === "TABLESPACES")?.value || "").trim();
+    const hasTablespaces = Boolean(tablespacesVal);
+
+    const activeSubModes: string[] = [];
+    if (hasSchemas) activeSubModes.push("SCHEMAS");
+    if (hasTables) activeSubModes.push("TABLES");
+    if (hasTablespaces) activeSubModes.push("TABLESPACES");
+
+    // Rule 1: FULL=Y cannot be combined with SCHEMAS, TABLES, or TABLESPACES
+    if (isFullY && activeSubModes.length > 0) {
+      return {
+        isValid: false,
+        error: `FULL=Y cannot be combined with ${activeSubModes.join(", ")}. Please remove object parameters or select non-FULL mode.`
+      };
+    }
+
+    // Rule 2: When FULL is omitted or FULL=N, check for multiple conflicting sub-modes
+    if (!isFullY && activeSubModes.length > 1) {
+      return {
+        isValid: false,
+        error: `Conflicting Data Pump modes: ${activeSubModes.join(" and ")}. Exactly one mode must be specified when FULL=N.`
+      };
+    }
+
+    return { isValid: true, error: null };
+  }, [params, extraParams, mode]);
+
   /* ── Full payload ── */
   const fullPayload = useMemo(() => {
     const allParams: Record<string, unknown> = {
       DIRECTORY: params.DIRECTORY,
       DUMPFILE: params.DUMPFILE,
       LOGFILE: params.LOGFILE,
-      ...(params.SCHEMAS && params.SCHEMAS.length > 0 ? { SCHEMAS: params.SCHEMAS } : {}),
-      FULL: params.FULL,
     };
+
+    if (mode === "FULL" || params.FULL === "Y") {
+      allParams.FULL = "Y";
+    } else if (mode === "SCHEMAS" && params.SCHEMAS && params.SCHEMAS.length > 0) {
+      allParams.FULL = "N";
+      allParams.SCHEMAS = params.SCHEMAS;
+    } else if (mode === "TABLES" && params.TABLES) {
+      allParams.FULL = "N";
+      allParams.TABLES = params.TABLES;
+    } else if (mode === "TABLESPACES" && params.TABLESPACES) {
+      allParams.FULL = "N";
+      allParams.TABLESPACES = params.TABLESPACES;
+    } else {
+      if (params.FULL) allParams.FULL = params.FULL;
+      if (params.SCHEMAS && params.SCHEMAS.length > 0) allParams.SCHEMAS = params.SCHEMAS;
+      if (params.TABLES) allParams.TABLES = params.TABLES;
+      if (params.TABLESPACES) allParams.TABLESPACES = params.TABLESPACES;
+    }
+
     // Extra optional params
     for (const { key, value } of extraParams) {
-      if (key && value) allParams[key] = value;
+      if (key && value && !["FULL", "SCHEMAS", "TABLES", "TABLESPACES"].includes(key)) {
+        allParams[key] = value;
+      }
     }
     if (dumpTransfer) {
       allParams.dump_transfer_required = "yes";
@@ -247,11 +304,12 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
       os: dbTarget?.os ?? "Windows",
       db_type: dbTarget?.db_type ?? "Standalone"
     };
-  }, [params, extraParams, dumpTransfer, transferServer, selectedDb, user, dbTarget]);
+  }, [params, extraParams, dumpTransfer, transferServer, selectedDb, user, dbTarget, mode]);
 
   /* ── Reset on open ── */
   useEffect(() => {
     if (open) {
+      setMode("FULL");
       setParams({ ...DEFAULT_PARAMS });
       setExtraParams([]);
       setDumpTransfer(false);
@@ -285,12 +343,29 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
 
   /* ── Submit ── */
   const handleSubmit = async () => {
+    if (!validation.isValid) {
+      toast.error(validation.error || "Invalid Data Pump mode configuration");
+      return;
+    }
+
+    if (mode === "SCHEMAS" && (!params.SCHEMAS || params.SCHEMAS.length === 0)) {
+      toast.error("Please select at least one schema for export");
+      return;
+    }
+    if (mode === "TABLES" && !params.TABLES?.trim()) {
+      toast.error("Please specify table names (e.g. HR.EMPLOYEES)");
+      return;
+    }
+    if (mode === "TABLESPACES" && !params.TABLESPACES?.trim()) {
+      toast.error("Please specify tablespace names (e.g. USERS)");
+      return;
+    }
+
     setStatus("loading");
     setError(null);
     const jobId = `EXPDP-${Date.now()}`;
     const actionParams = { ...fullPayload.params, job_id: jobId };
 
-    // Register job immediately in store and database
     recordJob({
       id: jobId,
       operation: "expdp",
@@ -307,7 +382,6 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
       setStatus("success");
       setResponse(result);
 
-      // Update job in store and database
       recordJob({
         id: jobId,
         operation: "expdp",
@@ -427,20 +501,43 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
 
   /* ── Load template ── */
   const handleLoadTemplate = (tpl: ExpdpTemplate) => {
-    const { DIRECTORY, DUMPFILE, LOGFILE, SCHEMAS, FULL, dump_transfer_required, transfer_server, ...rest } = tpl.params;
-    setParams({ DIRECTORY: DIRECTORY || "DP_DIR", DUMPFILE: DUMPFILE || "exp_%U.dmp", LOGFILE: LOGFILE || "exp.log", SCHEMAS: SCHEMAS || [], FULL: FULL || "Y" });
+    const { DIRECTORY, DUMPFILE, LOGFILE, SCHEMAS, TABLES, TABLESPACES, FULL, dump_transfer_required, transfer_server, ...rest } = tpl.params;
+
+    let detectedMode: DataPumpMode = "FULL";
+    if (FULL === "Y") {
+      detectedMode = "FULL";
+    } else if (TABLES && String(TABLES).trim()) {
+      detectedMode = "TABLES";
+    } else if (TABLESPACES && String(TABLESPACES).trim()) {
+      detectedMode = "TABLESPACES";
+    } else if (Array.isArray(SCHEMAS) && SCHEMAS.length > 0) {
+      detectedMode = "SCHEMAS";
+    }
+
+    setMode(detectedMode);
+    setParams({
+      DIRECTORY: DIRECTORY || "DP_DIR",
+      DUMPFILE: DUMPFILE || "exp_%U.dmp",
+      LOGFILE: LOGFILE || "exp.log",
+      SCHEMAS: SCHEMAS || [],
+      TABLES: (TABLES as string) || "",
+      TABLESPACES: (TABLESPACES as string) || "",
+      FULL: FULL || (detectedMode === "FULL" ? "Y" : "N")
+    });
+
     const extras: Array<{ key: string; value: string }> = [];
     for (const [k, v] of Object.entries(rest)) {
-      if (v !== undefined && v !== null) extras.push({ key: k, value: String(v) });
+      if (v !== undefined && v !== null && !["FULL", "SCHEMAS", "TABLES", "TABLESPACES"].includes(k)) {
+        extras.push({ key: k, value: String(v) });
+      }
     }
     setExtraParams(extras);
     setDumpTransfer(dump_transfer_required === "yes");
     if (transfer_server) setTransferServer(transfer_server);
     setTab("form");
-    toast.info(`Template "${tpl.name}" loaded`);
+    toast.info(`Template "${tpl.name}" loaded (${detectedMode} mode)`);
   };
 
-  /* ── Add optional param ── */
   const addableParams = OPTIONAL_PARAMS.filter((p) => !extraParams.some((e) => e.key === p));
   const isLoading = status === "loading";
   const isDone = response !== null;
@@ -448,16 +545,37 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-2">
-              <FileOutput className="h-5 w-5 text-amber-300" />
+        <DialogHeader className="space-y-3">
+          {/* Header Banner with Database Display */}
+          <div className="flex flex-col gap-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-2 shrink-0">
+                <FileOutput className="h-5 w-5 text-amber-300" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-semibold">Oracle Data Pump Export (EXPDP)</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Configure export parameters — n8n builds and executes the expdp command on the Oracle server.
+                </DialogDescription>
+              </div>
             </div>
-            <div>
-              <DialogTitle className="text-lg">Oracle Data Pump Export (EXPDP)</DialogTitle>
-              <DialogDescription>
-                Configure export parameters — n8n builds and executes the expdp command on the Oracle server.
-              </DialogDescription>
+
+            {/* Target Database Badge */}
+            <div className="flex items-center gap-2.5 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 shrink-0">
+              <Database className="h-4 w-4 text-amber-400" />
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-xs font-bold text-amber-200">{selectedDb || "No DB Selected"}</span>
+                  {dbTarget?.env_label && (
+                    <span className="rounded bg-amber-400/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-300">
+                      {dbTarget.env_label}
+                    </span>
+                  )}
+                </div>
+                {dbTarget?.server_ip && (
+                  <p className="font-mono text-[10px] text-muted-foreground">{dbTarget.server_ip} {dbTarget?.db_type ? `(${dbTarget.db_type})` : ""}</p>
+                )}
+              </div>
             </div>
           </div>
         </DialogHeader>
@@ -528,10 +646,174 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
 
               {/* ── Form tab ── */}
               <TabsContent value="form" className="mt-4 space-y-5">
+
+                {/* ── Structured Mode Selector ── */}
+                <div className="space-y-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-amber-400/80">
+                      Export Mode Selection
+                    </Label>
+                    <span className="text-[11px] text-muted-foreground">
+                      Target Database: <strong className="font-mono text-amber-300">{selectedDb}</strong>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                    {/* Card 1: FULL */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("FULL");
+                        setParams((p) => ({ ...p, FULL: "Y", SCHEMAS: [], TABLES: "", TABLESPACES: "" }));
+                      }}
+                      className={cn(
+                        "flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all",
+                        mode === "FULL"
+                          ? "border-amber-400 bg-amber-400/15 text-amber-200 shadow-sm"
+                          : "border-border/60 bg-background/40 hover:border-amber-400/40 hover:bg-background/70"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-xs">
+                        <Database className="h-3.5 w-3.5 text-amber-400" />
+                        FULL Database
+                      </div>
+                      <span className="text-[10px] text-muted-foreground leading-tight">
+                        FULL=Y complete DB export
+                      </span>
+                    </button>
+
+                    {/* Card 2: SCHEMAS */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("SCHEMAS");
+                        setParams((p) => ({ ...p, FULL: "N", TABLES: "", TABLESPACES: "" }));
+                      }}
+                      className={cn(
+                        "flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all",
+                        mode === "SCHEMAS"
+                          ? "border-amber-400 bg-amber-400/15 text-amber-200 shadow-sm"
+                          : "border-border/60 bg-background/40 hover:border-amber-400/40 hover:bg-background/70"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-xs">
+                        <Layers className="h-3.5 w-3.5 text-amber-400" />
+                        Schemas
+                      </div>
+                      <span className="text-[10px] text-muted-foreground leading-tight">
+                        SCHEMAS=schema1,schema2
+                      </span>
+                    </button>
+
+                    {/* Card 3: TABLES */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("TABLES");
+                        setParams((p) => ({ ...p, FULL: "N", SCHEMAS: [], TABLESPACES: "" }));
+                      }}
+                      className={cn(
+                        "flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all",
+                        mode === "TABLES"
+                          ? "border-amber-400 bg-amber-400/15 text-amber-200 shadow-sm"
+                          : "border-border/60 bg-background/40 hover:border-amber-400/40 hover:bg-background/70"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-xs">
+                        <Table className="h-3.5 w-3.5 text-amber-400" />
+                        Tables
+                      </div>
+                      <span className="text-[10px] text-muted-foreground leading-tight">
+                        TABLES=schema.t1,schema.t2
+                      </span>
+                    </button>
+
+                    {/* Card 4: TABLESPACES */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("TABLESPACES");
+                        setParams((p) => ({ ...p, FULL: "N", SCHEMAS: [], TABLES: "" }));
+                      }}
+                      className={cn(
+                        "flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all",
+                        mode === "TABLESPACES"
+                          ? "border-amber-400 bg-amber-400/15 text-amber-200 shadow-sm"
+                          : "border-border/60 bg-background/40 hover:border-amber-400/40 hover:bg-background/70"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-xs">
+                        <HardDrive className="h-3.5 w-3.5 text-amber-400" />
+                        Tablespaces
+                      </div>
+                      <span className="text-[10px] text-muted-foreground leading-tight">
+                        TABLESPACES=tbs1,tbs2
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Mode Active Dynamic Input */}
+                  <div className="mt-3 pt-2.5 border-t border-amber-400/15">
+                    {mode === "FULL" && (
+                      <p className="text-xs text-muted-foreground">
+                        ℹ️ <strong>FULL=Y</strong> — Performs a complete database export, including all user schemas, objects, and database metadata (subject to user privileges).
+                      </p>
+                    )}
+
+                    {mode === "SCHEMAS" && (
+                      <div className="space-y-1.5">
+                        <Label className="font-mono text-xs text-amber-300/80">SCHEMAS (Select schemas from database)</Label>
+                        <SchemaPicker
+                          selected={params.SCHEMAS || []}
+                          onChange={(s) => setParams((p) => ({ ...p, SCHEMAS: s }))}
+                        />
+                        <p className="text-[11px] text-muted-foreground">SCHEMAS=schema1,schema2 — Processes specified schemas and all objects belonging to them.</p>
+                      </div>
+                    )}
+
+                    {mode === "TABLES" && (
+                      <div className="space-y-1.5">
+                        <Label className="font-mono text-xs text-amber-300/80">TABLES (Comma-separated schema.table)</Label>
+                        <Input
+                          value={params.TABLES || ""}
+                          onChange={(e) => setParams((p) => ({ ...p, TABLES: e.target.value }))}
+                          className="font-mono text-xs"
+                          placeholder="e.g. HR.EMPLOYEES, SCOTT.EMP"
+                        />
+                        <p className="text-[11px] text-muted-foreground">TABLES=schema.table1,schema.table2 — Export only specified tables.</p>
+                      </div>
+                    )}
+
+                    {mode === "TABLESPACES" && (
+                      <div className="space-y-1.5">
+                        <Label className="font-mono text-xs text-amber-300/80">TABLESPACES (Comma-separated tablespaces)</Label>
+                        <Input
+                          value={params.TABLESPACES || ""}
+                          onChange={(e) => setParams((p) => ({ ...p, TABLESPACES: e.target.value }))}
+                          className="font-mono text-xs"
+                          placeholder="e.g. USERS, DATA_TBS"
+                        />
+                        <p className="text-[11px] text-muted-foreground">TABLESPACES=tbs1,tbs2 — Export all objects in specified tablespaces.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Validation Error Banner */}
+                {!validation.isValid && (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-red-400/40 bg-red-500/10 p-3.5 text-xs text-red-200">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                    <div>
+                      <p className="font-semibold text-red-300">Data Pump Mode Parameter Conflict</p>
+                      <p className="mt-0.5 text-red-200/90">{validation.error}</p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid gap-5 md:grid-cols-2">
-                  {/* Left — Required params */}
+                  {/* Left — Required file parameters */}
                   <div className="space-y-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-400/70">Required Parameters</p>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-400/70">File Parameters</p>
 
                     {(["DIRECTORY", "DUMPFILE", "LOGFILE"] as const).map((field) => (
                       <div key={field} className="space-y-1.5">
@@ -545,29 +827,6 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                         />
                       </div>
                     ))}
-
-                    {/* Schemas */}
-                    <div className="space-y-1.5">
-                      <Label className="font-mono text-xs text-amber-300/80">SCHEMAS</Label>
-                      <SchemaPicker
-                        selected={params.SCHEMAS || []}
-                        onChange={(s) => setParams((p) => ({ ...p, SCHEMAS: s }))}
-                      />
-                      <p className="text-[11px] text-muted-foreground">Triggers schema_list webhook to fetch live schema list</p>
-                    </div>
-
-                    {/* FULL */}
-                    <div className="space-y-1.5">
-                      <Label className="font-mono text-xs text-amber-300/80">FULL</Label>
-                      <Select value={params.FULL || "Y"} onValueChange={(v) => setParams((p) => ({ ...p, FULL: v }))}>
-                        <SelectTrigger id="expdp-full"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {["Y", "N"].map((v) => (
-                            <SelectItem key={v} value={v}>{v}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
 
                   {/* Right — Optional params + transfer */}
@@ -670,7 +929,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                 <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
                   <p className="text-xs font-semibold text-amber-300">ℹ️ n8n execution flow:</p>
                   <p className="mt-1 text-xs text-muted-foreground font-mono leading-5">
-                    Build EXPDP command → SSH to DB server → Execute expdp
+                    Build EXPDP command → SSH to DB server ({selectedDb}) → Execute expdp
                     {dumpTransfer ? ` → SCP dump to ${transferServer}` : ""} → Callback to app → Status update
                   </p>
                 </div>
@@ -726,7 +985,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
                               )}
                             </div>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              DB: {tpl.db || "Default"} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"}{tpl.created_by ? ` · By: ${tpl.created_by}` : ""} · {new Date(tpl.created_at).toLocaleDateString()}
+                              DB: {tpl.db || "Default"} · Mode: {tpl.params.FULL === "Y" ? "FULL" : tpl.params.TABLES ? "TABLES" : tpl.params.TABLESPACES ? "TABLESPACES" : "SCHEMAS"} · Schemas: {tpl.params.SCHEMAS?.join(", ") || "None"}{tpl.created_by ? ` · By: ${tpl.created_by}` : ""} · {new Date(tpl.created_at).toLocaleDateString()}
                             </p>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -782,8 +1041,8 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
             <Button
               id="btn-execute-expdp"
               onClick={handleSubmit}
-              disabled={isLoading}
-              className="min-w-48 gap-2 bg-amber-500/80 text-white hover:bg-amber-500"
+              disabled={isLoading || !validation.isValid}
+              className="min-w-48 gap-2 bg-amber-500/80 text-white hover:bg-amber-500 disabled:opacity-50"
             >
               {isLoading ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Exporting…</>
