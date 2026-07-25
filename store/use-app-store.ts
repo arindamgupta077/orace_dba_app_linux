@@ -45,7 +45,7 @@ interface AppState {
   undismissNotification: (id: string) => void;
   setDataPumpJobs: (jobs: DataPumpJob[]) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
-  clearCompletedDataPumpJobs: () => void;
+  clearCompletedDataPumpJobs: (db?: string) => void;
   setExpdpTemplates: (templates: ExpdpTemplate[]) => void;
   addExpdpTemplate: (template: ExpdpTemplate) => void;
   deleteExpdpTemplate: (id: string) => void;
@@ -217,7 +217,12 @@ export const useAppStore = create<AppState>()(
           }
           return { dataPumpJobs: [job, ...state.dataPumpJobs].slice(0, 50) };
         }),
-      clearCompletedDataPumpJobs: () => set({ dataPumpJobs: [] }),
+      clearCompletedDataPumpJobs: (db?: string) =>
+        set((state) => ({
+          dataPumpJobs: state.dataPumpJobs.filter(
+            (j) => j.status === "running" || (db && j.db?.toUpperCase() !== db.toUpperCase())
+          )
+        })),
       setExpdpTemplates: (expdpTemplates) => set({ expdpTemplates }),
       addExpdpTemplate: (template) =>
         set((state) => ({

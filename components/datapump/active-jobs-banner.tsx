@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { CheckCircle2, Loader2, Server, Trash2, XCircle } from "lucide-react";
 import { fetchDataPumpJobsApi } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -12,20 +12,16 @@ interface ActiveJobsBannerProps {
 }
 
 export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
+  const selectedDb = useAppStore((s) => s.selectedDb);
   const jobs = useAppStore((s) => s.dataPumpJobs);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
   const clearCompletedDataPumpJobs = useAppStore((s) => s.clearCompletedDataPumpJobs);
 
-  // Periodically sync RUNNING jobs from the server only. We deliberately do
-  // NOT upsert `res.history` here — that would resurrect completed rows the
-  // user just cleared with "Clear completed". History rows are fetched
-  // on-demand from the Job History modal.
+  // Periodically sync RUNNING jobs for the selected database from the server.
   useEffect(() => {
     const syncJobs = () => {
-      fetchDataPumpJobsApi()
+      fetchDataPumpJobsApi(selectedDb)
         .then((res) => {
-          // Only the running rows belong in the banner; merging fresh
-          // completions in here is fine since they transitioned the UX.
           const active = Array.isArray(res.active) ? res.active : [];
           active.forEach((j) => upsertDataPumpJob(j));
         })
@@ -34,11 +30,13 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
     syncJobs();
     const interval = setInterval(syncJobs, 5000);
     return () => clearInterval(interval);
-  }, [upsertDataPumpJob]);
+  }, [selectedDb, upsertDataPumpJob]);
 
-  // Open SSE connection for any running jobs
+  // Open SSE connection for any running jobs matching selectedDb
   useEffect(() => {
-    const runningJobs = jobs.filter((j) => j.status === "running");
+    const runningJobs = jobs.filter(
+      (j) => j.status === "running" && (!selectedDb || j.db?.toUpperCase() === selectedDb.toUpperCase())
+    );
     if (runningJobs.length === 0) return;
 
     const sources: EventSource[] = [];
@@ -66,19 +64,24 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
 
     return () => sources.forEach((es) => es.close());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs.filter((j) => j.status === "running").length]);
+  }, [selectedDb, jobs.filter((j) => j.status === "running").length]);
 
-  if (jobs.length === 0) return null;
+  const filteredJobs = useMemo(() => {
+    if (!selectedDb) return jobs;
+    return jobs.filter((j) => !j.db || j.db.toUpperCase() === selectedDb.toUpperCase());
+  }, [jobs, selectedDb]);
+
+  if (filteredJobs.length === 0) return null;
 
   return (
     <div className="mb-6 rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-500/5 via-purple-500/5 to-violet-600/10 p-4">
       <div className="mb-3 flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-violet-300">
-          Data Pump Jobs
+          Data Pump Jobs ({selectedDb || "All Databases"})
         </p>
         <button
           type="button"
-          onClick={clearCompletedDataPumpJobs}
+          onClick={() => clearCompletedDataPumpJobs(selectedDb)}
           className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <Trash2 className="h-3 w-3" />
@@ -87,7 +90,7 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
       </div>
 
       <div className="space-y-2">
-        {jobs.map((job) => (
+        {filteredJobs.map((job) => (
           <div
             key={job.id}
             onClick={() => onJobClick?.(job)}

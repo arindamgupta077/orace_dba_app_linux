@@ -6091,11 +6091,22 @@ export async function deleteDataPumpImpdpTemplate(id: string | number): Promise<
 // Data Pump Job History Database Operations (DATAPUMP_JOB_HISTORY)
 // ---------------------------------------------------------------------------
 
-export async function listDataPumpJobHistory(limit = 100): Promise<DataPumpJob[]> {
+export async function listDataPumpJobHistory(limit = 100, db?: string): Promise<DataPumpJob[]> {
   return executeOne(async (connection) => {
     try {
-      const result = await connection.execute<DbRow>(
-        `SELECT job_id, operation, database_name, status, started_at, completed_at,
+      const dbFilter = db?.trim() ? db.trim().toUpperCase() : null;
+      const sql = dbFilter
+        ? `SELECT job_id, operation, database_name, status, started_at, completed_at,
+                DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
+                DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
+                DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
+                requested_by,
+                DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
+           FROM (
+             SELECT * FROM datapump_job_history WHERE UPPER(database_name) = :dbFilter ORDER BY started_at DESC
+           )
+          WHERE ROWNUM <= :limit`
+        : `SELECT job_id, operation, database_name, status, started_at, completed_at,
                 DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
                 DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
                 DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
@@ -6104,9 +6115,9 @@ export async function listDataPumpJobHistory(limit = 100): Promise<DataPumpJob[]
            FROM (
              SELECT * FROM datapump_job_history ORDER BY started_at DESC
            )
-          WHERE ROWNUM <= :limit`,
-        { limit }
-      );
+          WHERE ROWNUM <= :limit`;
+      const binds = dbFilter ? { limit, dbFilter } : { limit };
+      const result = await connection.execute<DbRow>(sql, binds);
       return (result.rows ?? []).map((row) => {
         const rawParams = String(row.PARAMS_JSON || "{}");
         let parsedParams: Record<string, unknown> = {};
@@ -6137,11 +6148,21 @@ export async function listDataPumpJobHistory(limit = 100): Promise<DataPumpJob[]
   });
 }
 
-export async function listActiveDataPumpJobs(): Promise<DataPumpJob[]> {
+export async function listActiveDataPumpJobs(db?: string): Promise<DataPumpJob[]> {
   return executeOne(async (connection) => {
     try {
-      const result = await connection.execute<DbRow>(
-        `SELECT job_id, operation, database_name, status, started_at, completed_at,
+      const dbFilter = db?.trim() ? db.trim().toUpperCase() : null;
+      const sql = dbFilter
+        ? `SELECT job_id, operation, database_name, status, started_at, completed_at,
+                DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
+                DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
+                DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
+                requested_by,
+                DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
+           FROM datapump_job_history
+          WHERE LOWER(status) = 'running' AND UPPER(database_name) = :dbFilter
+          ORDER BY started_at DESC`
+        : `SELECT job_id, operation, database_name, status, started_at, completed_at,
                 DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
                 DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
                 DBMS_LOB.SUBSTR(message, 4000, 1) AS message,
@@ -6149,8 +6170,9 @@ export async function listActiveDataPumpJobs(): Promise<DataPumpJob[]> {
                 DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
            FROM datapump_job_history
           WHERE LOWER(status) = 'running'
-          ORDER BY started_at DESC`
-      );
+          ORDER BY started_at DESC`;
+      const binds = dbFilter ? { dbFilter } : {};
+      const result = await connection.execute<DbRow>(sql, binds);
       return (result.rows ?? []).map((row) => {
         const rawParams = String(row.PARAMS_JSON || "{}");
         let parsedParams: Record<string, unknown> = {};

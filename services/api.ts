@@ -776,11 +776,12 @@ export async function deleteImpdpTemplateApi(id: string): Promise<{ success: boo
 
 // ── Data Pump Job Tracking & History API ────────────────────────────
 
-export async function fetchDataPumpJobsApi(): Promise<{
+export async function fetchDataPumpJobsApi(db?: string): Promise<{
   active: DataPumpJob[];
   history: DataPumpJob[];
 }> {
-  return requestJson<{ active: DataPumpJob[]; history: DataPumpJob[] }>("/api/datapump/jobs");
+  const query = db ? `?db=${encodeURIComponent(db)}` : "";
+  return requestJson<{ active: DataPumpJob[]; history: DataPumpJob[] }>(`/api/datapump/jobs${query}`);
 }
 
 export async function recordDataPumpJobApi(job: DataPumpJob): Promise<{ job: DataPumpJob }> {

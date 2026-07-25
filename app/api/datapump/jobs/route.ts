@@ -7,16 +7,19 @@ import type { DataPumpJob } from "@/types/dba";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await requireAuthenticatedSession();
     if (!session) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const db = searchParams.get("db") || undefined;
+
     const [active, history] = await Promise.all([
-      listActiveDataPumpJobs(),
-      listDataPumpJobHistory(100)
+      listActiveDataPumpJobs(db),
+      listDataPumpJobHistory(100, db)
     ]);
 
     return NextResponse.json({ active, history });

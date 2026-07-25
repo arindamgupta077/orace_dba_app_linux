@@ -51,6 +51,9 @@ interface JobHistoryModalProps {
 }
 
 export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
+  const selectedDb = useAppStore((s) => s.selectedDb);
+  const databases = useAppStore((s) => s.databases);
+
   const [historyJobs, setHistoryJobs] = useState<DataPumpJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +62,14 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [operationFilter, setOperationFilter] = useState<"all" | "expdp" | "impdp">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "running" | "success" | "error">("all");
+  const [dbFilter, setDbFilter] = useState<string>("selected");
+
+  // Effective DB filter name
+  const activeDbName = useMemo(() => {
+    if (dbFilter === "selected") return selectedDb;
+    if (dbFilter === "all") return "";
+    return dbFilter;
+  }, [dbFilter, selectedDb]);
 
   // Pagination & Copy state
   const [currentPage, setCurrentPage] = useState(1);
@@ -73,7 +84,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
       let serverActive: DataPumpJob[] = [];
       let serverHistory: DataPumpJob[] = [];
       try {
-        const res = await fetchDataPumpJobsApi();
+        const res = await fetchDataPumpJobsApi(activeDbName || undefined);
         serverActive = res.active || [];
         serverHistory = res.history || [];
       } catch (fetchErr) {
@@ -113,27 +124,42 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 
   useEffect(() => {
     if (open) {
+      setDbFilter("selected");
       loadHistory();
     }
   }, [open]);
 
+  useEffect(() => {
+    if (open) {
+      loadHistory();
+    }
+  }, [activeDbName]);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, operationFilter, statusFilter, pageSize]);
+  }, [searchQuery, operationFilter, statusFilter, dbFilter, pageSize]);
 
-  // Calculate quick statistics
+  // DB Filtered Jobs
+  const dbFilteredJobs = useMemo(() => {
+    if (!activeDbName) return historyJobs;
+    return historyJobs.filter(
+      (job) => job.db && job.db.toUpperCase() === activeDbName.toUpperCase()
+    );
+  }, [historyJobs, activeDbName]);
+
+  // Calculate quick statistics based on dbFilteredJobs
   const stats = useMemo(() => {
-    const total = historyJobs.length;
-    const running = historyJobs.filter((j) => j.status === "running").length;
-    const success = historyJobs.filter((j) => j.status === "success" || j.status === "completed").length;
-    const error = historyJobs.filter((j) => j.status === "error").length;
+    const total = dbFilteredJobs.length;
+    const running = dbFilteredJobs.filter((j) => j.status === "running").length;
+    const success = dbFilteredJobs.filter((j) => j.status === "success" || j.status === "completed").length;
+    const error = dbFilteredJobs.filter((j) => j.status === "error").length;
     return { total, running, success, error };
-  }, [historyJobs]);
+  }, [dbFilteredJobs]);
 
   // Filtered jobs
   const filteredJobs = useMemo(() => {
-    return historyJobs.filter((job) => {
+    return dbFilteredJobs.filter((job) => {
       if (operationFilter !== "all" && job.operation !== operationFilter) return false;
       if (statusFilter !== "all") {
         if (statusFilter === "success" && job.status !== "success" && job.status !== "completed") return false;
@@ -151,7 +177,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
       }
       return true;
     });
-  }, [historyJobs, operationFilter, statusFilter, searchQuery]);
+  }, [dbFilteredJobs, operationFilter, statusFilter, searchQuery]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredJobs.length / pageSize) || 1;
@@ -172,6 +198,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
     setSearchQuery("");
     setOperationFilter("all");
     setStatusFilter("all");
+    setDbFilter("selected");
   };
 
   /**
@@ -205,6 +232,11 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
     }
   }
 
+  const otherDatabases = useMemo(() => {
+    const names = databases.map((d) => d.name).filter((name) => name !== selectedDb);
+    return Array.from(new Set(names));
+  }, [databases, selectedDb]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-4xl flex flex-col p-6 overflow-hidden">
@@ -216,7 +248,12 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
                 <History className="h-6 w-6 text-violet-600 dark:text-violet-300" />
               </div>
               <div>
-                <DialogTitle className="text-xl font-bold tracking-tight">Data Pump Job History</DialogTitle>
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="text-xl font-bold tracking-tight">Data Pump Job History</DialogTitle>
+                  <span className="rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-semibold text-violet-300">
+                    DB: {activeDbName || "All Databases"}
+                  </span>
+                </div>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                   Audit trail and execution logs for Data Pump Export (EXPDP) and Import (IMPDP) operations
                 </DialogDescription>
@@ -308,7 +345,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
 
         {/* Filter Toolbar */}
         <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-border/60 bg-muted/20 p-2.5">
-          <div className="relative flex-1 min-w-[200px]">
+          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search by Job ID, DB, User, Dump file..."
@@ -328,10 +365,28 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
           </div>
 
           <Select
+            value={dbFilter}
+            onValueChange={setDbFilter}
+          >
+            <SelectTrigger className="h-8 w-[170px] text-xs bg-background/80 border-border/60">
+              <SelectValue placeholder="Database" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="selected">Current DB ({selectedDb || "DEFAULT"})</SelectItem>
+              <SelectItem value="all">All Databases</SelectItem>
+              {otherDatabases.map((dbName) => (
+                <SelectItem key={dbName} value={dbName}>
+                  {dbName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
             value={operationFilter}
             onValueChange={(v) => setOperationFilter(v as "all" | "expdp" | "impdp")}
           >
-            <SelectTrigger className="h-8 w-[150px] text-xs bg-background/80 border-border/60">
+            <SelectTrigger className="h-8 w-[140px] text-xs bg-background/80 border-border/60">
               <SelectValue placeholder="All Operations" />
             </SelectTrigger>
             <SelectContent>
@@ -345,7 +400,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
             value={statusFilter}
             onValueChange={(v) => setStatusFilter(v as "all" | "running" | "success" | "error")}
           >
-            <SelectTrigger className="h-8 w-[160px] text-xs bg-background/80 border-border/60">
+            <SelectTrigger className="h-8 w-[150px] text-xs bg-background/80 border-border/60">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -356,7 +411,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
             </SelectContent>
           </Select>
 
-          {(searchQuery || operationFilter !== "all" || statusFilter !== "all") && (
+          {(searchQuery || operationFilter !== "all" || statusFilter !== "all" || dbFilter !== "selected") && (
             <Button
               variant="ghost"
               size="sm"
