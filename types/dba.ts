@@ -4,7 +4,7 @@ export type RequestStatus = "idle" | "loading" | "success" | "error" | "pending_
 
 export type AlertNotificationSeverity = "info" | "warning" | "critical" | "error";
 
-export type AlertNotificationStatus = "pending_approval" | "approved" | "rejected" | "completed" | "failed" | "acknowledged";
+export type AlertNotificationStatus = "pending_approval" | "approved" | "rejected" | "completed" | "failed" | "acknowledged" | "DOWN";
 
 export type AlertNotificationType = string;
 

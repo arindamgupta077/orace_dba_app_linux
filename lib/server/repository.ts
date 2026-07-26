@@ -6769,7 +6769,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       const db = row.DB_NAME ? String(row.DB_NAME) : undefined;
       const severity = (row.SEVERITY ? String(row.SEVERITY).toLowerCase() : "info") as HistoricalNotificationItem["severity"];
       const rawStatus = row.ALERT_STATUS ? String(row.ALERT_STATUS) : undefined;
-      const status = type === "db_monitoring" ? "DOWN" : rawStatus;
+      const status = type === "db_monitoring" && (rawStatus === "pending_approval" || !rawStatus) ? "DOWN" : rawStatus;
       const timestamp = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
       const updatedAt = row.UPDATED_AT ? toIstIsoString(row.UPDATED_AT) : undefined;
       const message = String(row.MESSAGE_TEXT || "");
@@ -6788,7 +6788,10 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       let title = `Alert: ${db || "System"}`;
       if (type === "tablespace") title = `Tablespace Alert: ${row.TABLESPACE_NAME || db || ""}`;
       else if (type === "filesystem_drive") title = `Filesystem Alert: ${row.OBJECT_NAME || db || ""}`;
-      else if (type === "db_monitoring") title = `DB Monitoring Incident: ${db || ""}`;
+      else if (type === "db_monitoring") {
+        const isUp = status === "completed" || status === "UP" || status === "resolved";
+        title = isUp ? `Database Online: ${db || ""}` : `DB Monitoring Incident: ${db || ""}`;
+      }
       else if (type === "approval_workflow") title = `Approval Request: ${db || ""}`;
       else if (type === "dba_shift") title = `DBA Console Event`;
 

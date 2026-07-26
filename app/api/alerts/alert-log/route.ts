@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { emitGlobalNotification } from "@/lib/server/notification-events";
-import { insertAlertNotification, insertAuditLog, insertDbaAlertLog, listDbaAlertLog, updateDbaAlertLog } from "@/lib/server/repository";
+import { insertAlertNotification, insertAuditLog, insertDbaAlertLog, listDbaAlertLog, patchAlertNotification, updateDbaAlertLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { DbaAlertLogSeverity, DbaAlertLogStatus } from "@/types/dba";
 
@@ -204,6 +204,17 @@ export async function PATCH(request: Request) {
 
     const actor = session.user.username;
     const alert = await updateDbaAlertLog({ alert_id, status, actor });
+
+    // Sync the corresponding app_alert_notifications row so Notification Center
+    // reflects the new status (e.g. "acknowledged" / "completed") instead of
+    // staying stuck on "pending_approval".
+    const notifStatus = status === "ACKNOWLEDGED" ? "acknowledged" : "completed";
+    const alogNotifId = `ALOG-${alert_id}`;
+    try {
+      await patchAlertNotification({ id: alogNotifId, status: notifStatus, actor });
+    } catch {
+      // Row may not exist if the original insert was skipped/failed — safe to ignore.
+    }
 
     await insertAuditLog({
       actor,

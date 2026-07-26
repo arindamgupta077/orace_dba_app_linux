@@ -131,6 +131,13 @@ function getStatusBadge(status?: string) {
       </span>
     );
   }
+  if (s === "up") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 uppercase tracking-wide">
+        <CheckCircle2 className="h-3 w-3" /> Up
+      </span>
+    );
+  }
   if (s === "approved" || s === "completed" || s === "acknowledged") {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 capitalize">

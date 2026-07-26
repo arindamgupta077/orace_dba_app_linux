@@ -75,7 +75,7 @@ export async function POST(request: Request) {
         alertType: "db_monitoring",
         db: dbName,
         severity: "critical",
-        status: "pending_approval",
+        status: "DOWN",
         message: `Monitoring Agent reports database ${dbName} is unreachable.`,
         createdBy: "n8n"
       });
