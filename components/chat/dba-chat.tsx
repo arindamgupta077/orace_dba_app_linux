@@ -434,9 +434,10 @@ export function ChatWithDb() {
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    // Restore from sessionStorage if available (survives page navigation)
+    // Restore from sessionStorage if available and contains actual user conversation
     const cached = loadChatFromSession(selectedDb);
-    return cached && cached.length > 0 ? cached : [buildWelcomeMessage(selectedDb, dbTarget)];
+    const hasUserMessages = cached?.some((m) => m.role === "user");
+    return cached && hasUserMessages ? cached : [buildWelcomeMessage(selectedDb, dbTarget)];
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -484,18 +485,26 @@ export function ChatWithDb() {
   }, [messages, selectedDb]);
 
   // ---------------------------------------------------------------------------
-  // Persist messages to sessionStorage whenever they change
+  // Persist messages to sessionStorage whenever they change (only if messages belong to selectedDb)
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    saveChatToSession(selectedDb, messages);
+    if (prevSelectedDb.current === selectedDb) {
+      saveChatToSession(selectedDb, messages);
+    }
   }, [messages, selectedDb]);
 
   // ---------------------------------------------------------------------------
-  // Fix #1 — Reset chat session immediately when DB changes
+  // Fix #1 — Reset chat session immediately when DB changes or update welcome metadata
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (prevSelectedDb.current !== selectedDb) {
+      // Save previous DB chat session if it contains user interaction
+      if (prevSelectedDb.current && messages.some((m) => m.role === "user")) {
+        saveChatToSession(prevSelectedDb.current, messages);
+      }
+
       prevSelectedDb.current = selectedDb;
+
       // Stop any in-flight polling
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
@@ -505,12 +514,19 @@ export function ChatWithDb() {
       setSubmittingSessionId(null);
       setIsLoading(false);
       setInput("");
+
       const newDbTarget = databases.find((db) => db.name === selectedDb);
-      // Try to restore from sessionStorage for this DB, otherwise fresh welcome
       const cached = loadChatFromSession(selectedDb);
-      setMessages(cached && cached.length > 0 ? cached : [buildWelcomeMessage(selectedDb, newDbTarget)]);
+      const hasUserMessages = cached?.some((m) => m.role === "user");
+
+      setMessages(cached && hasUserMessages ? cached : [buildWelcomeMessage(selectedDb, newDbTarget)]);
+    } else if (messages.length === 1 && messages[0].id === "welcome") {
+      const currentWelcome = buildWelcomeMessage(selectedDb, dbTarget);
+      if (messages[0].content !== currentWelcome.content) {
+        setMessages([currentWelcome]);
+      }
     }
-  }, [databases, selectedDb]);
+  }, [databases, selectedDb, dbTarget, messages]);
 
   // ---------------------------------------------------------------------------
   // Polling for approval
