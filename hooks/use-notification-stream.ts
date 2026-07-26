@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/use-app-store";
 import type { NotificationItem, NotificationPayload } from "@/types/dba";
 
-function payloadToNotificationItem(data: NotificationPayload): Omit<NotificationItem, "read"> {
+function payloadToNotificationItem(data: NotificationPayload): NotificationItem {
   return {
     id: data.id,
     type: data.type,
@@ -13,7 +13,10 @@ function payloadToNotificationItem(data: NotificationPayload): Omit<Notification
     title: data.title,
     message: data.message,
     timestamp: data.timestamp || new Date().toISOString(),
-    targetPath: data.targetPath
+    targetPath: data.targetPath,
+    read: data.read ?? false,
+    readBy: data.readBy,
+    readAt: data.readAt
   };
 }
 
@@ -38,6 +41,11 @@ export function useNotificationStream() {
       es.addEventListener("notification", (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data as string);
+          if (data.id === "ALL_READ_EVENT") {
+            const cat = data.type === "dba_shift" ? "console" : data.db === "db" ? "db" : undefined;
+            useAppStore.getState().markAllNotificationsRead(cat);
+            return;
+          }
           if (data.type === "approval_workflow") {
             window.dispatchEvent(new CustomEvent("dba-approval-update", { detail: data }));
           }

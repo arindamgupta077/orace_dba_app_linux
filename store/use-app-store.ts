@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, ExpdpTemplate, ImpdpTemplate, RmanJob } from "@/types/dba";
+import { markAllNotificationsReadApi, markNotificationReadApi } from "@/services/api";
 
 interface AppState {
   user?: UserSession;
@@ -13,15 +14,6 @@ interface AppState {
   autoRefreshSeconds: number;
   tablespaceRefreshTrigger: number;
   notifications: NotificationItem[];
-  /**
-   * Persisted list of notification IDs the user has dismissed via the bell
-   * "Clear" button. The /api/notifications/stream SSE endpoint replays every
-   * alert that is still pending_approval on every (re)connect — which used to
-   * resurrect cleared alerts after a page reload. We now remember the
-   * dismissed ids so `addNotification` can silently drop replayed items the
-   * user has already cleared. New alerts get fresh ids, so they still pop up.
-   */
-  dismissedNotificationIds: string[];
   dataPumpJobs: DataPumpJob[];
   expdpTemplates: ExpdpTemplate[];
   impdpTemplates: ImpdpTemplate[];
@@ -36,14 +28,9 @@ interface AppState {
   clearHistory: () => void;
   canExecute: (action: DbaAction) => boolean;
   triggerTablespaceRefresh: () => void;
-  addNotification: (item: Omit<NotificationItem, "read">) => void;
+  addNotification: (item: Omit<NotificationItem, "read"> & { read?: boolean }) => void;
   markNotificationRead: (id: string) => void;
-  markNotificationUnread: (id: string) => void;
   markAllNotificationsRead: (category?: "db" | "console") => void;
-  clearNotifications: (category?: "db" | "console") => void;
-  dismissNotification: (id: string) => void;
-  /** Forget a single previously-dismissed notification id so it can reappear. */
-  undismissNotification: (id: string) => void;
   setDataPumpJobs: (jobs: DataPumpJob[]) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
   clearCompletedDataPumpJobs: (db?: string) => void;
@@ -57,11 +44,10 @@ interface AppState {
   clearCompletedRmanJobs: () => void;
 }
 
-// Maximum number of dismissed-notification ids to persist. Bell
-// notifications are deduped by id (the underlying alert id), so capping at
-// ~500 keeps the longest realistic session's worth of cleared alerts while
-// keeping localStorage small.
-const DISMISSED_NOTIFICATION_ID_LIMIT = 500;
+// Notifications are 100% database-dependent. Notification items and read statuses
+// are loaded from and persisted directly to Oracle database tables via API endpoints
+// (/api/notifications/stream, /api/notifications/history, /api/notifications/read).
+// LocalStorage is NOT used for notification state.
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -74,7 +60,6 @@ export const useAppStore = create<AppState>()(
       autoRefreshSeconds: 60,
       tablespaceRefreshTrigger: 0,
       notifications: [],
-      dismissedNotificationIds: [],
       dataPumpJobs: [],
       expdpTemplates: [],
       impdpTemplates: [],
@@ -120,69 +105,65 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
-          if (state.dismissedNotificationIds.includes(String(item.id))) {
-            return state;
-          }
           const existingIndex = state.notifications.findIndex((n) => String(n.id) === String(item.id));
+          let updated: NotificationItem[];
           if (existingIndex >= 0) {
-            const updated = [...state.notifications];
-            updated[existingIndex] = { ...updated[existingIndex], ...item, read: updated[existingIndex].read };
-            return { notifications: updated };
+            updated = [...state.notifications];
+            const oldItem = updated[existingIndex];
+            const isRead = item.read === true || oldItem.read === true;
+            const readBy = item.readBy || oldItem.readBy;
+            const readAt = item.readAt || oldItem.readAt;
+
+            updated[existingIndex] = {
+              ...oldItem,
+              ...item,
+              type: item.type && item.type !== "generic" ? item.type : oldItem.type,
+              severity: item.severity || oldItem.severity,
+              db: item.db || oldItem.db,
+              title: item.title || oldItem.title,
+              message: item.message || oldItem.message,
+              targetPath: item.targetPath || oldItem.targetPath,
+              read: isRead,
+              readBy,
+              readAt
+            };
+          } else {
+            updated = [{ ...item, read: item.read ?? false }, ...state.notifications];
           }
-          return { notifications: [{ ...item, read: false }, ...state.notifications].slice(0, 30) };
+
+          updated.sort(
+            (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+
+          return { notifications: updated.slice(0, 100) };
         }),
-      markNotificationRead: (id) =>
+      markNotificationRead: (id) => {
+        void markNotificationReadApi(id).catch(() => {});
+        const username = get().user?.username || "system";
+        const nowIso = new Date().toISOString();
         set((state) => ({
-          notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: true } : n))
-        })),
-      markNotificationUnread: (id) =>
-        set((state) => ({
-          notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: false } : n))
-        })),
-      markAllNotificationsRead: (category) =>
+          notifications: state.notifications.map((n) =>
+            String(n.id) === String(id)
+              ? { ...n, read: true, readBy: n.readBy || username, readAt: n.readAt || nowIso }
+              : n
+          )
+        }));
+      },
+      markAllNotificationsRead: (category) => {
+        void markAllNotificationsReadApi(category).catch(() => {});
+        const username = get().user?.username || "system";
+        const nowIso = new Date().toISOString();
         set((state) => ({
           notifications: state.notifications.map((n) => {
-            if (!category) return { ...n, read: true };
             const isConsole = n.type === "dba_shift";
-            if (category === "console" && isConsole) return { ...n, read: true };
-            if (category === "db" && !isConsole) return { ...n, read: true };
+            const shouldMark = !category || (category === "console" && isConsole) || (category === "db" && !isConsole);
+            if (shouldMark) {
+              return { ...n, read: true, readBy: n.readBy || username, readAt: n.readAt || nowIso };
+            }
             return n;
           })
-        })),
-      clearNotifications: (category) =>
-        set((state) => {
-          const toClear = category
-            ? state.notifications.filter((n) => (category === "console" ? n.type === "dba_shift" : n.type !== "dba_shift"))
-            : state.notifications;
-          const ids = toClear.map((n) => String(n.id));
-          if (!ids.length) return state;
-          const merged = [...ids, ...state.dismissedNotificationIds];
-          const seen = new Set<string>();
-          const deduped: string[] = [];
-          for (const id of merged) {
-            if (seen.has(id)) continue;
-            seen.add(id);
-            deduped.push(id);
-          }
-          const trimmed = deduped.slice(-DISMISSED_NOTIFICATION_ID_LIMIT);
-          return {
-            notifications: state.notifications.filter((n) => !ids.includes(String(n.id))),
-            dismissedNotificationIds: trimmed
-          };
-        }),
-      dismissNotification: (id) =>
-        set((state) => {
-          const stringId = String(id);
-          if (state.dismissedNotificationIds.includes(stringId)) return {};
-          return {
-            notifications: state.notifications.filter((n) => String(n.id) !== stringId),
-            dismissedNotificationIds: [...state.dismissedNotificationIds, stringId].slice(-DISMISSED_NOTIFICATION_ID_LIMIT)
-          };
-        }),
-      undismissNotification: (id) =>
-        set((state) => ({
-          dismissedNotificationIds: state.dismissedNotificationIds.filter((existing) => existing !== String(id))
-        })),
+        }));
+      },
       setDataPumpJobs: (dataPumpJobs) => set({ dataPumpJobs }),
       upsertDataPumpJob: (job) =>
         set((state) => {
@@ -298,14 +279,6 @@ export const useAppStore = create<AppState>()(
 
         // ── Audit Logs (cap 60) ────────────────────────────────
         auditLogs: state.auditLogs.slice(0, 60),
-
-        // ── Notifications (cap 30) ─────────────────────────────
-        notifications: state.notifications.slice(0, 30),
-
-        // ── Dismissed Notification IDs (cap 500) ──────────────
-        // Persist so cleared alerts don't get pulled back in by the next SSE
-        // replay after a page reload (see addNotification guard above).
-        dismissedNotificationIds: state.dismissedNotificationIds.slice(-DISMISSED_NOTIFICATION_ID_LIMIT),
 
         // ── Data Pump Jobs (cap 50, strip params) ──────────────
         dataPumpJobs: state.dataPumpJobs.slice(0, 50).map(({ params: _p, ...rest }) => ({

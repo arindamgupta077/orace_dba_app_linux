@@ -4,6 +4,7 @@ import { getServerEnv } from "@/lib/server/env";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import {
   getMonitoringIncident,
+  insertAlertNotification,
   insertAuditLog,
   updateMonitoringIncidentStatus
 } from "@/lib/server/repository";
@@ -130,9 +131,25 @@ export async function POST(
         detail: `Database ${incident.db_name} confirmed UP — incident ${incidentId} resolved by ${session.user.username}.`
       });
 
+      const upNotifId = `MON-UP-${incident.db_name}-${incidentId}`;
+      try {
+        await insertAlertNotification({
+          id: upNotifId,
+          source: MONITORING_ACTOR,
+          alertType: "db_monitoring",
+          db: incident.db_name,
+          severity: "info",
+          status: "completed",
+          message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
+          createdBy: session.user.username
+        });
+      } catch {
+        // Ignore duplicate insert error
+      }
+
       // ── Emit global notification for UP / resolved ───────────────────
       emitGlobalNotification({
-        id: `MON-UP-${incident.db_name}-${Date.now()}`,
+        id: upNotifId,
         type: "db_monitoring",
         severity: "info",
         db: incident.db_name,

@@ -7,7 +7,7 @@ import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sq
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { notifyDataPumpJob, type DataPumpCallbackPayload } from "@/lib/server/datapump-events";
 import { getServerEnv } from "@/lib/server/env";
-import { getDatabaseTargetByName, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { createMockResponse } from "@/services/mock-data";
 import type { DbaAction, DbaRequestPayload, DbaResponse } from "@/types/dba";
@@ -175,13 +175,30 @@ export async function POST(request: Request) {
       // 4) Broadcast a global bell notification so every logged-in user is
       //    informed that the EXPDP/IMPDP just started, exactly like a shift
       //    handover or filesystem alert.
+      const dpStartId = `${dataPumpJobId}-start`;
+      const dpStartMsg = `${session.user.username} initiated an ${action.toUpperCase()} job on ${db} at ${new Date(startedAt).toLocaleString()}. Status will update on the n8n callback.`;
+      try {
+        await insertAlertNotification({
+          id: dpStartId,
+          source: "datapump",
+          alertType: "generic",
+          db,
+          severity: "warning",
+          status: "pending_approval",
+          message: dpStartMsg,
+          createdBy: session.user.username
+        });
+      } catch {
+        // Ignore duplicate insert error
+      }
+
       emitGlobalNotification({
-        id: `${dataPumpJobId}-start`,
+        id: dpStartId,
         type: "generic",
         severity: "warning",
         db,
         title: `${action.toUpperCase()} started`,
-        message: `${session.user.username} initiated an ${action.toUpperCase()} job on ${db} at ${new Date(startedAt).toLocaleString()}. Status will update on the n8n callback.`,
+        message: dpStartMsg,
         timestamp: new Date().toISOString(),
         targetPath: "/data-pump"
       });
@@ -342,13 +359,30 @@ if (action === "expdp" || action === "impdp") {
           metadata: { job_id: jobIdStr, duration_ms: Date.now() - startedAt, environment: dbTarget.env_label }
         });
 
+        const dpDoneId = `${jobIdStr}-done`;
+        const dpDoneMsg = result.ai_summary || `${action.toUpperCase()} job ${jobIdStr} on ${db} finished with status "${finalStatus}".`;
+        try {
+          await insertAlertNotification({
+            id: dpDoneId,
+            source: "datapump",
+            alertType: "generic",
+            db,
+            severity: finalStatus === "success" ? "info" : "critical",
+            status: finalStatus === "success" ? "completed" : "failed",
+            message: dpDoneMsg,
+            createdBy: session.user.username
+          });
+        } catch {
+          // Ignore duplicate insert error
+        }
+
         emitGlobalNotification({
-          id: `${jobIdStr}-done`,
+          id: dpDoneId,
           type: "generic",
           severity: finalStatus === "success" ? "info" : "critical",
           db,
           title: `${action.toUpperCase()} ${finalStatus === "success" ? "completed" : "failed"}`,
-          message: result.ai_summary || `${action.toUpperCase()} job ${jobIdStr} on ${db} finished with status "${finalStatus}".`,
+          message: dpDoneMsg,
           timestamp: new Date().toISOString(),
           targetPath: "/data-pump"
         });

@@ -257,6 +257,69 @@ export async function fetchPerformanceAuditLogs(db: string) {
 }
 
 
+export async function fetchNotificationHistory(params: {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  type?: string;
+  severity?: string;
+  status?: string;
+  db?: string;
+  dateRange?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+} = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", String(params.page));
+  if (params.pageSize) query.set("pageSize", String(params.pageSize));
+  if (params.category) query.set("category", params.category);
+  if (params.type) query.set("type", params.type);
+  if (params.severity) query.set("severity", params.severity);
+  if (params.status) query.set("status", params.status);
+  if (params.db) query.set("db", params.db);
+  if (params.dateRange) query.set("dateRange", params.dateRange);
+  if (params.startDate) query.set("startDate", params.startDate);
+  if (params.endDate) query.set("endDate", params.endDate);
+  if (params.search) query.set("search", params.search);
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return requestJson<{
+    items: Array<{
+      id: string;
+      type: string;
+      category: "db" | "console";
+      severity: "info" | "warning" | "critical" | "error";
+      status?: string;
+      db?: string;
+      title: string;
+      message: string;
+      timestamp: string;
+      updatedAt?: string;
+      targetPath?: string;
+      read?: boolean;
+    }>;
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }>(`/api/notifications/history${suffix}`);
+}
+
+export async function markNotificationReadApi(id: string) {
+  return requestJson<{ success: boolean; id: string; read: boolean }>("/api/notifications/read", {
+    method: "POST",
+    body: JSON.stringify({ id })
+  });
+}
+
+export async function markAllNotificationsReadApi(category?: "db" | "console" | "all") {
+  return requestJson<{ success: boolean; category: string; read: boolean }>("/api/notifications/read", {
+    method: "POST",
+    body: JSON.stringify({ category: category || "all" })
+  });
+}
+
 export async function fetchAlertNotifications(
   params: { db?: string; type?: string; status?: AlertNotificationStatus; limit?: number; page?: number; offset?: number } = {}
 ) {

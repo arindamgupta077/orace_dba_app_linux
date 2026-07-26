@@ -293,11 +293,16 @@ export interface NotificationPayload {
   message: string;
   timestamp: string;
   targetPath: string;
+  read?: boolean;
+  readBy?: string;
+  readAt?: string;
 }
 
 /** A notification item stored in the client-side store (adds the `read` flag) */
 export interface NotificationItem extends NotificationPayload {
   read: boolean;
+  readBy?: string;
+  readAt?: string;
 }
 
 export interface AlertNotification {
@@ -327,6 +332,12 @@ export interface AlertNotification {
   updated_at: string;
   approved_at?: string;
   completed_at?: string;
+  read?: boolean;
+  is_read?: boolean;
+  readBy?: string;
+  readAt?: string;
+  read_by?: string;
+  read_at?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -1097,4 +1108,6 @@ export interface MonitoringIncident {
   resolved_at?: string;
   created_at: string;
   updated_at: string;
+  is_read?: boolean;
+  read?: boolean;
 }

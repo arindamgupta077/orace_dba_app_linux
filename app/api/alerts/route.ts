@@ -1015,8 +1015,25 @@ export async function PATCH(request: Request) {
       });
 
       if (auditOutcome.inserted) {
+        const fsNotifId = `ALOG-${auditOutcome.alert_id}`;
+        try {
+          await insertAlertNotification({
+            id: fsNotifId,
+            source: "n8n",
+            alertType: "filesystem_drive",
+            db: alert.db,
+            objectName: fsTarget,
+            severity: "info",
+            status: "acknowledged",
+            message: auditMessage,
+            createdBy: actor
+          });
+        } catch {
+          // Ignore duplicate insert error
+        }
+
         emitGlobalNotification({
-          id: `ALOG-${auditOutcome.alert_id}`,
+          id: fsNotifId,
           type: "filesystem_drive",
           severity: "info",
           db: alert.db,

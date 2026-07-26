@@ -4,6 +4,7 @@ import { emitGlobalNotification } from "@/lib/server/notification-events";
 import {
   bumpMonitoringIncidentReportCount,
   findActiveMonitoringIncident,
+  insertAlertNotification,
   insertAuditLog,
   insertMonitoringIncident
 } from "@/lib/server/repository";
@@ -65,10 +66,26 @@ export async function POST(request: Request) {
       detail: `Database DOWN notification received for ${dbName}.`
     });
 
-    // ── 2. Always emit a global notification ─────────────────────────────
-    const notifId = `MON-${dbName}-${Date.now()}`;
+    // ── 2. Generate entry for Notification Center & Bell Dropdown ────────
+    const alertNotifId = `MON-${dbName}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    try {
+      await insertAlertNotification({
+        id: alertNotifId,
+        source: MONITORING_ACTOR,
+        alertType: "db_monitoring",
+        db: dbName,
+        severity: "critical",
+        status: "pending_approval",
+        message: `Monitoring Agent reports database ${dbName} is unreachable.`,
+        createdBy: "n8n"
+      });
+    } catch {
+      // Ignore fallback insert error if duplicate ID occurs
+    }
+
+    // Emit live global notification for bell dropdown & stream listeners
     emitGlobalNotification({
-      id: notifId,
+      id: alertNotifId,
       type: "db_monitoring",
       severity: "critical",
       db: dbName,
@@ -78,22 +95,22 @@ export async function POST(request: Request) {
       targetPath: "/general-admin"
     });
 
-    // ── 3. Dedup: check for existing active incident ─────────────────────
+    // ── 3. Keep ONLY 1 card in Monitoring Notifications on General Admin ──
     const existing = await findActiveMonitoringIncident(dbName);
 
     if (existing) {
-      // Duplicate — bump report count, but don't create a new incident row
+      // Single card per database on General Admin — bump report count
       await bumpMonitoringIncidentReportCount(existing.incident_id);
 
       return NextResponse.json({
-        status: "duplicate",
+        status: "updated",
         incident_id: existing.incident_id,
         report_count: existing.report_count + 1,
-        message: `Existing active incident updated for ${dbName}.`
+        message: `Active incident updated for ${dbName} (single card maintained on General Admin).`
       });
     }
 
-    // ── 4. Create new incident ───────────────────────────────────────────
+    // Create single active incident card in app_db_monitoring_incidents if none exists
     const incidentId = `INC-${dbName}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const incident = await insertMonitoringIncident({
       id: incidentId,
@@ -103,7 +120,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       status: "created",
       incident_id: incident.incident_id,
-      message: `New monitoring incident created for ${dbName}.`
+      message: `New monitoring incident card created for ${dbName}.`
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected monitoring webhook error.";

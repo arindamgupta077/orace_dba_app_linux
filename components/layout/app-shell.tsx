@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArchiveRestore,
+  Bell,
   Bot,
   ClipboardList,
   ClipboardCheck,
@@ -36,7 +37,7 @@ import { useNotificationStream } from "@/hooks/use-notification-stream";
 import { cn } from "@/lib/utils";
 
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
-const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit"];
+const CLIENT_ALLOWED_PATHS = ["/dashboard", "/audit", "/notifications"];
 
 function PortalBrand() {
   const user = useAppStore((state) => state.user);
@@ -152,7 +153,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
 
-  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console");
+  const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console") || pathname.startsWith("/notifications");
   const isClient = user?.role === "client";
   const isDbaAdmin = user?.role === "dba_admin";
   const isSidebarVisible = !!user && !isClient && !isNonDbRoute;

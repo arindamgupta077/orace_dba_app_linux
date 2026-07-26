@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     });
 
     emitGlobalNotification({
-      id: `DBA-LOGOUT-${targetSessionId}-${Date.now()}`,
+      id: `DBA-LOGOUT-${targetSessionId}`,
       type: "dba_shift",
       severity: "info",
       db: getShiftLabel(closed.shift_number),

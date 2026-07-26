@@ -5,7 +5,9 @@ import {
   findPendingApprovalRequest,
   getApprovalWebhookPayload,
   getProtectedAction,
+  insertAlertNotification,
   insertApprovalRequest,
+  patchAlertNotification,
   updateApprovalDecision,
   updateApprovalExecution,
   insertAuditLog,
@@ -218,6 +220,20 @@ export async function createApprovalRequest(
     metadata: { request_id: requestId, action: input.action }
   });
 
+  // Persist notification so mark-read survives page reloads
+  try {
+    await insertAlertNotification({
+      id:         requestId,
+      source:     "approval_workflow",
+      alertType:  "approval_workflow",
+      db:         input.db,
+      severity:   "warning",
+      status:     "pending_approval",
+      message:    `${input.username} requested "${displayName}" on ${input.db} (${input.environment})`,
+      createdBy:  input.username
+    });
+  } catch { /* ignore duplicate */ }
+
   // Broadcast SSE notification so app_admin users see the bell alert
   emitGlobalNotification({
     id:         requestId,
@@ -304,9 +320,33 @@ export async function decideApprovalRequest(
     }
   });
 
+  // Persist notification so mark-read survives page reloads
+  const updNotifId = `UPD-${updated.request_id}-${input.decision}`;
+  try {
+    await insertAlertNotification({
+      id: updNotifId,
+      source: "approval_workflow",
+      alertType: "approval_workflow",
+      db: updated.db_name,
+      severity: input.decision === "approved" ? "info" : "error",
+      status: input.decision === "approved" ? "approved" : "rejected",
+      message: `Request for "${updated.display_name}" on ${updated.db_name} was ${input.decision} by ${input.reviewerUsername}.`,
+      createdBy: input.reviewerUsername
+    });
+  } catch { /* ignore duplicate */ }
+
+  // Update original request notification status in app_alert_notifications
+  try {
+    await patchAlertNotification({
+      id: input.requestId,
+      status: input.decision === "approved" ? "approved" : "rejected",
+      actor: input.reviewerUsername
+    });
+  } catch { /* ignore if not found */ }
+
   // Broadcast real-time SSE notification so dba_admin navbar button updates immediately
   emitGlobalNotification({
-    id:         `UPD-${updated.request_id}-${Date.now()}`,
+    id:         updNotifId,
     type:       "approval_workflow",
     severity:   input.decision === "approved" ? "info" : "error",
     db:         updated.db_name,
@@ -430,8 +470,23 @@ async function dispatchApprovedWebhook(
       metadata: { request_id: request.request_id, dba_response: dbaResponse }
     });
 
+    // Persist execution complete notification for mark-read durability
+    const execNotifId = `EXEC-${request.request_id}`;
+    try {
+      await insertAlertNotification({
+        id: execNotifId,
+        source: "approval_workflow",
+        alertType: "approval_workflow",
+        db: request.db_name,
+        severity: "info",
+        status: "completed",
+        message: `Approved action "${request.display_name}" on ${request.db_name} executed successfully.`,
+        createdBy: actorUsername
+      });
+    } catch { /* ignore duplicate */ }
+
     emitGlobalNotification({
-      id:         `EXEC-${request.request_id}-${Date.now()}`,
+      id:         execNotifId,
       type:       "approval_workflow",
       severity:   "info",
       db:         request.db_name,
@@ -460,8 +515,23 @@ async function dispatchApprovedWebhook(
       metadata: { request_id: request.request_id }
     });
 
+    // Persist execution failed notification for mark-read durability
+    const errNotifId = `ERR-${request.request_id}`;
+    try {
+      await insertAlertNotification({
+        id: errNotifId,
+        source: "approval_workflow",
+        alertType: "approval_workflow",
+        db: request.db_name,
+        severity: "error",
+        status: "failed",
+        message: `Approved action "${request.display_name}" on ${request.db_name} failed: ${message}`,
+        createdBy: actorUsername
+      });
+    } catch { /* ignore duplicate */ }
+
     emitGlobalNotification({
-      id:         `ERR-${request.request_id}-${Date.now()}`,
+      id:         errNotifId,
       type:       "approval_workflow",
       severity:   "error",
       db:         request.db_name,

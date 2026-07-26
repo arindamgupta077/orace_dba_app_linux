@@ -5,7 +5,7 @@ import {
   type DataPumpCallbackPayload
 } from "@/lib/server/datapump-events";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
-import { insertAuditLog, upsertDataPumpJobHistory } from "@/lib/server/repository";
+import { insertAlertNotification, insertAuditLog, upsertDataPumpJobHistory } from "@/lib/server/repository";
 
 export async function POST(req: NextRequest) {
   let parsed: unknown;
@@ -80,17 +80,30 @@ export async function POST(req: NextRequest) {
     // informed when a Data Pump export/import completes (or fails).
     const operationLabel = (body.action || "expdp").toUpperCase();
     const shortDb = body.db || "unknown DB";
+    const dpDoneNotifId = `${body.job_id}-done`;
+    const dpMsg = body.message || (isSuccess ? `${operationLabel} job finished successfully on ${shortDb}.` : `${operationLabel} job failed on ${shortDb}. Check the log for details.`);
+    try {
+      await insertAlertNotification({
+        id: dpDoneNotifId,
+        source: "datapump",
+        alertType: "generic",
+        db: shortDb,
+        severity: isSuccess ? "info" : "critical",
+        status: isSuccess ? "completed" : "failed",
+        message: dpMsg,
+        createdBy: "n8n"
+      });
+    } catch {
+      // Ignore duplicate insert error
+    }
+
     emitGlobalNotification({
-      id: `${body.job_id}-done`,
+      id: dpDoneNotifId,
       type: "generic",
       severity: isSuccess ? "info" : "critical",
       db: shortDb,
       title: `${operationLabel} ${isSuccess ? "completed" : "failed"}`,
-      message:
-        body.message ||
-        (isSuccess
-          ? `${operationLabel} job finished successfully on ${shortDb}.`
-          : `${operationLabel} job failed on ${shortDb}. Check the log for details.`),
+      message: dpMsg,
       timestamp: new Date().toISOString(),
       targetPath: "/data-pump"
     });

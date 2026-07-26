@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { emitGlobalNotification } from "@/lib/server/notification-events";
-import { insertAuditLog, insertDbaAlertLog, listDbaAlertLog, updateDbaAlertLog } from "@/lib/server/repository";
+import { insertAlertNotification, insertAuditLog, insertDbaAlertLog, listDbaAlertLog, updateDbaAlertLog } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { DbaAlertLogSeverity, DbaAlertLogStatus } from "@/types/dba";
 
@@ -120,8 +120,24 @@ export async function POST(request: Request) {
       if (outcome.inserted) {
         const errCode = error_code || "ORA-ERROR";
         const msgSnippet = message_text ? message_text.slice(0, 120) : "Alert log error detected.";
+        const alogNotifId = outcome.alert_id ? `ALOG-${outcome.alert_id}` : `ALOG-${Date.now()}`;
+        try {
+          await insertAlertNotification({
+            id: alogNotifId,
+            source: "n8n",
+            alertType: "alert_log",
+            db: database_name,
+            severity: "error",
+            status: "pending_approval",
+            message: msgSnippet,
+            createdBy: "n8n"
+          });
+        } catch {
+          // Ignore duplicate insert error
+        }
+
         emitGlobalNotification({
-          id: outcome.alert_id ? `ALOG-${outcome.alert_id}` : `ALOG-${Date.now()}`,
+          id: alogNotifId,
           type: "alert_log",
           severity: "error",
           db: database_name,

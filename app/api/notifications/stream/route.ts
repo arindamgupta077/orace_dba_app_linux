@@ -1,5 +1,5 @@
 import { addGlobalNotificationListener } from "@/lib/server/notification-events";
-import { listActiveMonitoringIncidents, listAlertNotifications } from "@/lib/server/repository";
+import { listAlertNotifications, listRecentApprovalNotifications, listRecentShiftNotifications } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { alertTypeToTargetPath, resolveNotificationType } from "@/lib/server/notification-events";
 import type { NotificationPayload } from "@/types/dba";
@@ -8,24 +8,22 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Build replay items from recent pending / unresolved alerts and active
- * database monitoring incidents so the bell icon is populated immediately
- * when the browser reconnects after being closed.
+ * Build replay items from recent database alerts, monitoring incidents,
+ * and DBA console shift activities so bell icon feeds are populated immediately
+ * when the browser loads or reconnects.
  */
-async function buildReplayItems(userRole?: string): Promise<NotificationPayload[]> {
-  const replayItems: NotificationPayload[] = [];
+async function buildReplayItems(): Promise<NotificationPayload[]> {
+  const replayMap = new Map<string, NotificationPayload>();
 
+  // 1. Database Alerts (Latest 50 records from app_alert_notifications)
   try {
     const result = await listAlertNotifications({
-      status: "pending_approval",
-      limit: 30,
+      limit: 50,
       offset: 0
     });
 
-    const items = result.items;
-
-    for (const alert of items) {
-      replayItems.push({
+    for (const alert of result.items) {
+      replayMap.set(alert.id, {
         id: alert.id,
         type: resolveNotificationType(alert.alert_type),
         severity: alert.severity,
@@ -34,36 +32,58 @@ async function buildReplayItems(userRole?: string): Promise<NotificationPayload[
           const sev = alert.severity.toUpperCase();
           if (alert.alert_type === "tablespace") return `Tablespace ${sev}: ${alert.tablespace || alert.db}`;
           if (alert.alert_type === "filesystem_drive") return `Filesystem ${sev}: ${alert.object_name || alert.db}`;
+          if (alert.alert_type === "dba_shift") return `DBA Console Event`;
+          if (alert.alert_type === "approval_workflow") {
+            const st = (alert.status || "").toLowerCase();
+            if (st === "approved") return "Approval Approved";
+            if (st === "rejected") return "Approval Rejected";
+            if (st === "completed") return "Execution Complete";
+            if (st === "failed") return "Execution Failed";
+            return "Approval Required";
+          }
+          if (alert.alert_type === "db_monitoring") {
+            return alert.status === "completed" ? `Database Online: ${alert.db}` : `DB Monitoring Incident: ${alert.db}`;
+          }
+          if (alert.alert_type === "alert_log") return `Alert Log Error: ${alert.db}`;
           return `Alert ${sev}: ${alert.db}`;
         })(),
         message: alert.message,
         timestamp: alert.created_at,
-        targetPath: alertTypeToTargetPath(alert.alert_type)
+        targetPath: alertTypeToTargetPath(alert.alert_type),
+        read: alert.read ?? false,
+        readBy: alert.readBy,
+        readAt: alert.readAt
       });
     }
   } catch {
     // Ignore alert notification replay errors
   }
 
+  // 2. DBA Console Activities (Latest 50 shift session & handover records)
   try {
-    const activeIncidents = await listActiveMonitoringIncidents();
-    for (const incident of activeIncidents) {
-      replayItems.push({
-        id: `MON-${incident.db_name}-${incident.incident_id}`,
-        type: "db_monitoring",
-        severity: incident.status === "DOWN" ? "critical" : "warning",
-        db: incident.db_name,
-        title: `Database ${incident.status}: ${incident.db_name}`,
-        message: `Monitoring Agent reports database ${incident.db_name} is ${incident.status.toLowerCase()} (reported ${incident.report_count}x).`,
-        timestamp: incident.last_reported || incident.created_at,
-        targetPath: "/general-admin"
-      });
+    const shiftItems = await listRecentShiftNotifications(50);
+    for (const item of shiftItems) {
+      replayMap.set(item.id, item);
     }
   } catch {
-    // Ignore monitoring incident replay errors
+    // Ignore shift activity replay errors
   }
 
-  return replayItems;
+  // 3. Approval Workflow Requests (Latest 30 approval request records from app_approval_requests)
+  try {
+    const approvalItems = await listRecentApprovalNotifications(30);
+    for (const item of approvalItems) {
+      if (!replayMap.has(item.id)) {
+        replayMap.set(item.id, item);
+      }
+    }
+  } catch {
+    // Ignore approval replay errors
+  }
+
+  return Array.from(replayMap.values()).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
 }
 
 export async function GET(request: Request) {
@@ -76,7 +96,7 @@ export async function GET(request: Request) {
   }
 
   // Fetch missed alerts before opening the stream to avoid race conditions
-  const replayItems = await buildReplayItems(userRole);
+  const replayItems = await buildReplayItems();
 
   let unsubscribe: () => void = () => {};
 

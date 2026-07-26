@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     });
 
     emitGlobalNotification({
-      id: `DBA-HOACK-${handover.handover_id}-${Date.now()}`,
+      id: `HANDOVER-${handover.handover_id}`,
       type: "dba_shift",
       severity: "info",
       db: getShiftLabel(handover.shift_number),

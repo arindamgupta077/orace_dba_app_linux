@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     });
 
     emitGlobalNotification({
-      id: `DBA-HO-${handover.handover_id}`,
+      id: `HANDOVER-${handover.handover_id}`,
       type: "dba_shift",
       severity: "warning",
       db: getShiftLabel(active.shift_number),

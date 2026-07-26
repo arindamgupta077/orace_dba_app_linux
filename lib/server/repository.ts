@@ -40,6 +40,7 @@ import type {
   DbStatusCheck,
   DbStatusValue,
   Handover,
+  NotificationPayload,
   RequestHistoryItem,
   ShiftReportData,
   ShiftReportFilters,
@@ -562,6 +563,11 @@ function mapAlertNotificationRow(row: DbRow): AlertNotification {
     updated_at: toIstIsoString(row.UPDATED_AT),
     approved_at: row.APPROVED_AT ? toIstIsoString(row.APPROVED_AT) : undefined,
     completed_at: row.COMPLETED_AT ? toIstIsoString(row.COMPLETED_AT) : undefined,
+    read: String(row.IS_READ || "N").toUpperCase() === "Y",
+    readBy: row.READ_BY ? String(row.READ_BY) : undefined,
+    readAt: row.READ_AT ? toIstIsoString(row.READ_AT) : undefined,
+    read_by: row.READ_BY ? String(row.READ_BY) : undefined,
+    read_at: row.READ_AT ? toIstIsoString(row.READ_AT) : undefined,
     metadata: parseJson<Record<string, unknown>>(row.METADATA_JSON)
   };
 }
@@ -2489,6 +2495,9 @@ export async function getAlertNotification(id: string): Promise<AlertNotificatio
          updated_at,
          approved_at,
          completed_at,
+         is_read,
+         read_at,
+         read_by,
          metadata_json
        FROM app_alert_notifications
        WHERE alert_id = :alertId`,
@@ -2534,6 +2543,9 @@ export async function findPendingAlertNotificationOccurrence(
          updated_at,
          approved_at,
          completed_at,
+         is_read,
+         read_at,
+         read_by,
          metadata_json
        FROM app_alert_notifications
        WHERE UPPER(db_name) = UPPER(:dbName)
@@ -2685,6 +2697,9 @@ export async function listAlertNotifications(input: ListAlertNotificationsInput 
          updated_at,
          approved_at,
          completed_at,
+         is_read,
+         read_at,
+         read_by,
          metadata_json
        FROM app_alert_notifications
        ${whereClause}
@@ -6424,12 +6439,15 @@ function mapMonitoringIncidentRow(row: DbRow): MonitoringIncident {
     acknowledged_at: row.ACKNOWLEDGED_AT ? toIstIsoString(row.ACKNOWLEDGED_AT) : undefined,
     resolved_at: row.RESOLVED_AT ? toIstIsoString(row.RESOLVED_AT) : undefined,
     created_at: toIstIsoString(row.CREATED_AT),
-    updated_at: toIstIsoString(row.UPDATED_AT)
+    updated_at: toIstIsoString(row.UPDATED_AT),
+    is_read: String(row.IS_READ || "N").toUpperCase() === "Y",
+    read: String(row.IS_READ || "N").toUpperCase() === "Y"
   };
 }
 
 /**
  * Find an active (DOWN or ACKNOWLEDGED) monitoring incident for the given database.
+ * Used for deduplication: ensures only 1 card per database on the General Admin page.
  */
 export async function findActiveMonitoringIncident(dbName: string): Promise<MonitoringIncident | null> {
   return executeOne(async (connection) => {
@@ -6580,5 +6598,650 @@ export async function listAllMonitoringIncidents(limit: number = 200, dbName?: s
     sql += ` ORDER BY last_reported DESC, created_at DESC FETCH FIRST :limit ROWS ONLY`;
     const result = await connection.execute<DbRow>(sql, binds);
     return (result.rows || []).map(mapMonitoringIncidentRow);
+  });
+}
+
+export interface ListNotificationHistoryInput {
+  page?: number;
+  pageSize?: number;
+  category?: "all" | "db" | "console";
+  type?: "all" | "tablespace" | "filesystem_drive" | "db_monitoring" | "approval_workflow" | "alert_log" | "dba_shift" | "other";
+  severity?: "all" | "critical" | "error" | "warning" | "info";
+  status?: "all" | "pending_approval" | "approved" | "rejected" | "completed" | "failed" | "acknowledged" | "active";
+  db?: string;
+  dateRange?: "today" | "7d" | "30d" | "custom";
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+}
+
+export interface HistoricalNotificationItem {
+  id: string;
+  type: string;
+  category: "db" | "console";
+  severity: "info" | "warning" | "critical" | "error";
+  status?: string;
+  db?: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  updatedAt?: string;
+  targetPath?: string;
+  read?: boolean;
+  readBy?: string;
+  readAt?: string;
+}
+
+export interface ListNotificationHistoryResult {
+  items: HistoricalNotificationItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+let migrationChecked = false;
+
+export async function ensureNotificationReadColumnsExist(): Promise<void> {
+  if (migrationChecked) return;
+
+  try {
+    await executeOne(async (connection) => {
+      const tables = [
+        "app_alert_notifications",
+        "app_db_monitoring_incidents",
+        "app_approval_requests",
+        "app_shift_sessions",
+        "app_handovers"
+      ];
+
+      for (const table of tables) {
+        const statements = [
+          `ALTER TABLE ${table} ADD (is_read VARCHAR2(1) DEFAULT 'N')`,
+          `ALTER TABLE ${table} ADD (read_at TIMESTAMP)`,
+          `ALTER TABLE ${table} ADD (read_by VARCHAR2(100))`
+        ];
+        for (const stmt of statements) {
+          try {
+            await connection.execute(stmt, [], { autoCommit: true });
+          } catch {
+            // Ignore ORA-01430 column exists errors
+          }
+        }
+      }
+    });
+    migrationChecked = true;
+  } catch {
+    // Ignore migration runner error and retry on next call
+  }
+}
+
+export async function listNotificationHistory(input: ListNotificationHistoryInput = {}): Promise<ListNotificationHistoryResult> {
+  await ensureNotificationReadColumnsExist();
+
+  const page = Math.max(input.page || 1, 1);
+  const pageSize = Math.min(Math.max(input.pageSize || 25, 1), 100);
+  const offset = (page - 1) * pageSize;
+
+  const category = input.category || "all";
+  const typeFilter = input.type && input.type !== "all" ? input.type : null;
+  const severityFilter = input.severity && input.severity !== "all" ? input.severity : null;
+  const statusFilter = input.status && input.status !== "all" ? input.status : null;
+  const dbFilter = input.db ? input.db.trim() : null;
+  const searchFilter = input.search ? input.search.trim().toLowerCase() : null;
+
+  return executeOne(async (connection) => {
+    // 1. Fetch items from app_alert_notifications
+    const alertWhere: string[] = [];
+    const alertBinds: BindParameters = {};
+
+    if (category === "console") {
+      alertWhere.push("alert_type = 'dba_shift'");
+    } else if (category === "db") {
+      alertWhere.push("alert_type != 'dba_shift'");
+    }
+
+    if (typeFilter) {
+      alertWhere.push("alert_type = :alertType");
+      alertBinds.alertType = typeFilter;
+    }
+
+    if (severityFilter) {
+      alertWhere.push("severity = :severity");
+      alertBinds.severity = severityFilter;
+    }
+
+    if (statusFilter) {
+      alertWhere.push("alert_status = :statusFilter");
+      alertBinds.statusFilter = statusFilter;
+    }
+
+    if (dbFilter) {
+      alertWhere.push("UPPER(db_name) LIKE UPPER(:dbFilter)");
+      alertBinds.dbFilter = `%${dbFilter}%`;
+    }
+
+    if (searchFilter) {
+      alertWhere.push("(LOWER(message_text) LIKE :searchFilter OR LOWER(db_name) LIKE :searchFilter OR LOWER(tablespace_name) LIKE :searchFilter OR LOWER(object_name) LIKE :searchFilter)");
+      alertBinds.searchFilter = `%${searchFilter}%`;
+    }
+
+    if (input.dateRange === "today") {
+      alertWhere.push("created_at >= TRUNC(SYSDATE)");
+    } else if (input.dateRange === "7d") {
+      alertWhere.push("created_at >= SYSDATE - 7");
+    } else if (input.dateRange === "30d") {
+      alertWhere.push("created_at >= SYSDATE - 30");
+    } else if (input.dateRange === "custom" && input.startDate && input.endDate) {
+      alertWhere.push("created_at >= TO_TIMESTAMP(:startDate, 'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"') AND created_at <= TO_TIMESTAMP(:endDate, 'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"')");
+      alertBinds.startDate = input.startDate;
+      alertBinds.endDate = input.endDate;
+    }
+
+    const alertWhereSql = alertWhere.length ? `WHERE ${alertWhere.join(" AND ")}` : "";
+
+    const alertRowsRes = await connection.execute<DbRow>(
+      `SELECT
+         alert_id,
+         source_name,
+         alert_type,
+         db_name,
+         tablespace_name,
+         object_name,
+         severity,
+         alert_status,
+         message_text,
+         created_at,
+         updated_at,
+         is_read,
+         read_at,
+         read_by
+       FROM app_alert_notifications
+       ${alertWhereSql}
+       ORDER BY created_at DESC`,
+      alertBinds
+    );
+
+    const alertItems: HistoricalNotificationItem[] = (alertRowsRes.rows || []).map((row) => {
+      const type = String(row.ALERT_TYPE || "generic");
+      const isConsole = type === "dba_shift";
+      const id = String(row.ALERT_ID || "");
+      const db = row.DB_NAME ? String(row.DB_NAME) : undefined;
+      const severity = (row.SEVERITY ? String(row.SEVERITY).toLowerCase() : "info") as HistoricalNotificationItem["severity"];
+      const rawStatus = row.ALERT_STATUS ? String(row.ALERT_STATUS) : undefined;
+      const status = type === "db_monitoring" ? "DOWN" : rawStatus;
+      const timestamp = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
+      const updatedAt = row.UPDATED_AT ? toIstIsoString(row.UPDATED_AT) : undefined;
+      const message = String(row.MESSAGE_TEXT || "");
+      const read = String(row.IS_READ || "N").toUpperCase() === "Y";
+      const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+      const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+      let targetPath = "/dashboard";
+      if (type === "tablespace") targetPath = "/tablespaces";
+      else if (type === "filesystem_drive") targetPath = "/filesystem-drive";
+      else if (type === "alert_log") targetPath = "/alerts";
+      else if (type === "db_monitoring") targetPath = "/general-admin";
+      else if (type === "approval_workflow") targetPath = "/admin-panel";
+      else if (type === "dba_shift") targetPath = "/dba-console/shift-management";
+
+      let title = `Alert: ${db || "System"}`;
+      if (type === "tablespace") title = `Tablespace Alert: ${row.TABLESPACE_NAME || db || ""}`;
+      else if (type === "filesystem_drive") title = `Filesystem Alert: ${row.OBJECT_NAME || db || ""}`;
+      else if (type === "db_monitoring") title = `DB Monitoring Incident: ${db || ""}`;
+      else if (type === "approval_workflow") title = `Approval Request: ${db || ""}`;
+      else if (type === "dba_shift") title = `DBA Console Event`;
+
+      return {
+        id,
+        type,
+        category: isConsole ? "console" : "db",
+        severity,
+        status,
+        db,
+        title,
+        message,
+        timestamp,
+        updatedAt,
+        targetPath,
+        read,
+        readBy,
+        readAt
+      };
+    });
+
+    // Note: Monitoring incidents (app_db_monitoring_incidents) are NOT added here separately.
+    // They are already included in alertItems via app_alert_notifications (alert_type='db_monitoring').
+    // Including them again would create phantom duplicates that cannot be properly mark-read.
+
+    // 3. Fetch DBA Console Activities (shift sessions & handovers) if category is 'all' or 'console'
+    const consoleItems: HistoricalNotificationItem[] = [];
+    if (category !== "db" && (!typeFilter || typeFilter === "dba_shift")) {
+      try {
+        const sessionRes = await connection.execute<DbRow>(
+          `SELECT session_id, username, shift_number, login_at, logout_at, is_read, read_at, read_by
+           FROM app_shift_sessions
+           ORDER BY session_id DESC
+           FETCH FIRST 200 ROWS ONLY`
+        );
+        for (const row of sessionRes.rows || []) {
+          const username = String(row.USERNAME || "DBA");
+          const shiftNum = Number(row.SHIFT_NUMBER || 1);
+          const shiftLabel = `Shift ${shiftNum}`;
+          const loginAt = row.LOGIN_AT ? toIstIsoString(row.LOGIN_AT) : new Date().toISOString();
+          const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
+          const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+          const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+          consoleItems.push({
+            id: `DBA-LOGIN-${row.SESSION_ID}`,
+            type: "dba_shift",
+            category: "console",
+            severity: "info",
+            db: shiftLabel,
+            title: `DBA Login: ${username}`,
+            message: `${username} logged in to ${shiftLabel}.`,
+            timestamp: loginAt,
+            targetPath: "/dba-console/shift-management",
+            read: isRead,
+            readBy,
+            readAt
+          });
+
+          if (row.LOGOUT_AT) {
+            const logoutAt = toIstIsoString(row.LOGOUT_AT);
+            consoleItems.push({
+              id: `DBA-LOGOUT-${row.SESSION_ID}`,
+              type: "dba_shift",
+              category: "console",
+              severity: "info",
+              db: shiftLabel,
+              title: `DBA Logout: ${username}`,
+              message: `${username} logged out from ${shiftLabel}.`,
+              timestamp: logoutAt,
+              targetPath: "/dba-console/shift-management",
+              read: isRead,
+              readBy,
+              readAt
+            });
+          }
+        }
+      } catch {
+        // Ignore shift sessions query error
+      }
+
+      try {
+        const handoverRes = await connection.execute<DbRow>(
+          `SELECT handover_id, author_username, shift_number, handover_text, status, created_at, is_read, read_at, read_by
+           FROM app_handovers
+           ORDER BY handover_id DESC
+           FETCH FIRST 200 ROWS ONLY`
+        );
+        for (const row of handoverRes.rows || []) {
+          const author = String(row.AUTHOR_USERNAME || "DBA");
+          const shiftNum = Number(row.SHIFT_NUMBER || 1);
+          const shiftLabel = `Shift ${shiftNum}`;
+          const status = String(row.STATUS || "PENDING");
+          const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
+          const text = row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "";
+          const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
+          const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+          const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+          consoleItems.push({
+            id: `HANDOVER-${row.HANDOVER_ID}`,
+            type: "dba_shift",
+            category: "console",
+            severity: status === "PENDING" ? "warning" : "info",
+            status,
+            db: shiftLabel,
+            title: `Shift Handover (${status}): ${author}`,
+            message: text.slice(0, 150) || `Handover ${status.toLowerCase()} by ${author}.`,
+            timestamp: createdAt,
+            targetPath: "/dba-console/shift-management",
+            read: isRead,
+            readBy,
+            readAt
+          });
+        }
+      } catch {
+        // Ignore handovers query error
+      }
+    }
+
+    // Combine and deduplicate
+    const allItemsMap = new Map<string, HistoricalNotificationItem>();
+    const nowMs = Date.now();
+
+    for (const item of [...alertItems, ...consoleItems]) {
+      if (searchFilter) {
+        const matchesSearch =
+          item.title.toLowerCase().includes(searchFilter) ||
+          item.message.toLowerCase().includes(searchFilter) ||
+          (item.db && item.db.toLowerCase().includes(searchFilter));
+        if (!matchesSearch) continue;
+      }
+      if (severityFilter && item.severity !== severityFilter) continue;
+      if (statusFilter && item.status !== statusFilter) continue;
+
+      const itemMs = new Date(item.timestamp).getTime();
+      if (input.dateRange === "today") {
+        const startOfTodayMs = new Date().setHours(0, 0, 0, 0);
+        if (itemMs < startOfTodayMs) continue;
+      } else if (input.dateRange === "7d") {
+        if (itemMs < nowMs - 7 * 24 * 3600 * 1000) continue;
+      } else if (input.dateRange === "30d") {
+        if (itemMs < nowMs - 30 * 24 * 3600 * 1000) continue;
+      } else if (input.dateRange === "custom" && input.startDate && input.endDate) {
+        const startMs = new Date(input.startDate).getTime();
+        const endMs = new Date(input.endDate).getTime();
+        if (itemMs < startMs || itemMs > endMs) continue;
+      }
+
+      allItemsMap.set(item.id, item);
+    }
+
+    const sortedAll = Array.from(allItemsMap.values()).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    const total = sortedAll.length;
+    const totalPages = Math.ceil(total / pageSize) || 1;
+    const paginatedItems = sortedAll.slice(offset, offset + pageSize);
+
+    return {
+      items: paginatedItems,
+      total,
+      page,
+      pageSize,
+      totalPages
+    };
+  });
+}
+
+/**
+ * List recent DBA shift activities (logins, logouts, handovers) to populate initial replay notification streams.
+ */
+export async function listRecentShiftNotifications(limit: number = 30): Promise<NotificationPayload[]> {
+  await ensureNotificationReadColumnsExist();
+
+  return executeOne(async (connection) => {
+    const items: NotificationPayload[] = [];
+
+    // 1. Shift sessions (Logins / Logouts)
+    try {
+      const sessionRes = await connection.execute<DbRow>(
+        `SELECT session_id, username, shift_number, login_at, logout_at, is_read, read_at, read_by
+         FROM app_shift_sessions
+         ORDER BY session_id DESC
+         FETCH FIRST :limit ROWS ONLY`,
+        { limit }
+      );
+      for (const row of sessionRes.rows || []) {
+        const username = String(row.USERNAME || "DBA");
+        const shiftNum = Number(row.SHIFT_NUMBER || 1);
+        const shiftLabel = `Shift ${shiftNum}`;
+        const loginAt = row.LOGIN_AT ? toIstIsoString(row.LOGIN_AT) : new Date().toISOString();
+        const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
+        const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+        const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+        items.push({
+          id: `DBA-LOGIN-${row.SESSION_ID}`,
+          type: "dba_shift",
+          severity: "info",
+          db: shiftLabel,
+          title: `DBA Login: ${username}`,
+          message: `${username} logged in to ${shiftLabel}.`,
+          timestamp: loginAt,
+          targetPath: "/dba-console/shift-management",
+          read: isRead,
+          readBy,
+          readAt
+        });
+
+        if (row.LOGOUT_AT) {
+          const logoutAt = toIstIsoString(row.LOGOUT_AT);
+          items.push({
+            id: `DBA-LOGOUT-${row.SESSION_ID}`,
+            type: "dba_shift",
+            severity: "info",
+            db: shiftLabel,
+            title: `DBA Logout: ${username}`,
+            message: `${username} logged out from ${shiftLabel}.`,
+            timestamp: logoutAt,
+            targetPath: "/dba-console/shift-management",
+            read: isRead,
+            readBy,
+            readAt
+          });
+        }
+      }
+    } catch {
+      // Ignore shift sessions query error
+    }
+
+    // 2. Shift Handovers
+    try {
+      const handoverRes = await connection.execute<DbRow>(
+        `SELECT handover_id, author_username, shift_number, handover_text, status, created_at, is_read, read_at, read_by
+         FROM app_handovers
+         ORDER BY handover_id DESC
+         FETCH FIRST :limit ROWS ONLY`,
+        { limit }
+      );
+      for (const row of handoverRes.rows || []) {
+        const author = String(row.AUTHOR_USERNAME || "DBA");
+        const shiftNum = Number(row.SHIFT_NUMBER || 1);
+        const shiftLabel = `Shift ${shiftNum}`;
+        const status = String(row.STATUS || "PENDING");
+        const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
+        const text = row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "";
+        const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
+        const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+        const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+        items.push({
+          id: `HANDOVER-${row.HANDOVER_ID}`,
+          type: "dba_shift",
+          severity: status === "PENDING" ? "warning" : "info",
+          db: shiftLabel,
+          title: `Shift Handover (${status}): ${author}`,
+          message: text.slice(0, 120) || `Handover ${status.toLowerCase()} by ${author}.`,
+          timestamp: createdAt,
+          targetPath: "/dba-console/shift-management",
+          read: isRead,
+          readBy,
+          readAt
+        });
+      }
+    } catch {
+      // Ignore handovers query error
+    }
+
+    return items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, limit);
+  });
+}
+
+/**
+ * List recent approval requests from app_approval_requests so they can be replayed in notification streams.
+ */
+export async function listRecentApprovalNotifications(limit: number = 30): Promise<NotificationPayload[]> {
+  await ensureNotificationReadColumnsExist();
+
+  return executeOne(async (connection) => {
+    try {
+      const res = await connection.execute<DbRow>(
+        `SELECT request_id, display_name, db_name, environment, requester_username, request_status, created_at, is_read, read_at, read_by
+         FROM app_approval_requests
+         ORDER BY created_at DESC
+         FETCH FIRST :limit ROWS ONLY`,
+        { limit }
+      );
+
+      const items: NotificationPayload[] = [];
+      for (const row of res.rows || []) {
+        const id = String(row.REQUEST_ID || "");
+        const displayName = String(row.DISPLAY_NAME || "Action");
+        const db = String(row.DB_NAME || "");
+        const env = String(row.ENVIRONMENT || "");
+        const username = String(row.REQUESTER_USERNAME || "DBA");
+        const status = String(row.REQUEST_STATUS || "pending").toLowerCase();
+        const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
+        const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
+        const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
+        const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
+
+        let severity: NotificationPayload["severity"] = "warning";
+        let title = "Approval Required";
+        if (status === "approved") {
+          severity = "info";
+          title = "Approval Approved";
+        } else if (status === "rejected") {
+          severity = "error";
+          title = "Approval Rejected";
+        }
+
+        items.push({
+          id,
+          type: "approval_workflow",
+          severity,
+          db,
+          title,
+          message: `${username} requested "${displayName}" on ${db}${env ? ` (${env})` : ""}`,
+          timestamp: createdAt,
+          targetPath: "/admin-panel/pending-approvals",
+          read: isRead,
+          readBy,
+          readAt
+        });
+      }
+      return items;
+    } catch {
+      return [];
+    }
+  });
+}
+
+export async function markNotificationReadInDb(id: string, actor: string = "system"): Promise<void> {
+  await ensureNotificationReadColumnsExist();
+
+  return executeOne(async (connection) => {
+    if (id.startsWith("MON-")) {
+      // Update app_alert_notifications for db_monitoring entries (inserted by webhook with MON- prefixed alert_id)
+      await connection.execute(
+        `UPDATE app_alert_notifications
+         SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+         WHERE alert_id = :id
+           AND NVL(is_read, 'N') != 'Y'`,
+        { actor, id },
+        { autoCommit: true }
+      );
+
+      // Also update app_db_monitoring_incidents for legacy/incident-sourced MON- notifications
+      // incident_id format: INC-DBNAME-... extracted after stripping MON-DBNAME- prefix
+      const rawIncidentId = id.replace(/^MON-[^-]+-/, "");
+      await connection.execute(
+        `UPDATE app_db_monitoring_incidents
+         SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+         WHERE (incident_id = :rawIncidentId OR incident_id = :id)
+           AND NVL(is_read, 'N') != 'Y'`,
+        { actor, rawIncidentId, id },
+        { autoCommit: true }
+      );
+      return;
+    }
+
+    if (id.startsWith("DBA-LOGIN-") || id.startsWith("DBA-LOGOUT-")) {
+      const sessionIdStr = id.replace("DBA-LOGIN-", "").replace("DBA-LOGOUT-", "");
+      const sessionId = Number(sessionIdStr);
+      if (!isNaN(sessionId)) {
+        await connection.execute(
+          `UPDATE app_shift_sessions
+           SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+           WHERE session_id = :sessionId
+             AND NVL(is_read, 'N') != 'Y'`,
+          { actor, sessionId },
+          { autoCommit: true }
+        );
+        return;
+      }
+    }
+
+    if (id.startsWith("HANDOVER-")) {
+      const handoverId = Number(id.replace("HANDOVER-", ""));
+      if (!isNaN(handoverId)) {
+        await connection.execute(
+          `UPDATE app_handovers
+           SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+           WHERE handover_id = :handoverId
+             AND NVL(is_read, 'N') != 'Y'`,
+          { actor, handoverId },
+          { autoCommit: true }
+        );
+        return;
+      }
+    }
+
+    if (id.startsWith("REQ-")) {
+      try {
+        await connection.execute(
+          `UPDATE app_approval_requests
+           SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+           WHERE request_id = :id
+             AND NVL(is_read, 'N') != 'Y'`,
+          { actor, id },
+          { autoCommit: true }
+        );
+      } catch {
+        // Ignore table column error if any
+      }
+    }
+
+    await connection.execute(
+      `UPDATE app_alert_notifications
+       SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
+       WHERE alert_id = :id
+         AND NVL(is_read, 'N') != 'Y'`,
+      { actor, id },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function markAllNotificationsReadInDb(category: "db" | "console" | "all" = "all", actor: string = "system"): Promise<void> {
+  await ensureNotificationReadColumnsExist();
+
+  return executeOne(async (connection) => {
+    if (category === "db" || category === "all") {
+      await connection.execute(
+        `UPDATE app_alert_notifications SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+      await connection.execute(
+        `UPDATE app_db_monitoring_incidents SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+      await connection.execute(
+        `UPDATE app_approval_requests SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+    }
+
+    if (category === "console" || category === "all") {
+      await connection.execute(
+        `UPDATE app_shift_sessions SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+      await connection.execute(
+        `UPDATE app_handovers SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+    }
   });
 }
