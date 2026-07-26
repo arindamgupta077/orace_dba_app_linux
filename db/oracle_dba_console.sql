@@ -147,6 +147,11 @@ BEGIN
     EXECUTE IMMEDIATE q'[CREATE INDEX ix_shift_session_active ON app_shift_sessions (is_active, login_at)]';
   END IF;
 
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_SHIFT_SESSION_LOGIN_AT';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'CREATE INDEX ix_shift_session_login_at ON app_shift_sessions (login_at DESC)';
+  END IF;
+
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_SHIFT_SESSION_USER';
   IF v_count = 0 THEN
     EXECUTE IMMEDIATE 'CREATE INDEX ix_shift_session_user ON app_shift_sessions (user_id, login_at)';
@@ -278,6 +283,11 @@ BEGIN
   SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_HANDOVER_AUTHOR';
   IF v_count = 0 THEN
     EXECUTE IMMEDIATE 'CREATE INDEX ix_handover_author ON app_handovers (author_user_id, shift_date)';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IX_HANDOVER_CREATED_AT';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'CREATE INDEX ix_handover_created_at ON app_handovers (created_at DESC)';
   END IF;
 END;
 /

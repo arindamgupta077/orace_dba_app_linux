@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +42,7 @@ import {
   acknowledgeHandover,
   fetchCurrentShift,
   fetchHandoverHistory,
+  fetchShiftSessionLogs,
   overrideHandoverApi,
   shiftLogin,
   shiftLogout,
@@ -49,6 +51,23 @@ import {
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime } from "@/lib/utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
+
+function formatShiftDuration(loginAt: string, logoutAt?: string): string {
+  if (!loginAt) return "—";
+  const start = new Date(loginAt).getTime();
+  const end = logoutAt ? new Date(logoutAt).getTime() : Date.now();
+  if (isNaN(start) || isNaN(end) || end < start) return "—";
+
+  const diffMs = end - start;
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+
+  if (hours === 0) {
+    return `${mins}m`;
+  }
+  return `${hours}h ${mins}m`;
+}
 
 const GENERAL_SHIFT_NUMBER = 4;
 const SHIFT_LABELS: Record<number, string> = {
@@ -158,6 +177,14 @@ export function ShiftManagementSection() {
   const [historyPage, setHistoryPage] = useState(0);
   const [historyPageSize] = useState(10);
 
+  const [sessionLogs, setSessionLogs] = useState<ShiftSession[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsSearch, setLogsSearch] = useState("");
+  const [logsStatusFilter, setLogsStatusFilter] = useState<"ALL" | "ACTIVE" | "CLOSED">("ALL");
+  const [showLogsHistory, setShowLogsHistory] = useState(false);
+  const [logsPage, setLogsPage] = useState(0);
+  const logsPageSize = 10;
+
   const load = useCallback(async () => {
     try {
       const data = await fetchCurrentShift();
@@ -181,15 +208,28 @@ export function ShiftManagementSection() {
     }
   }, []);
 
+  const loadSessionLogs = useCallback(async (limit = 50) => {
+    setLogsLoading(true);
+    try {
+      const result = await fetchShiftSessionLogs(limit);
+      setSessionLogs(result.sessions || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load shift session logs.");
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const tick = () => {
       void load();
       void loadHistory(5);
+      void loadSessionLogs(50);
     };
     tick();
     const interval = setInterval(tick, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [load, loadHistory]);
+  }, [load, loadHistory, loadSessionLogs]);
 
   // Listen to real-time notification stream events to update immediately.
   useEffect(() => {
@@ -199,13 +239,14 @@ export function ShiftManagementSection() {
         console.log("[ShiftManagementSection] Real-time dba_shift event received, reloading shift state and history.");
         void load();
         void loadHistory(5);
+        void loadSessionLogs(50);
       }
     };
     window.addEventListener("dba-notification", handleNotification);
     return () => {
       window.removeEventListener("dba-notification", handleNotification);
     };
-  }, [load, loadHistory]);
+  }, [load, loadHistory, loadSessionLogs]);
 
   const sessions = (state?.sessions ?? []).filter(Boolean);
   const mySession = sessions.find((s) => s?.username === user?.username) || null;
@@ -254,6 +295,30 @@ export function ShiftManagementSection() {
   const historyEnd = historyStart + historyPageSize;
   const pagedHistory = handoverHistory.slice(historyStart, historyEnd);
 
+  const filteredLogs = sessionLogs.filter((log) => {
+    const matchesStatus =
+      logsStatusFilter === "ALL" ||
+      (logsStatusFilter === "ACTIVE" && log.is_active) ||
+      (logsStatusFilter === "CLOSED" && !log.is_active);
+
+    const searchLower = logsSearch.toLowerCase().trim();
+    const shiftLabel = SHIFT_LABELS[log.shift_number] || `Shift ${log.shift_number}`;
+    const matchesSearch =
+      !searchLower ||
+      log.username.toLowerCase().includes(searchLower) ||
+      (log.email && log.email.toLowerCase().includes(searchLower)) ||
+      shiftLabel.toLowerCase().includes(searchLower) ||
+      (log.role && log.role.toLowerCase().includes(searchLower)) ||
+      (log.shift_date && log.shift_date.toLowerCase().includes(searchLower));
+
+    return matchesStatus && matchesSearch;
+  });
+
+  const logsTotalPages = Math.max(1, Math.ceil(filteredLogs.length / logsPageSize));
+  const logsStart = logsPage * logsPageSize;
+  const logsEnd = logsStart + logsPageSize;
+  const pagedLogs = filteredLogs.slice(logsStart, logsEnd);
+
   const handleOpenHistory = () => {
     setShowHistory(true);
     setHistoryPage(0);
@@ -267,6 +332,7 @@ export function ShiftManagementSection() {
       await shiftLogin(shiftNumber);
       toast.success(`Logged in to ${SHIFT_LABELS[shiftNumber] || `Shift ${shiftNumber}`}.`);
       await load();
+      void loadSessionLogs(50);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Login failed.");
     } finally {
@@ -280,6 +346,7 @@ export function ShiftManagementSection() {
       await shiftLogout();
       toast.success("Logged out from shift.");
       await load();
+      void loadSessionLogs(50);
       setLogoutConfirm(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Logout failed.");
@@ -341,6 +408,7 @@ export function ShiftManagementSection() {
       setOverrideReason("");
       await load();
       await loadHistory(5);
+      void loadSessionLogs(50);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Override failed.");
     } finally {
@@ -879,6 +947,176 @@ export function ShiftManagementSection() {
         </CardContent>
       </Card>
 
+      {/* Shift Login & Logout Log History — visible to all roles */}
+      <Card className="mt-6">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Clock className="h-5 w-5 text-indigo-400" />
+              Shift Login &amp; Logout Log History
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Audit log history of DBA shift logins, logouts, active sessions, and shift durations
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void loadSessionLogs(50)}
+              disabled={logsLoading}
+              title="Refresh log history"
+            >
+              <RefreshCw className={cn("h-4 w-4", logsLoading && "animate-spin")} />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLogsPage(0);
+                setShowLogsHistory(true);
+              }}
+            >
+              <History className="h-3.5 w-3.5 mr-1" />
+              View Full Log History
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Search & Filter Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-between">
+            <div className="relative flex-1 max-w-sm">
+              <Input
+                placeholder="Search by DBA, role, or shift..."
+                value={logsSearch}
+                onChange={(e) => {
+                  setLogsSearch(e.target.value);
+                  setLogsPage(0);
+                }}
+                className="h-8 text-xs pl-8 bg-background/50 border-border/60"
+              />
+              <Clock className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Status:</span>
+              <Select
+                value={logsStatusFilter}
+                onValueChange={(val: "ALL" | "ACTIVE" | "CLOSED") => {
+                  setLogsStatusFilter(val);
+                  setLogsPage(0);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50 border-border/60">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Statuses</SelectItem>
+                  <SelectItem value="ACTIVE">Active Only</SelectItem>
+                  <SelectItem value="CLOSED">Closed Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {logsLoading && sessionLogs.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Clock className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No shift login/logout logs found.</p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-border/60 overflow-hidden bg-background/30">
+              <Table>
+                <TableHeader className="bg-muted/40">
+                  <TableRow>
+                    <TableHead className="w-[180px]">DBA</TableHead>
+                    <TableHead>Shift</TableHead>
+                    <TableHead>Shift Date</TableHead>
+                    <TableHead>Login Time (IST)</TableHead>
+                    <TableHead>Logout Time (IST)</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Handover Status</TableHead>
+                    <TableHead className="text-right">Session Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredLogs.slice(0, 5).map((log) => (
+                    <TableRow key={log.session_id} className="hover:bg-background/50 transition-colors">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <DbaAvatar name={log.username} className="h-7 w-7 text-xs" />
+                          <div className="flex flex-col">
+                            <span className="font-medium text-xs">{log.username}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">{log.role}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-medium">
+                          {SHIFT_LABELS[log.shift_number] || `Shift ${log.shift_number}`}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {log.shift_date || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {formatDateTime(log.login_at)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {log.logout_at ? (
+                          formatDateTime(log.logout_at)
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-medium">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            Active Now
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs font-medium">
+                        <span className={cn(log.is_active ? "text-emerald-700 dark:text-emerald-400 font-medium" : "text-slate-700 dark:text-slate-300")}>
+                          {formatShiftDuration(log.login_at, log.logout_at)}
+                          {log.is_active && <span className="text-[10px] text-muted-foreground ml-1">(ongoing)</span>}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {log.handover_status === "ACKNOWLEDGED" ? (
+                          <Badge variant="outline" className="text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium">
+                            Acknowledged
+                          </Badge>
+                        ) : log.handover_status === "PENDING" ? (
+                          <Badge variant="outline" className="text-[11px] border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium">
+                            Pending
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground/60 text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {log.is_active ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
+                            ACTIVE
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-slate-200/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 text-xs font-medium">
+                            CLOSED
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Logout confirmation dialog */}
       <Dialog open={logoutConfirm} onOpenChange={setLogoutConfirm}>
         <DialogContent>
@@ -1096,6 +1334,193 @@ export function ShiftManagementSection() {
           <div className="max-h-[400px] overflow-y-auto rounded-md border border-border/70 bg-background/40 p-4">
             <HandoverContent html={viewHistoryHandover?.handover_text || ""} />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Shift Login & Logout Log History Dialog */}
+      <Dialog open={showLogsHistory} onOpenChange={setShowLogsHistory}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-indigo-400" />
+              Full Shift Login &amp; Logout Log History
+            </DialogTitle>
+            <DialogDescription>
+              Complete history of DBA shift logins, logouts, active sessions, and shift durations.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Search & Filter Controls in Dialog */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-between py-2 border-b border-border/60">
+            <div className="relative flex-1 max-w-sm">
+              <Input
+                placeholder="Search logs by DBA, role, or shift..."
+                value={logsSearch}
+                onChange={(e) => {
+                  setLogsSearch(e.target.value);
+                  setLogsPage(0);
+                }}
+                className="h-8 text-xs pl-8 bg-background/50 border-border/60"
+              />
+              <Clock className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Filter:</span>
+                <Select
+                  value={logsStatusFilter}
+                  onValueChange={(val: "ALL" | "ACTIVE" | "CLOSED") => {
+                    setLogsStatusFilter(val);
+                    setLogsPage(0);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50 border-border/60">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Statuses</SelectItem>
+                    <SelectItem value="ACTIVE">Active Only</SelectItem>
+                    <SelectItem value="CLOSED">Closed Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadSessionLogs(100)}
+                disabled={logsLoading}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-1", logsLoading && "animate-spin")} />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="max-h-[500px] overflow-y-auto">
+            {logsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredLogs.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">No shift logs found matching your criteria.</p>
+            ) : (
+              <Table>
+                <TableHeader className="sticky top-0 bg-muted/90 backdrop-blur-sm z-10">
+                  <TableRow>
+                    <TableHead>DBA</TableHead>
+                    <TableHead>Shift</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Login Time (IST)</TableHead>
+                    <TableHead>Logout Time (IST)</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Handover Status</TableHead>
+                    <TableHead className="text-right">Session Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagedLogs.map((log) => (
+                    <TableRow key={log.session_id} className="hover:bg-background/50 transition-colors">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <DbaAvatar name={log.username} className="h-7 w-7 text-xs" />
+                          <div className="flex flex-col">
+                            <span className="font-medium text-xs">{log.username}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">{log.role}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-medium">
+                          {SHIFT_LABELS[log.shift_number] || `Shift ${log.shift_number}`}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {log.shift_date || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {formatDateTime(log.login_at)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {log.logout_at ? (
+                          formatDateTime(log.logout_at)
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-medium">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            Active Now
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs font-medium">
+                        <span className={cn(log.is_active ? "text-emerald-700 dark:text-emerald-400 font-medium" : "text-slate-700 dark:text-slate-300")}>
+                          {formatShiftDuration(log.login_at, log.logout_at)}
+                          {log.is_active && <span className="text-[10px] text-muted-foreground ml-1">(ongoing)</span>}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {log.handover_status === "ACKNOWLEDGED" ? (
+                          <Badge variant="outline" className="text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium">
+                            Acknowledged
+                          </Badge>
+                        ) : log.handover_status === "PENDING" ? (
+                          <Badge variant="outline" className="text-[11px] border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium">
+                            Pending
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground/60 text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {log.is_active ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
+                            ACTIVE
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-slate-200/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 text-xs font-medium">
+                            CLOSED
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
+          {/* Pagination controls */}
+          {!logsLoading && filteredLogs.length > 0 && (
+            <div className="flex items-center justify-between border-t border-border/70 pt-3">
+              <span className="text-xs text-muted-foreground">
+                Showing {logsStart + 1}–{Math.min(logsEnd, filteredLogs.length)} of {filteredLogs.length} logs
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLogsPage((p) => Math.max(0, p - 1))}
+                  disabled={logsPage === 0}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Prev
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Page {logsPage + 1} / {logsTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLogsPage((p) => Math.min(logsTotalPages - 1, p + 1))}
+                  disabled={logsPage >= logsTotalPages - 1}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

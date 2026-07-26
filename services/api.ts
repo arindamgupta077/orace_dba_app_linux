@@ -630,6 +630,12 @@ export async function fetchHandoverHistory(limit = 20): Promise<{ handovers: Han
   return requestJson<{ handovers: Handover[] }>(`/api/shift/handovers${qs}`);
 }
 
+export async function fetchShiftSessionLogs(limit = 50): Promise<{ sessions: ShiftSession[] }> {
+  const qs = `?limit=${limit}`;
+  return requestJson<{ sessions: ShiftSession[] }>(`/api/shift/sessions${qs}`);
+}
+
+
 export async function fetchDbStatusChecks(shiftNumber: number, shiftDate: string): Promise<{ checks: DbStatusCheck[] }> {
   const qs = `?shiftNumber=${shiftNumber}&shiftDate=${encodeURIComponent(shiftDate)}`;
   return requestJson<{ checks: DbStatusCheck[] }>(`/api/checklist/database-status${qs}`);

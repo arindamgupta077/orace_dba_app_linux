@@ -3566,6 +3566,23 @@ export async function listActiveShiftSessions(): Promise<ShiftSession[]> {
 }
 
 /**
+ * Returns historical shift sessions (both active and closed) ordered by most recent login_at first.
+ */
+export async function listShiftSessionHistory(limit = 50): Promise<ShiftSession[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  return executeOne(async (connection) => {
+    const result = await connection.execute<ShiftSessionRow>(
+      `SELECT ${SHIFT_SESSION_COLUMNS}
+       ${SHIFT_SESSION_JOIN}
+       ORDER BY s.login_at DESC
+       FETCH FIRST ${safeLimit} ROWS ONLY`
+    );
+    return (result.rows || []).map((row) => mapShiftSession(row as ShiftSessionRow));
+  });
+}
+
+
+/**
  * Returns the set of time-based shift numbers (1,2,3) that already have an
  * active DBA logged in. Used by the login API to block duplicate shift logins.
  * General Shift (4) is excluded â€” multiple DBAs can be on general shift.
