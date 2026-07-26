@@ -29,8 +29,8 @@ interface AppState {
   canExecute: (action: DbaAction) => boolean;
   triggerTablespaceRefresh: () => void;
   addNotification: (item: Omit<NotificationItem, "read"> & { read?: boolean }) => void;
-  markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: (category?: "db" | "console") => void;
+  markNotificationRead: (id: string, skipApi?: boolean) => void;
+  markAllNotificationsRead: (category?: "db" | "console", skipApi?: boolean) => void;
   setDataPumpJobs: (jobs: DataPumpJob[]) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
   clearCompletedDataPumpJobs: (db?: string) => void;
@@ -110,9 +110,14 @@ export const useAppStore = create<AppState>()(
           if (existingIndex >= 0) {
             updated = [...state.notifications];
             const oldItem = updated[existingIndex];
-            const isRead = item.read === true || oldItem.read === true;
-            const readBy = item.readBy || oldItem.readBy;
-            const readAt = item.readAt || oldItem.readAt;
+
+            // Use incoming item's read state if explicitly provided, otherwise
+            // keep the existing state.  The old "OR" gate (item.read || oldItem.read)
+            // was a one-way door that prevented unread items from ever being
+            // displayed correctly after a stale read event.
+            const isRead = item.read !== undefined ? item.read : oldItem.read;
+            const readBy = isRead ? (item.readBy || oldItem.readBy) : undefined;
+            const readAt = isRead ? (item.readAt || oldItem.readAt) : undefined;
 
             updated[existingIndex] = {
               ...oldItem,
@@ -137,8 +142,12 @@ export const useAppStore = create<AppState>()(
 
           return { notifications: updated.slice(0, 100) };
         }),
-      markNotificationRead: (id) => {
-        void markNotificationReadApi(id).catch(() => {});
+      markNotificationRead: (id, skipApi) => {
+        // Skip API call if already read locally or if called from SSE handler
+        const existing = get().notifications.find((n) => String(n.id) === String(id));
+        if (!skipApi && !(existing?.read)) {
+          void markNotificationReadApi(id).catch(() => {});
+        }
         const username = get().user?.username || "system";
         const nowIso = new Date().toISOString();
         set((state) => ({
@@ -149,8 +158,10 @@ export const useAppStore = create<AppState>()(
           )
         }));
       },
-      markAllNotificationsRead: (category) => {
-        void markAllNotificationsReadApi(category).catch(() => {});
+      markAllNotificationsRead: (category, skipApi) => {
+        if (!skipApi) {
+          void markAllNotificationsReadApi(category).catch(() => {});
+        }
         const username = get().user?.username || "system";
         const nowIso = new Date().toISOString();
         set((state) => ({

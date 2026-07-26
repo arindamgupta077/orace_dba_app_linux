@@ -28,8 +28,15 @@ const RECENT_BUFFER_LIMIT = 50;
 const recentBroadcasts = globalState.__globalNotifRecent ?? [];
 globalState.__globalNotifRecent = recentBroadcasts;
 
-function writeSse(listener: NotificationListener, event: string, data: unknown) {
-  listener.controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+function writeSse(listener: NotificationListener, event: string, data: unknown): boolean {
+  try {
+    listener.controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    return true;
+  } catch {
+    // Client disconnected — remove listener silently
+    removeListener(listener.id);
+    return false;
+  }
 }
 
 function removeListener(id: string) {
@@ -90,9 +97,20 @@ export function addGlobalNotificationListener(
 export function emitGlobalNotification(payload: NotificationPayload) {
   const broadcast: BroadcastPayload = { ...payload, sent_at: new Date().toISOString() };
 
-  recentBroadcasts.push(broadcast);
-  if (recentBroadcasts.length > RECENT_BUFFER_LIMIT) {
-    recentBroadcasts.splice(0, recentBroadcasts.length - RECENT_BUFFER_LIMIT);
+  // Only store "real" notifications in the replay buffer, not read-status sync
+  // events (ALL_READ_EVENT and lightweight read updates with empty titles).
+  // Read-status sync events are transient — they should reach currently connected
+  // clients but must NOT be replayed to future connections on page reload,
+  // because the DB replay already provides the authoritative read state.
+  const isReadStatusEvent =
+    payload.id === "ALL_READ_EVENT" ||
+    (payload.read === true && !payload.title && !payload.message);
+
+  if (!isReadStatusEvent) {
+    recentBroadcasts.push(broadcast);
+    if (recentBroadcasts.length > RECENT_BUFFER_LIMIT) {
+      recentBroadcasts.splice(0, recentBroadcasts.length - RECENT_BUFFER_LIMIT);
+    }
   }
 
   for (const listener of listeners.values()) {

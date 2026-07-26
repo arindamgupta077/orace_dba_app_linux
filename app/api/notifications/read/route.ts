@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getAlertNotification, listNotificationHistory, markAllNotificationsReadInDb, markNotificationReadInDb } from "@/lib/server/repository";
+import { markAllNotificationsReadInDb, markNotificationReadInDb } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
-import { alertTypeToTargetPath, emitGlobalNotification, resolveNotificationType } from "@/lib/server/notification-events";
-import type { NotificationPayload } from "@/types/dba";
+import { emitGlobalNotification } from "@/lib/server/notification-events";
 
 export const dynamic = "force-dynamic";
 
@@ -24,59 +23,26 @@ export async function POST(request: Request) {
     if (id) {
       await markNotificationReadInDb(id, actor);
 
-      // Fetch actual item details from database history or getAlertNotification
+      // Emit a lightweight read-status update via SSE for multi-tab/multi-user sync.
+      // We intentionally skip the expensive DB lookups (getAlertNotification,
+      // listNotificationHistory) that previously caused ~1.5s response times
+      // and contributed to feedback loops.
       try {
-        let itemPayload: NotificationPayload | null = null;
-
-        const alertItem = await getAlertNotification(id).catch(() => null);
-        if (alertItem) {
-          const sev = alertItem.severity.toUpperCase();
-          let title = `Alert ${sev}: ${alertItem.db}`;
-          if (alertItem.alert_type === "tablespace") title = `Tablespace ${sev}: ${alertItem.tablespace || alertItem.db}`;
-          else if (alertItem.alert_type === "filesystem_drive") title = `Filesystem ${sev}: ${alertItem.object_name || alertItem.db}`;
-          else if (alertItem.alert_type === "dba_shift") title = `DBA Console Event`;
-          else if (alertItem.alert_type === "approval_workflow") title = "Approval Workflow";
-          else if (alertItem.alert_type === "db_monitoring") title = alertItem.status === "completed" ? `Database Online: ${alertItem.db}` : `DB Monitoring Incident: ${alertItem.db}`;
-          else if (alertItem.alert_type === "alert_log") title = `Alert Log Error: ${alertItem.db}`;
-
-          itemPayload = {
-            id: alertItem.id,
-            type: resolveNotificationType(alertItem.alert_type),
-            severity: alertItem.severity,
-            db: alertItem.db,
-            title,
-            message: alertItem.message,
-            timestamp: alertItem.created_at,
-            targetPath: alertTypeToTargetPath(alertItem.alert_type),
-            read: true,
-            readBy: alertItem.readBy || actor,
-            readAt: alertItem.readAt || nowIso
-          };
-        } else {
-          const historyRes = await listNotificationHistory({ search: id, pageSize: 10 }).catch(() => null);
-          const found = historyRes?.items?.find((i) => i.id === id);
-          if (found) {
-            itemPayload = {
-              id: found.id,
-              type: resolveNotificationType(found.type),
-              severity: found.severity,
-              db: found.db || "",
-              title: found.title,
-              message: found.message,
-              timestamp: found.timestamp,
-              targetPath: found.targetPath || "",
-              read: true,
-              readBy: found.readBy || actor,
-              readAt: found.readAt || nowIso
-            };
-          }
-        }
-
-        if (itemPayload) {
-          emitGlobalNotification(itemPayload);
-        }
+        emitGlobalNotification({
+          id,
+          type: "generic",
+          severity: "info",
+          db: "",
+          title: "",
+          message: "",
+          timestamp: nowIso,
+          targetPath: "",
+          read: true,
+          readBy: actor,
+          readAt: nowIso
+        });
       } catch {
-        // Ignore broadcast lookup failure
+        // Ignore broadcast failure
       }
 
       return NextResponse.json({ success: true, id, read: true, readBy: actor, readAt: nowIso });

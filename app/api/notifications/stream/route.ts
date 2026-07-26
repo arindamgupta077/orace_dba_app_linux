@@ -103,7 +103,16 @@ export async function GET(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       unsubscribe = addGlobalNotificationListener(controller, replayItems, userRole);
-      request.signal.addEventListener("abort", unsubscribe, { once: true });
+
+      // Guard against connection already being aborted before start runs
+      if (request.signal.aborted) {
+        unsubscribe();
+        return;
+      }
+      request.signal.addEventListener("abort", () => {
+        unsubscribe();
+        try { controller.close(); } catch { /* already closed */ }
+      }, { once: true });
     },
     cancel() {
       unsubscribe();

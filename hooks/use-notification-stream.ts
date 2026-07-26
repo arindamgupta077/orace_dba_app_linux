@@ -43,7 +43,8 @@ export function useNotificationStream() {
           const data = JSON.parse(event.data as string);
           if (data.id === "ALL_READ_EVENT") {
             const cat = data.type === "dba_shift" ? "console" : data.db === "db" ? "db" : undefined;
-            useAppStore.getState().markAllNotificationsRead(cat);
+            // skipApi=true to prevent re-calling the API which would re-broadcast and create a loop
+            useAppStore.getState().markAllNotificationsRead(cat, true);
             return;
           }
           if (data.type === "approval_workflow") {

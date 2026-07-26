@@ -1,9 +1,12 @@
 "use client";
 
 import {
+  AlertCircle,
   AlertTriangle,
+  Archive,
   ArrowLeft,
   Bell,
+  Calendar,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -11,12 +14,17 @@ import {
   Database,
   FileText,
   FileWarning,
+  Filter,
   HardDrive,
   Info,
+  Inbox,
+  Layers,
   Loader2,
   RefreshCw,
   Search,
   ShieldAlert,
+  SlidersHorizontal,
+  Tag,
   UserCheck,
   X,
   XCircle
@@ -65,29 +73,48 @@ function getNotificationIcon(type: string) {
   }
 }
 
+function getTypeLabel(t: string) {
+  switch (t) {
+    case "tablespace":
+      return "Tablespace Capacity";
+    case "filesystem_drive":
+      return "Filesystem Usage";
+    case "db_monitoring":
+      return "DB Monitoring";
+    case "approval_workflow":
+      return "Approval Request";
+    case "alert_log":
+      return "Alert Log Warning";
+    case "dba_shift":
+      return "DBA Shift Activity";
+    default:
+      return t;
+  }
+}
+
 function getSeverityBadge(severity: NotificationRecord["severity"]) {
   switch (severity) {
     case "critical":
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2.5 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400 border border-red-500/30">
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400 border border-red-500/25 shadow-xs">
           <XCircle className="h-3 w-3" /> Critical
         </span>
       );
     case "error":
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2.5 py-0.5 text-xs font-semibold text-orange-600 dark:text-orange-400 border border-orange-500/30">
+        <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2.5 py-0.5 text-xs font-semibold text-orange-600 dark:text-orange-400 border border-orange-500/25 shadow-xs">
           <AlertTriangle className="h-3 w-3" /> Error
         </span>
       );
     case "warning":
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/15 px-2.5 py-0.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-500/30">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400 border border-amber-500/25 shadow-xs">
           <AlertTriangle className="h-3 w-3" /> Warning
         </span>
       );
     default:
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-semibold text-blue-600 dark:text-blue-400 border border-blue-500/30">
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-600 dark:text-blue-400 border border-blue-500/25 shadow-xs">
           <Info className="h-3 w-3" /> Information
         </span>
       );
@@ -273,276 +300,388 @@ export function NotificationCenter() {
     dateRange !== "all" ||
     search !== "";
 
-  // Summary stats
-  const criticalCount = items.filter((i) => i.severity === "critical" || i.severity === "error").length;
-  const warningCount = items.filter((i) => i.severity === "warning").length;
-  const infoCount = items.filter((i) => i.severity === "info").length;
+  const activeFilterCount =
+    (category !== "all" ? 1 : 0) +
+    (type !== "all" ? 1 : 0) +
+    (severity !== "all" ? 1 : 0) +
+    (status !== "all" ? 1 : 0) +
+    (selectedDb !== "" ? 1 : 0) +
+    (dateRange !== "all" ? 1 : 0) +
+    (search !== "" ? 1 : 0);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-md">
-              <Bell className="h-5 w-5" />
+      {/* Header Banner */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-r from-background via-card to-background p-6 shadow-xs">
+        <div className="absolute right-0 top-0 -mr-16 -mt-16 h-64 w-64 rounded-full bg-cyan-500/5 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20 ring-4 ring-cyan-500/10">
+              <Bell className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">Notification Center</h1>
-              <p className="text-xs text-muted-foreground">
-                Historical archive of all database alerts, monitoring incidents & DBA console activities.
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">Notification Center</h1>
+                <span className="rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-xs font-semibold text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+                  Live Archive
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/80 px-2.5 py-0.5 text-xs font-medium text-foreground border border-border/60">
+                  <Archive className="h-3 w-3 text-cyan-500" />
+                  <span>Total Archived: <strong className="font-semibold text-cyan-600 dark:text-cyan-400">{total}</strong></span>
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-2xl">
+                Comprehensive audit trail and live telemetry stream for database capacity alerts, system health anomalies & DBA console shift events.
               </p>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              markAllNotificationsRead(category === "all" ? undefined : category);
-              setItems((prev) => prev.map((i) => ({ ...i, read: true })));
-            }}
-            className="gap-1.5 border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/20"
-          >
-            <Check className="h-3.5 w-3.5" />
-            <span>Mark All Read</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                markAllNotificationsRead(category === "all" ? undefined : category);
+                setItems((prev) => prev.map((i) => ({ ...i, read: true })));
+              }}
+              className="gap-1.5 border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-500/50 transition-all shadow-xs"
+            >
+              <Check className="h-4 w-4" />
+              <span>Mark All Read</span>
+            </Button>
 
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="gap-1.5 border-border/70 text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/dashboard">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to Dashboard</span>
-            </Link>
-          </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-border/80 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+            >
+              <Link href="/dashboard">
+                <ArrowLeft className="h-4 w-4" />
+                <span>Dashboard</span>
+              </Link>
+            </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => loadData()}
-            disabled={loading}
-            className="gap-1.5 border-border/70"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            <span>Refresh Archive</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Summary Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-          <p className="text-xs font-medium text-muted-foreground">Total Archived</p>
-          <p className="mt-1 text-2xl font-extrabold text-foreground">{total}</p>
-        </div>
-
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 shadow-sm">
-          <p className="text-xs font-medium text-red-600 dark:text-red-400">Critical / Error</p>
-          <p className="mt-1 text-2xl font-extrabold text-red-600 dark:text-red-400">{criticalCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4 shadow-sm">
-          <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">Warnings</p>
-          <p className="mt-1 text-2xl font-extrabold text-yellow-700 dark:text-yellow-400">{warningCount}</p>
-        </div>
-
-        <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 shadow-sm">
-          <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Information</p>
-          <p className="mt-1 text-2xl font-extrabold text-blue-600 dark:text-blue-400">{infoCount}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadData()}
+              disabled={loading}
+              className="gap-1.5 border-border/80 text-foreground hover:bg-muted/50 transition-all"
+            >
+              <RefreshCw className={cn("h-4 w-4 text-cyan-500", loading && "animate-spin")} />
+              <span>Refresh</span>
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Filter Control Bar */}
-      <div className="rounded-xl border border-border/70 bg-card p-4 space-y-4 shadow-sm">
-        {/* Category Tabs */}
-        <div className="flex items-center justify-between border-b border-border/50 pb-3">
-          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+      {/* Control & Filter Panel */}
+      <div className="rounded-2xl border border-border/80 bg-card p-4 sm:p-5 space-y-4 shadow-xs">
+        {/* Category Tabs Header & Filter Summary */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-4">
+          <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted/70 p-1 border border-border/40">
             <button
               onClick={() => handleCategoryChange("all")}
               className={cn(
-                "rounded-md px-3 py-1 text-xs font-semibold transition-all",
-                category === "all" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                "flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer",
+                category === "all"
+                  ? "bg-background text-foreground shadow-xs ring-1 ring-border"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
               )}
             >
-              All Notifications
+              <Layers className="h-3.5 w-3.5 opacity-70" />
+              <span>All Notifications</span>
             </button>
+
             <button
               onClick={() => handleCategoryChange("db")}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-all",
-                category === "db" ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 shadow-sm" : "text-muted-foreground hover:text-foreground"
+                "flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer",
+                category === "db"
+                  ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 ring-1 ring-cyan-500/30 shadow-xs"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
               )}
             >
-              <Database className="h-3.5 w-3.5" />
-              Database Alerts
+              <Database className="h-3.5 w-3.5 text-cyan-500" />
+              <span>Database Alerts</span>
             </button>
+
             <button
               onClick={() => handleCategoryChange("console")}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-all",
-                category === "console" ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 shadow-sm" : "text-muted-foreground hover:text-foreground"
+                "flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all duration-150 cursor-pointer",
+                category === "console"
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30 shadow-xs"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
               )}
             >
-              <UserCheck className="h-3.5 w-3.5" />
-              DBA Console Activities
+              <UserCheck className="h-3.5 w-3.5 text-amber-500" />
+              <span>DBA Console Activities</span>
             </button>
           </div>
 
           {hasActiveFilters && (
-            <Button variant="ghost" size="sm" onClick={resetFilters} className="text-xs text-muted-foreground hover:text-foreground gap-1">
-              <X className="h-3.5 w-3.5" /> Reset Filters
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetFilters}
+              className="h-8 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-700 gap-1.5 self-start sm:self-auto border border-rose-500/20"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>Reset All ({activeFilterCount})</span>
             </Button>
           )}
         </div>
 
-        {/* Filter Inputs Grid */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Search */}
+        {/* Search Bar & Dropdown Controls */}
+        <div className="space-y-3">
+          {/* Top Search Bar */}
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/70" />
             <input
               type="text"
-              placeholder="Search title, message, DB..."
+              placeholder="Search by title, error message, database SID..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full rounded-lg border border-border/70 bg-background pl-9 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              className="w-full rounded-xl border border-border/80 bg-background/80 pl-9 pr-9 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 transition-all duration-200 focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20 shadow-xs"
             />
+            {searchInput && (
+              <button
+                onClick={() => {
+                  setSearchInput("");
+                  setSearch("");
+                  setPage(1);
+                }}
+                className="absolute right-3 top-2.5 rounded-md p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Alert Type */}
-          <div>
-            <select
-              value={type}
-              onChange={(e) => {
-                setType(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              <option value="all">All Alert Types</option>
-              <option value="tablespace">Tablespace Capacity</option>
-              <option value="filesystem_drive">Filesystem Usage</option>
-              <option value="db_monitoring">Database Monitoring</option>
-              <option value="approval_workflow">Approval Requests</option>
-              <option value="alert_log">Alert Log Warnings</option>
-              <option value="dba_shift">DBA Console Shifts</option>
-            </select>
-          </div>
+          {/* Filter Inputs Grid */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+            {/* Alert Type */}
+            <div className="relative">
+              <SlidersHorizontal className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/70 pointer-events-none" />
+              <select
+                value={type}
+                onChange={(e) => {
+                  setType(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-border/80 bg-background/80 pl-8 pr-3 py-1.5 text-xs text-foreground transition-all focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+              >
+                <option value="all">All Alert Types</option>
+                <option value="tablespace">Tablespace Capacity</option>
+                <option value="filesystem_drive">Filesystem Usage</option>
+                <option value="db_monitoring">Database Monitoring</option>
+                <option value="approval_workflow">Approval Requests</option>
+                <option value="alert_log">Alert Log Warnings</option>
+                <option value="dba_shift">DBA Console Shifts</option>
+              </select>
+            </div>
 
-          {/* Severity */}
-          <div>
-            <select
-              value={severity}
-              onChange={(e) => {
-                setSeverity(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              <option value="all">All Severities</option>
-              <option value="critical">Critical</option>
-              <option value="error">Error</option>
-              <option value="warning">Warning</option>
-              <option value="info">Information</option>
-            </select>
-          </div>
+            {/* Severity */}
+            <div className="relative">
+              <ShieldAlert className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/70 pointer-events-none" />
+              <select
+                value={severity}
+                onChange={(e) => {
+                  setSeverity(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-border/80 bg-background/80 pl-8 pr-3 py-1.5 text-xs text-foreground transition-all focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+              >
+                <option value="all">All Severities</option>
+                <option value="critical">Critical</option>
+                <option value="error">Error</option>
+                <option value="warning">Warning</option>
+                <option value="info">Information</option>
+              </select>
+            </div>
 
-          {/* Status */}
-          <div>
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              <option value="all">All Statuses</option>
-              <option value="pending_approval">Pending Approval</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
-              <option value="acknowledged">Acknowledged</option>
-              <option value="DOWN">DB DOWN (Active)</option>
-            </select>
-          </div>
+            {/* Status */}
+            <div className="relative">
+              <Tag className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/70 pointer-events-none" />
+              <select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-border/80 bg-background/80 pl-8 pr-3 py-1.5 text-xs text-foreground transition-all focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+              >
+                <option value="all">All Statuses</option>
+                <option value="pending_approval">Pending Approval</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="acknowledged">Acknowledged</option>
+                <option value="DOWN">DB DOWN (Active)</option>
+              </select>
+            </div>
 
-          {/* Database Selector */}
-          <div>
-            <select
-              value={selectedDb}
-              onChange={(e) => {
-                setSelectedDbFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              <option value="">All Databases</option>
-              {databases.map((d) => (
-                <option key={d.name} value={d.name}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Database Selector */}
+            <div className="relative">
+              <Database className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/70 pointer-events-none" />
+              <select
+                value={selectedDb}
+                onChange={(e) => {
+                  setSelectedDbFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-border/80 bg-background/80 pl-8 pr-3 py-1.5 text-xs text-foreground transition-all focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+              >
+                <option value="">All Databases</option>
+                {databases.map((d) => (
+                  <option key={d.name} value={d.name}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Date Range */}
-          <div>
-            <select
-              value={dateRange}
-              onChange={(e) => {
-                setDateRange(e.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-            >
-              <option value="all">All Time</option>
-              <option value="today">Today</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-              <option value="custom">Custom Date Range</option>
-            </select>
+            {/* Date Range */}
+            <div className="relative">
+              <Calendar className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground/70 pointer-events-none" />
+              <select
+                value={dateRange}
+                onChange={(e) => {
+                  setDateRange(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border border-border/80 bg-background/80 pl-8 pr-3 py-1.5 text-xs text-foreground transition-all focus:border-cyan-500 focus:bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="custom">Custom Date Range</option>
+              </select>
+            </div>
           </div>
 
           {/* Custom Date Range Pickers */}
           {dateRange === "custom" && (
-            <>
-              <div>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    setPage(1);
-                  }}
-                  className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                />
-              </div>
-              <div>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    setPage(1);
-                  }}
-                  className="w-full rounded-lg border border-border/70 bg-background px-3 py-1.5 text-xs text-foreground focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                />
-              </div>
-            </>
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
+              <span className="text-xs font-medium text-muted-foreground">Custom Range:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setPage(1);
+                }}
+                className="rounded-lg border border-border/80 bg-background/80 px-3 py-1 text-xs text-foreground focus:border-cyan-500 focus:outline-none"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setPage(1);
+                }}
+                className="rounded-lg border border-border/80 bg-background/80 px-3 py-1 text-xs text-foreground focus:border-cyan-500 focus:outline-none"
+              />
+            </div>
           )}
         </div>
+
+        {/* Active Filter Chips Bar */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-border/50">
+            <span className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+              <Filter className="h-3 w-3 text-cyan-500" /> Active Filters:
+            </span>
+
+            {category !== "all" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-2.5 py-0.5 text-[11px] font-medium text-cyan-700 dark:text-cyan-300 border border-cyan-500/25">
+                <span>Category: {category === "db" ? "Database Alerts" : "DBA Console"}</span>
+                <button onClick={() => handleCategoryChange("all")} className="hover:opacity-70 transition-opacity">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {search && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-foreground border border-border/60">
+                <span>Search: &quot;{search}&quot;</span>
+                <button
+                  onClick={() => {
+                    setSearchInput("");
+                    setSearch("");
+                    setPage(1);
+                  }}
+                  className="hover:opacity-70 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {type !== "all" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-500/25">
+                <span>Type: {getTypeLabel(type)}</span>
+                <button onClick={() => { setType("all"); setPage(1); }} className="hover:opacity-70 transition-opacity">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {severity !== "all" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300 border border-amber-500/25">
+                <span className="capitalize">Severity: {severity}</span>
+                <button onClick={() => { setSeverity("all"); setPage(1); }} className="hover:opacity-70 transition-opacity">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {status !== "all" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                <span className="capitalize">Status: {status.replace("_", " ")}</span>
+                <button onClick={() => { setStatus("all"); setPage(1); }} className="hover:opacity-70 transition-opacity">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedDb && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-300 border border-purple-500/25">
+                <span>DB: {selectedDb}</span>
+                <button onClick={() => { setSelectedDbFilter(""); setPage(1); }} className="hover:opacity-70 transition-opacity">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
+            {dateRange !== "all" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 border border-indigo-500/25">
+                <span className="capitalize">Time: {dateRange}</span>
+                <button
+                  onClick={() => {
+                    setDateRange("all");
+                    setStartDate("");
+                    setEndDate("");
+                    setPage(1);
+                  }}
+                  className="hover:opacity-70 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Content Feed List */}
-      <div className="rounded-xl border border-border/70 bg-card shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-border/80 bg-card shadow-xs overflow-hidden">
         {error ? (
           <div className="flex flex-col items-center justify-center p-12 text-center">
             <XCircle className="h-10 w-10 text-red-500 mb-3" />
@@ -553,10 +692,10 @@ export function NotificationCenter() {
             </Button>
           </div>
         ) : loading ? (
-          <div className="p-6 space-y-4">
+          <div className="p-5 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-start gap-4 p-4 rounded-lg border border-border/40 bg-muted/20 animate-pulse">
-                <div className="h-8 w-8 rounded-lg bg-muted shrink-0" />
+              <div key={i} className="flex items-start gap-4 p-4 rounded-xl border border-border/40 bg-muted/20 animate-pulse">
+                <div className="h-9 w-9 rounded-xl bg-muted shrink-0" />
                 <div className="space-y-2 flex-1">
                   <div className="h-4 w-1/4 rounded bg-muted" />
                   <div className="h-3 w-3/4 rounded bg-muted" />
@@ -567,11 +706,11 @@ export function NotificationCenter() {
           </div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-16 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 mb-3">
-              <Bell className="h-7 w-7" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 mb-3 shadow-xs">
+              <Inbox className="h-7 w-7" />
             </div>
             <p className="text-base font-semibold text-foreground">No notifications found</p>
-            <p className="text-xs text-muted-foreground max-w-sm mt-1">
+            <p className="text-xs text-muted-foreground max-w-sm mt-1 leading-relaxed">
               No historical notifications match your current filter selection or search query.
             </p>
             {hasActiveFilters && (
@@ -584,20 +723,22 @@ export function NotificationCenter() {
           <div className="divide-y divide-border/40">
             {items.map((item) => {
               const ContentWrapper = item.targetPath ? Link : "div";
+              const isConsole = item.category === "console";
               return (
                 <ContentWrapper
                   key={item.id}
                   href={item.targetPath || "#"}
                   className={cn(
-                    "flex flex-col gap-3 p-4 sm:flex-row sm:items-start transition-colors hover:bg-muted/30 cursor-pointer"
+                    "flex flex-col gap-3 p-4 sm:flex-row sm:items-start transition-all duration-150 hover:bg-muted/30 cursor-pointer group relative",
+                    !item.read && (isConsole ? "bg-amber-500/[0.03] border-l-4 border-l-amber-500" : "bg-cyan-500/[0.03] border-l-4 border-l-cyan-500")
                   )}
                 >
                   {/* Category / Source Icon */}
                   <div className="flex shrink-0 items-center gap-3">
                     <div
                       className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm",
-                        item.category === "console"
+                        "flex h-9 w-9 items-center justify-center rounded-xl border shadow-xs transition-transform duration-200 group-hover:scale-105",
+                        isConsole
                           ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30"
                           : "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30"
                       )}
@@ -607,21 +748,23 @@ export function NotificationCenter() {
                   </div>
 
                   {/* Body Content */}
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      {!item.read && <span className="h-2 w-2 rounded-full bg-cyan-500 shrink-0" title="Unread" />}
+                      {!item.read && <span className="h-2 w-2 rounded-full bg-cyan-500 shrink-0 animate-pulse" title="Unread" />}
                       {getSeverityBadge(item.severity)}
                       {getStatusBadge(item.status)}
                       {item.db && (
-                        <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] font-semibold text-foreground border border-border/50">
+                        <span className="rounded-md bg-muted/80 px-2 py-0.5 font-mono text-[11px] font-semibold text-foreground border border-border/50">
                           {item.db}
                         </span>
                       )}
+
+                      {/* Read status without highlighted background */}
                       {item.read ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 dark:bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                          <Check className="h-3 w-3 text-emerald-500 shrink-0" />
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-normal">
+                          <Check className="h-3 w-3 text-emerald-500/80 shrink-0" />
                           <span>
-                            Read by <strong className="font-semibold">{item.readBy || "system"}</strong>
+                            Read by <span className="font-medium text-foreground/80">{item.readBy || "system"}</span>
                             {item.readAt && <> at {formatDate(item.readAt)}</>}
                           </span>
                         </span>
@@ -636,17 +779,20 @@ export function NotificationCenter() {
                             const nowIso = new Date().toISOString();
                             setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, read: true, readBy: i.readBy || storeUser, readAt: i.readAt || nowIso } : i)));
                           }}
-                          className="inline-flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-700 dark:text-cyan-300 transition-colors hover:bg-cyan-500/30"
+                          className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-300 transition-all hover:bg-cyan-500/20 hover:border-cyan-500/50 shadow-xs"
                         >
                           <Check className="h-3 w-3" /> Mark read
                         </button>
                       )}
-                      <span className="text-[11px] text-muted-foreground ml-auto">
+
+                      <span className="text-[11px] text-muted-foreground/80 ml-auto font-medium">
                         {formatDate(item.timestamp)}
                       </span>
                     </div>
 
-                    <h3 className="text-sm font-semibold text-foreground">{item.title}</h3>
+                    <h3 className="text-sm font-semibold text-foreground group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
+                      {item.title}
+                    </h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">{item.message}</p>
                   </div>
                 </ContentWrapper>
@@ -666,7 +812,7 @@ export function NotificationCenter() {
                   setPageSize(Number(e.target.value));
                   setPage(1);
                 }}
-                className="rounded border border-border/70 bg-background px-2 py-1 text-xs text-foreground focus:outline-none"
+                className="rounded-lg border border-border/70 bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-cyan-500"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
