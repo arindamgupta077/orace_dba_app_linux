@@ -356,7 +356,7 @@ function renderStructuredExecutionValue(value: unknown, title = "Result") {
     const text = formatExecutionValue(parsed);
     if (!text) return null;
     return (
-      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
+      <pre className="max-h-64 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-emerald-400 dark:text-cyan-300 shadow-inner">
         {text}
       </pre>
     );
@@ -366,7 +366,7 @@ function renderStructuredExecutionValue(value: unknown, title = "Result") {
     const rows = parsed.filter(isRecord);
     if (rows.length === parsed.length && rows.length) return renderExecutionTable(title, rows);
     return (
-      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
+      <pre className="max-h-64 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-emerald-400 dark:text-cyan-300 shadow-inner">
         {JSON.stringify(parsed, null, 2)}
       </pre>
     );
@@ -1113,7 +1113,7 @@ export function TablespaceAlertsPanel() {
             {sqlExecutionResult?.sql_command ? (
               <div className="grid gap-2">
                 <Label>Executed SQL</Label>
-                <pre className="max-h-40 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-cyan-50">
+                <pre className="max-h-40 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-cyan-300 shadow-inner">
                   {sqlExecutionResult.sql_command}
                 </pre>
               </div>
@@ -1130,7 +1130,7 @@ export function TablespaceAlertsPanel() {
             {sqlExecutionOutput ? (
               <div className="grid gap-2">
                 <Label>SQL output</Label>
-                <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-background/60 p-3 font-mono text-xs text-slate-100">
+                <pre className="max-h-64 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-emerald-400 dark:text-cyan-300 shadow-inner">
                   {sqlExecutionOutput}
                 </pre>
               </div>

@@ -404,12 +404,12 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
           <button
             type="button"
             onClick={() => setShowRawOutput(!showRawOutput)}
-            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-1"
+            className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 font-medium hover:underline flex items-center gap-1"
           >
             {showRawOutput ? "Hide" : "View"} Execution Output Details
           </button>
           {showRawOutput && (
-            <pre className="rounded-md border border-border/60 bg-black/60 p-3 text-[11px] font-mono text-emerald-300/90 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
+            <pre className="rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
               {result.raw_output}
             </pre>
           )}

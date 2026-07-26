@@ -38,6 +38,7 @@ interface AppState {
   triggerTablespaceRefresh: () => void;
   addNotification: (item: Omit<NotificationItem, "read">) => void;
   markNotificationRead: (id: string) => void;
+  markNotificationUnread: (id: string) => void;
   markAllNotificationsRead: (category?: "db" | "console") => void;
   clearNotifications: (category?: "db" | "console") => void;
   dismissNotification: (id: string) => void;
@@ -133,6 +134,10 @@ export const useAppStore = create<AppState>()(
       markNotificationRead: (id) =>
         set((state) => ({
           notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: true } : n))
+        })),
+      markNotificationUnread: (id) =>
+        set((state) => ({
+          notifications: state.notifications.map((n) => (String(n.id) === String(id) ? { ...n, read: false } : n))
         })),
       markAllNotificationsRead: (category) =>
         set((state) => ({

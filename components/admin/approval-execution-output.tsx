@@ -210,7 +210,7 @@ export function FormattedExecutionOutput({ rawOutput, className }: FormattedExec
           <button
             type="button"
             onClick={() => setShowRawJson((v) => !v)}
-            className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 transition-colors"
           >
             {showRawJson ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             {showRawJson ? "Hide Raw Response Payload" : "View Raw Response Payload"}

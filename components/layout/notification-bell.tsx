@@ -104,8 +104,10 @@ export function DatabaseAlertsBell() {
   const user = useAppStore((s) => s.user);
   const rawNotifications = useAppStore((s) => s.notifications);
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
+  const markNotificationUnread = useAppStore((s) => s.markNotificationUnread);
   const markAllNotificationsRead = useAppStore((s) => s.markAllNotificationsRead);
   const clearNotifications = useAppStore((s) => s.clearNotifications);
+  const dismissNotification = useAppStore((s) => s.dismissNotification);
   const setSelectedDb = useAppStore((s) => s.setSelectedDb);
 
   const notifications = rawNotifications.filter((n) => {
@@ -280,11 +282,11 @@ export function DatabaseAlertsBell() {
             <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
               <div className="divide-y divide-border/40">
                 {notifications.map((notif) => (
-                  <button
+                  <div
                     key={notif.id}
                     onClick={() => handleClick(notif)}
                     className={cn(
-                      "flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left transition-colors hover:bg-cyan-500/5",
+                      "group relative flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left transition-colors hover:bg-cyan-500/10 cursor-pointer",
                       severityBorderClass(notif.severity),
                       !notif.read ? "bg-cyan-500/10" : "bg-transparent"
                     )}
@@ -299,13 +301,47 @@ export function DatabaseAlertsBell() {
 
                     {/* Content */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-1">
+                      <div className="flex items-center justify-between gap-1">
                         <p className={cn("truncate text-xs font-semibold uppercase tracking-wider", severityTextClass(notif.severity))}>
                           {typeLabel(notif.type)}
                         </p>
-                        {!notif.read && (
-                          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-cyan-600 dark:bg-cyan-400" />
-                        )}
+
+                        {/* Action icons / Mark Read button */}
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {!notif.read ? (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationRead(notif.id)}
+                              title="Mark as read"
+                              className="flex items-center gap-1 rounded border border-cyan-500/40 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700 dark:text-cyan-300 transition-all hover:bg-cyan-500/30 hover:border-cyan-500/60"
+                            >
+                              <Check className="h-3 w-3" />
+                              <span>Mark read</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationUnread(notif.id)}
+                              title="Mark as unread"
+                              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+                            >
+                              <span>Mark unread</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => dismissNotification(notif.id)}
+                            title="Dismiss notification"
+                            className="opacity-0 group-hover:opacity-100 rounded p-1 text-muted-foreground transition-all hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-400"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+
+                          {!notif.read && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-600 dark:bg-cyan-400 group-hover:hidden" />
+                          )}
+                        </div>
                       </div>
                       <p className="mt-0.5 line-clamp-1 text-sm font-medium text-foreground">{notif.title}</p>
                       <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{notif.message}</p>
@@ -321,7 +357,7 @@ export function DatabaseAlertsBell() {
                         )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -349,8 +385,10 @@ export function DbaConsoleBell() {
 
   const rawNotifications = useAppStore((s) => s.notifications);
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
+  const markNotificationUnread = useAppStore((s) => s.markNotificationUnread);
   const markAllNotificationsRead = useAppStore((s) => s.markAllNotificationsRead);
   const clearNotifications = useAppStore((s) => s.clearNotifications);
+  const dismissNotification = useAppStore((s) => s.dismissNotification);
 
   const notifications = rawNotifications.filter((n) => n.type === "dba_shift");
 
@@ -468,11 +506,11 @@ export function DbaConsoleBell() {
             <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
               <div className="divide-y divide-border/40">
                 {notifications.map((notif) => (
-                  <button
+                  <div
                     key={notif.id}
                     onClick={() => handleClick(notif)}
                     className={cn(
-                      "flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left transition-colors hover:bg-amber-500/5",
+                      "group relative flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left transition-colors hover:bg-amber-500/10 cursor-pointer",
                       severityBorderClass(notif.severity),
                       !notif.read ? "bg-amber-500/10" : "bg-transparent"
                     )}
@@ -487,13 +525,47 @@ export function DbaConsoleBell() {
 
                     {/* Content */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-1">
+                      <div className="flex items-center justify-between gap-1">
                         <p className="truncate text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                           DBA Console Activity
                         </p>
-                        {!notif.read && (
-                          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
-                        )}
+
+                        {/* Action icons / Mark Read button */}
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {!notif.read ? (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationRead(notif.id)}
+                              title="Mark as read"
+                              className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 transition-all hover:bg-amber-500/30 hover:border-amber-500/60"
+                            >
+                              <Check className="h-3 w-3" />
+                              <span>Mark read</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationUnread(notif.id)}
+                              title="Mark as unread"
+                              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 rounded border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+                            >
+                              <span>Mark unread</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => dismissNotification(notif.id)}
+                            title="Dismiss notification"
+                            className="opacity-0 group-hover:opacity-100 rounded p-1 text-muted-foreground transition-all hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-400"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+
+                          {!notif.read && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400 group-hover:hidden" />
+                          )}
+                        </div>
                       </div>
                       <p className="mt-0.5 line-clamp-1 text-sm font-medium text-foreground">{notif.title}</p>
                       <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{notif.message}</p>
@@ -509,7 +581,7 @@ export function DbaConsoleBell() {
                         )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
