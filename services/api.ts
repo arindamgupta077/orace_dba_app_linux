@@ -196,6 +196,26 @@ export async function toggleAppUserStatus(userId: number) {
   });
 }
 
+/* ── Change Audit Log ────────────────────────────── */
+
+export interface ChangeAuditEntry {
+  changeId: number;
+  entityType: "DATABASE_INVENTORY" | "APP_USER";
+  entityId: number;
+  entityName: string;
+  action: "CREATE" | "UPDATE" | "DELETE" | "TOGGLE_STATUS";
+  changedBy: string;
+  changedAt: string;
+  fieldName?: string;
+  oldValue?: string;
+  newValue?: string;
+  changeSummary?: string;
+}
+
+export async function fetchChangeAuditLogs(entityType: "DATABASE_INVENTORY" | "APP_USER", limit: number = 500) {
+  return requestJson<{ items: ChangeAuditEntry[] }>(`/api/change-audit?entityType=${entityType}&limit=${limit}`);
+}
+
 export async function fetchDatabases(options: { selectorOnly?: boolean; logicalOnly?: boolean; prodOnly?: boolean } = {}) {
   const query = new URLSearchParams();
   if (options.selectorOnly) query.set("selector", "1");

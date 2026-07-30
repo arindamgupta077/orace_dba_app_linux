@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createAppUser, listAppUsers } from "@/lib/server/repository";
+import { createAppUser, insertChangeAuditLog, listAppUsers } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import type { AppUserRole } from "@/types/dba";
 
@@ -50,6 +50,15 @@ export async function POST(request: Request) {
       role: String(body.role || "client") as AppUserRole,
       initialPassword: String(body.initialPassword || ""),
       isActive: body.isActive !== false
+    });
+
+    await insertChangeAuditLog({
+      entityType: "APP_USER",
+      entityId: user.userId,
+      entityName: user.username,
+      action: "CREATE",
+      changedBy: auth.session!.user.username,
+      changeSummary: `Created user "${user.username}" (${user.email}) with role ${user.role}`
     });
 
     return NextResponse.json({ user }, { status: 201 });

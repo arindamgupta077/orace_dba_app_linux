@@ -1,7 +1,7 @@
 "use client";
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { DatabaseZap, Edit3, FileDown, FlaskConical, Loader2, Plus, Search, Trash2, SlidersHorizontal, X, RotateCcw, Columns3, Power, Server, Users, ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { DatabaseZap, Edit3, FileDown, FlaskConical, History, Loader2, Plus, Search, Trash2, SlidersHorizontal, X, RotateCcw, Columns3, Power, Server, Users, ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   changeDatabaseOwner,
   createDatabase,
@@ -35,6 +36,7 @@ import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 import type { AppUser, DatabaseInventoryInput, DatabaseInventoryItem, DbDivision, DbEdition, DbEnvironment, DbOs, DbServerType, DbType } from "@/types/dba";
 import { DB_DIVISION_OPTIONS, DB_EDITION_OPTIONS } from "@/types/dba";
+import { ChangeHistoryModal } from "@/components/admin/change-history-modal";
 
 const ENVIRONMENT_OPTIONS = ["Production", "non-production", "DR"];
 const OS_OPTIONS: DbOs[] = ["Linux", "Windows"];
@@ -201,6 +203,7 @@ export function DbInventory() {
   const [deleting, setDeleting] = useState<DatabaseInventoryItem | null>(null);
   const [form, setForm] = useState<InventoryFormState>(emptyForm);
   const [ownerId, setOwnerId] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const refreshSelectorDatabases = useCallback(async () => {
     const response = await fetchDatabases({ selectorOnly: true });
@@ -883,7 +886,7 @@ export function DbInventory() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold tracking-tight">{databases.length}</div>
+            {loading ? <Skeleton className="h-8 w-16 my-0.5" /> : <div className="text-2xl font-bold tracking-tight">{databases.length}</div>}
             <p className="text-[11px] text-muted-foreground mt-0.5">Total database entries</p>
           </CardContent>
         </Card>
@@ -898,7 +901,7 @@ export function DbInventory() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold tracking-tight">{clients.length}</div>
+            {loading ? <Skeleton className="h-8 w-16 my-0.5" /> : <div className="text-2xl font-bold tracking-tight">{clients.length}</div>}
             <p className="text-[11px] text-muted-foreground mt-0.5">Active client accounts</p>
           </CardContent>
         </Card>
@@ -913,7 +916,7 @@ export function DbInventory() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label === "PROD").length}</div>
+            {loading ? <Skeleton className="h-8 w-16 my-0.5" /> : <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label === "PROD").length}</div>}
             <p className="text-[11px] text-muted-foreground mt-0.5">Critical production systems</p>
           </CardContent>
         </Card>
@@ -928,7 +931,7 @@ export function DbInventory() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label !== "PROD").length}</div>
+            {loading ? <Skeleton className="h-8 w-16 my-0.5" /> : <div className="text-2xl font-bold tracking-tight">{databases.filter((db) => db.env_label !== "PROD").length}</div>}
             <p className="text-[11px] text-muted-foreground mt-0.5">DEV, UAT &amp; DR systems</p>
           </CardContent>
         </Card>
@@ -1008,6 +1011,17 @@ export function DbInventory() {
               >
                 <FileDown className="h-4 w-4" />
                 Export
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-10 border-violet-500/40 bg-violet-500/5 text-violet-300 hover:bg-violet-500/15 hover:border-violet-500/60 hover:text-violet-200 transition-colors"
+                onClick={() => setHistoryOpen(true)}
+                title="View change history"
+              >
+                <History className="h-4 w-4" />
+                History
               </Button>
 
               {hasActiveFilters && (
@@ -1217,9 +1231,45 @@ export function DbInventory() {
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex min-h-56 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin text-cyan-400" />
-              <span>Loading database inventory…</span>
+            <div className="overflow-auto">
+              <Table className="min-w-[1300px] text-sm">
+                <TableHeader>
+                  <TableRow className="border-b border-border/60 bg-muted/30 hover:bg-muted/30">
+                    {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key, label]) => (
+                      <TableHead
+                        key={key}
+                        className={cn(
+                          "text-xs font-bold uppercase tracking-wider py-3 whitespace-nowrap",
+                          key === "division" ? "text-violet-300" : "text-muted-foreground"
+                        )}
+                      >
+                        {label}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right text-xs font-bold uppercase tracking-wider py-3 text-muted-foreground pr-4">
+                      Actions
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: 6 }).map((_, rIdx) => (
+                    <TableRow key={rIdx} className="border-b border-border/30">
+                      {INVENTORY_COLUMNS.filter(([key]) => visibleColumns.includes(key)).map(([key]) => (
+                        <TableCell key={key} className="py-3.5 align-middle">
+                          <Skeleton className="h-4 w-20" />
+                        </TableCell>
+                      ))}
+                      <TableCell className="py-3.5 pr-4 align-middle">
+                        <div className="flex justify-end gap-1.5">
+                          <Skeleton className="h-7 w-7 rounded-md" />
+                          <Skeleton className="h-7 w-7 rounded-md" />
+                          <Skeleton className="h-7 w-7 rounded-md" />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="overflow-auto">
@@ -1411,6 +1461,12 @@ export function DbInventory() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ChangeHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="DATABASE_INVENTORY"
+      />
     </div>
   );
 }

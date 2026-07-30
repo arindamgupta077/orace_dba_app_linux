@@ -8,6 +8,7 @@ import {
   Edit3,
   FileCheck,
   Filter,
+  History,
   KeyRound,
   Loader2,
   Power,
@@ -40,10 +41,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { createAppUser, fetchAppUsers, removeAppUser, toggleAppUserStatus, updateAppUser } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { AppUser, AppUserRole } from "@/types/dba";
+import { ChangeHistoryModal } from "@/components/admin/change-history-modal";
 
 const ROLE_OPTIONS: Array<{ value: AppUserRole; label: string }> = [
   { value: "app_admin", label: "App Admin" },
@@ -156,6 +159,7 @@ export function AdminPanel() {
   const [deletingUser, setDeletingUser] = useState<AppUser | null>(null);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -433,7 +437,7 @@ export function AdminPanel() {
             <div className="space-y-0.5">
               <p className="text-xs font-medium text-muted-foreground">Total users</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight text-foreground">{users.length}</span>
+                {loading ? <Skeleton className="h-7 w-10 my-0.5" /> : <span className="text-2xl font-bold tracking-tight text-foreground">{users.length}</span>}
                 <span className="text-[11px] text-muted-foreground">registered</span>
               </div>
             </div>
@@ -446,7 +450,7 @@ export function AdminPanel() {
             <div className="space-y-0.5">
               <p className="text-xs font-medium text-muted-foreground">App admins</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight text-purple-600 dark:text-purple-400">{appAdminCount}</span>
+                {loading ? <Skeleton className="h-7 w-10 my-0.5" /> : <span className="text-2xl font-bold tracking-tight text-purple-600 dark:text-purple-400">{appAdminCount}</span>}
                 <span className="text-[11px] text-muted-foreground">full access</span>
               </div>
             </div>
@@ -459,7 +463,7 @@ export function AdminPanel() {
             <div className="space-y-0.5">
               <p className="text-xs font-medium text-muted-foreground">DBA admins</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight text-cyan-600 dark:text-cyan-400">{dbaAdminCount}</span>
+                {loading ? <Skeleton className="h-7 w-10 my-0.5" /> : <span className="text-2xl font-bold tracking-tight text-cyan-600 dark:text-cyan-400">{dbaAdminCount}</span>}
                 <span className="text-[11px] text-muted-foreground">database ops</span>
               </div>
             </div>
@@ -472,7 +476,7 @@ export function AdminPanel() {
             <div className="space-y-0.5">
               <p className="text-xs font-medium text-muted-foreground">Client users</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight text-indigo-600 dark:text-indigo-400">{clientCount}</span>
+                {loading ? <Skeleton className="h-7 w-10 my-0.5" /> : <span className="text-2xl font-bold tracking-tight text-indigo-600 dark:text-indigo-400">{clientCount}</span>}
                 <span className="text-[11px] text-muted-foreground">standard</span>
               </div>
             </div>
@@ -532,6 +536,17 @@ export function AdminPanel() {
                   </SelectContent>
                 </Select>
 
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs gap-1.5 border-violet-500/40 bg-violet-500/5 text-violet-300 hover:bg-violet-500/15 hover:border-violet-500/60 hover:text-violet-200 transition-colors"
+                  onClick={() => setHistoryOpen(true)}
+                  title="View change history"
+                >
+                  <History className="h-3.5 w-3.5" />
+                  History
+                </Button>
+
                 {isFiltered && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -553,9 +568,65 @@ export function AdminPanel() {
 
           <CardContent className="p-0">
             {loading ? (
-              <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" />
-                Loading application users...
+              <div className="relative overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/40">
+                    <TableRow className="hover:bg-transparent border-b border-border/60">
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        User
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        Role
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        Status
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        Last Login
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        Updated
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-right text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        Actions
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Array.from({ length: 5 }).map((_, rIdx) => (
+                      <TableRow key={rIdx} className="border-b border-border/40">
+                        <TableCell className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                            <div className="space-y-1">
+                              <Skeleton className="h-4 w-28" />
+                              <Skeleton className="h-3 w-36" />
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <Skeleton className="h-5 w-20 rounded-full" />
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <Skeleton className="h-5 w-16 rounded-full" />
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <Skeleton className="h-3.5 w-24" />
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <Skeleton className="h-3.5 w-24" />
+                        </TableCell>
+                        <TableCell className="py-3 px-4 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Skeleton className="h-7 w-7 rounded-md" />
+                            <Skeleton className="h-7 w-7 rounded-md" />
+                            <Skeleton className="h-7 w-7 rounded-md" />
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             ) : (
               <div className="relative overflow-x-auto">
@@ -841,6 +912,12 @@ export function AdminPanel() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <ChangeHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        entityType="APP_USER"
+      />
     </TooltipProvider>
   );
 }

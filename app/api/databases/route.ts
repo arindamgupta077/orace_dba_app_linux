@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   createDatabaseInventory,
   insertAuditLog,
+  insertChangeAuditLog,
   listDatabaseInventory
 } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -80,6 +81,15 @@ export async function POST(request: Request) {
       status: "success",
       detail: `Created database inventory record for ${database.name}.`,
       metadata: { database_id: database.id, owner_id: database.owner_id }
+    });
+
+    await insertChangeAuditLog({
+      entityType: "DATABASE_INVENTORY",
+      entityId: database.id,
+      entityName: database.name,
+      action: "CREATE",
+      changedBy: auth.session!.user.username,
+      changeSummary: `Created database "${database.name}" (ID: ${database.id})`
     });
 
     return NextResponse.json({ database }, { status: 201 });

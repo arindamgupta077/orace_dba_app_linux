@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { removeAppUser, revokeUserSessions, toggleAppUserStatus, updateAppUser } from "@/lib/server/repository";
+import { getAppUserById, insertChangeAuditLog, removeAppUser, revokeUserSessions, toggleAppUserStatus, updateAppUser } from "@/lib/server/repository";
 import { invalidateSessionCacheForUser, requireAuthenticatedSession } from "@/lib/server/session";
 import type { AppUserRole } from "@/types/dba";
 
@@ -54,6 +54,9 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
 
+    // Fetch old user data before update for field-level diff tracking
+    const oldUser = await getAppUserById(userId);
+
     const user = await updateAppUser({
       userId,
       username: String(body.username || ""),
@@ -65,6 +68,30 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (auth.session?.userId !== user.userId) {
       await revokeUserSessions(user.userId);
       invalidateSessionCacheForUser(user.userId);
+    }
+
+    // Compute field-level diffs for change audit
+    if (oldUser) {
+      const fieldMap: Array<{ field: string; oldVal: string; newVal: string }> = [
+        { field: "username", oldVal: oldUser.username, newVal: user.username },
+        { field: "email", oldVal: oldUser.email, newVal: user.email },
+        { field: "role", oldVal: oldUser.role, newVal: user.role },
+        { field: "is_active", oldVal: String(oldUser.isActive), newVal: String(user.isActive) }
+      ];
+      const changes = fieldMap
+        .filter((f) => f.oldVal !== f.newVal)
+        .map((f) => ({ field: f.field, oldValue: f.oldVal, newValue: f.newVal }));
+
+      if (changes.length > 0) {
+        await insertChangeAuditLog({
+          entityType: "APP_USER",
+          entityId: user.userId,
+          entityName: user.username,
+          action: "UPDATE",
+          changedBy: auth.session!.user.username,
+          changes
+        });
+      }
     }
 
     return NextResponse.json({ user });
@@ -87,9 +114,21 @@ export async function DELETE(_request: Request, context: RouteContext) {
       );
     }
 
+    // Fetch user info before deletion for audit
+    const oldUser = await getAppUserById(userId);
+
     await revokeUserSessions(userId);
     invalidateSessionCacheForUser(userId);
     await removeAppUser(userId);
+
+    await insertChangeAuditLog({
+      entityType: "APP_USER",
+      entityId: userId,
+      entityName: oldUser?.username || String(userId),
+      action: "DELETE",
+      changedBy: auth.session!.user.username,
+      changeSummary: `Deleted user "${oldUser?.username || userId}" (${oldUser?.email || "unknown"})`
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -117,6 +156,20 @@ export async function PUT(_request: Request, context: RouteContext) {
       await revokeUserSessions(user.userId);
       invalidateSessionCacheForUser(user.userId);
     }
+
+    await insertChangeAuditLog({
+      entityType: "APP_USER",
+      entityId: user.userId,
+      entityName: user.username,
+      action: "TOGGLE_STATUS",
+      changedBy: auth.session!.user.username,
+      changes: [{
+        field: "is_active",
+        oldValue: user.isActive ? "false" : "true",
+        newValue: String(user.isActive)
+      }],
+      changeSummary: `Toggled user "${user.username}" status to ${user.isActive ? "active" : "inactive"}`
+    });
 
     return NextResponse.json({ user });
   } catch (error) {

@@ -2143,6 +2143,165 @@ export async function insertAuditLog(input: {
   }
 }
 
+/* ── Change Audit Log (field-level change tracking) ──────────────────── */
+
+export type ChangeAuditEntityType = "DATABASE_INVENTORY" | "APP_USER";
+export type ChangeAuditAction = "CREATE" | "UPDATE" | "DELETE" | "TOGGLE_STATUS";
+
+export interface ChangeAuditEntry {
+  changeId: number;
+  entityType: ChangeAuditEntityType;
+  entityId: number;
+  entityName: string;
+  action: ChangeAuditAction;
+  changedBy: string;
+  changedAt: string;
+  fieldName?: string;
+  oldValue?: string;
+  newValue?: string;
+  changeSummary?: string;
+}
+
+/**
+ * Insert one or more rows into APP_CHANGE_AUDIT_LOG.
+ *
+ * For UPDATE actions, pass `changes` — an array of field-level diffs.
+ * For CREATE / DELETE / TOGGLE_STATUS, a single summary row is inserted.
+ */
+export async function insertChangeAuditLog(input: {
+  entityType: ChangeAuditEntityType;
+  entityId: number;
+  entityName: string;
+  action: ChangeAuditAction;
+  changedBy: string;
+  changes?: Array<{ field: string; oldValue?: string; newValue?: string }>;
+  changeSummary?: string;
+}): Promise<void> {
+  try {
+    await executeOne(async (connection) => {
+      if (input.action === "UPDATE" && input.changes?.length) {
+        // One row per changed field
+        for (const change of input.changes) {
+          await connection.execute(
+            `INSERT INTO app_change_audit_log (
+               entity_type, entity_id, entity_name, action, changed_by,
+               field_name, old_value, new_value, change_summary
+             ) VALUES (
+               :entityType, :entityId, :entityName, :action, :changedBy,
+               :fieldName, :oldValue, :newValue, :changeSummary
+             )`,
+            {
+              entityType: input.entityType,
+              entityId: input.entityId,
+              entityName: String(input.entityName || "").slice(0, 256),
+              action: input.action,
+              changedBy: String(input.changedBy || "").slice(0, 128),
+              fieldName: String(change.field || "").slice(0, 64),
+              oldValue: change.oldValue != null ? String(change.oldValue).slice(0, 4000) : null,
+              newValue: change.newValue != null ? String(change.newValue).slice(0, 4000) : null,
+              changeSummary: `${change.field}: "${change.oldValue ?? ""}" → "${change.newValue ?? ""}"`
+            },
+            { autoCommit: false }
+          );
+        }
+        await connection.commit();
+      } else {
+        // Single summary row for CREATE / DELETE / TOGGLE_STATUS
+        const summary =
+          input.changeSummary ||
+          `${input.action} ${input.entityType.toLowerCase().replace("_", " ")} "${input.entityName}"`;
+        await connection.execute(
+          `INSERT INTO app_change_audit_log (
+             entity_type, entity_id, entity_name, action, changed_by,
+             field_name, old_value, new_value, change_summary
+           ) VALUES (
+             :entityType, :entityId, :entityName, :action, :changedBy,
+             NULL, :oldValue, :newValue, :changeSummary
+           )`,
+          {
+            entityType: input.entityType,
+            entityId: input.entityId,
+            entityName: String(input.entityName || "").slice(0, 256),
+            action: input.action,
+            changedBy: String(input.changedBy || "").slice(0, 128),
+            oldValue: input.action === "DELETE" ? input.entityName : null,
+            newValue: input.action === "CREATE" ? input.entityName : null,
+            changeSummary: summary.slice(0, 4000)
+          },
+          { autoCommit: true }
+        );
+      }
+    });
+  } catch (error) {
+    console.error(
+      `[Change Audit Log Insert Failed] entity: ${input.entityType}/${input.entityId}, action: ${input.action}, error:`,
+      error instanceof Error ? error.message : error
+    );
+  }
+}
+
+/**
+ * Query APP_CHANGE_AUDIT_LOG filtered by entity type and optionally entity id.
+ */
+export async function listChangeAuditLogs(
+  entityType: ChangeAuditEntityType,
+  limit: number = 500
+): Promise<ChangeAuditEntry[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 10000);
+
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT
+           change_id, entity_type, entity_id, entity_name, action,
+           changed_by, changed_at, field_name, old_value, new_value,
+           change_summary
+         FROM app_change_audit_log
+         WHERE entity_type = :entityType
+         ORDER BY changed_at DESC, change_id DESC
+         FETCH FIRST :lim ROWS ONLY`,
+        { entityType, lim: safeLimit }
+      );
+
+      return (result.rows || []).map((row) => ({
+        changeId: Number(row.CHANGE_ID),
+        entityType: String(row.ENTITY_TYPE) as ChangeAuditEntityType,
+        entityId: Number(row.ENTITY_ID),
+        entityName: String(row.ENTITY_NAME || ""),
+        action: String(row.ACTION) as ChangeAuditAction,
+        changedBy: String(row.CHANGED_BY),
+        changedAt: toIstIsoString(row.CHANGED_AT),
+        fieldName: row.FIELD_NAME ? String(row.FIELD_NAME) : undefined,
+        oldValue: row.OLD_VALUE ? String(row.OLD_VALUE) : undefined,
+        newValue: row.NEW_VALUE ? String(row.NEW_VALUE) : undefined,
+        changeSummary: row.CHANGE_SUMMARY ? String(row.CHANGE_SUMMARY) : undefined
+      }));
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      throw error;
+    }
+  });
+}
+
+/**
+ * Fetch a single app user by ID. Returns null if not found.
+ */
+export async function getAppUserById(userId: number): Promise<AppUser | null> {
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         user_id, username, email, role, is_active,
+         must_change_password, failed_login_count, locked_until,
+         last_login_at, created_at, updated_at
+       FROM app_users
+       WHERE user_id = :userId`,
+      { userId }
+    );
+    const row = result.rows?.[0];
+    return row ? mapAppUserRow(row) : null;
+  });
+}
+
 export async function listAuditLogs(
   limit?: number,
   input: { role?: UserRole; userId?: number; offset?: number; startDate?: string; endDate?: string } = {}
