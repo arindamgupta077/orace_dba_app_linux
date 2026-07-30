@@ -1,27 +1,37 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
+  Activity,
   AlertTriangle,
+  ArrowRight,
   Bot,
   CheckCircle2,
   ChevronRight,
   Copy,
   Database,
+  Download,
+  HardDrive,
   Maximize2,
   MessageSquare,
   Minimize2,
+  PanelRightClose,
+  PanelRightOpen,
+  Search,
   Send,
+  Shield,
+  ShieldCheck,
   Sparkles,
   Terminal,
   UserRound,
+  Users,
   X,
   XCircle,
-  Download
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,18 +42,283 @@ import { cn } from "@/lib/utils";
 import type { ChatMessage, DatabaseTarget } from "@/types/dba";
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants & Suggested Prompts Catalog
 // ---------------------------------------------------------------------------
 
-const SUGGESTED_PROMPTS = [
-  "Show all tablespaces and their usage",
-  "List active sessions right now",
-  "Find blocking locks in the database",
-  "Show top 10 long running queries",
-  "What is the RMAN backup status for the last 7 days?",
-  "Show invalid objects in APPS schema",
-  "Check CPU and memory usage",
-  "List all wait events"
+export type PromptTypeFilter = "all" | "action" | "query";
+
+export type SuggestedCategory =
+  | "All"
+  | "Actions"
+  | "Performance"
+  | "Storage"
+  | "Sessions"
+  | "Backup & Health"
+  | "Security & Objects";
+
+export interface SuggestedPromptItem {
+  id: string;
+  type: "action" | "query";
+  category: Exclude<SuggestedCategory, "All">;
+  shortTitle: string;
+  prompt: string;
+  description: string;
+  oracleViews: string;
+  badgeColor?: string;
+}
+
+export const SUGGESTED_CATEGORIES: { id: SuggestedCategory; label: string; icon: React.ElementType }[] = [
+  { id: "All", label: "All Topics", icon: Sparkles },
+  { id: "Actions", label: "⚡ Executable Actions", icon: Zap },
+  { id: "Performance", label: "Performance & SQL", icon: Activity },
+  { id: "Storage", label: "Storage & Space", icon: HardDrive },
+  { id: "Sessions", label: "Sessions & Memory", icon: Users },
+  { id: "Backup & Health", label: "Backup & Health", icon: ShieldCheck },
+  { id: "Security & Objects", label: "Security & Objects", icon: Shield },
+];
+
+export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
+  // ⚡ Executable Database Activities (Require DBA approval in n8n)
+  {
+    id: "act-1",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Kill Blocking Session",
+    prompt: "Kill blocking session SID 142 serial# 5210",
+    description: "Generates ALTER SYSTEM KILL SESSION command with mandatory DBA review",
+    oracleViews: "ALTER SYSTEM KILL SESSION",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-2",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Add Datafile to Tablespace",
+    prompt: "Add a 10GB datafile to USERS tablespace with autoextend enabled",
+    description: "Expands tablespace storage by creating and attaching a new datafile",
+    oracleViews: "ALTER TABLESPACE ADD DATAFILE",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-3",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Recompile Invalid Objects",
+    prompt: "Recompile all invalid packages, procedures, and views in APPS schema",
+    description: "Executes parallel recompilation for invalid schema packages and triggers",
+    oracleViews: "UTL_RECOMP.RECOMP_PARALLEL",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-4",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Gather Optimizer Statistics",
+    prompt: "Gather optimizer statistics for table ORDERS in APPS schema with cascade",
+    description: "Runs DBMS_STATS.GATHER_TABLE_STATS for updated CBO query plans",
+    oracleViews: "DBMS_STATS.GATHER_TABLE_STATS",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-5",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Flush Shared Pool",
+    prompt: "Flush shared pool to clear invalid cursor cache and bad execution plans",
+    description: "Purges cached execution plans and SQL statements from SGA shared pool",
+    oracleViews: "ALTER SYSTEM FLUSH SHARED_POOL",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-6",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Unlock Account & Expire Password",
+    prompt: "Unlock user account HR and expire password for security reset",
+    description: "Unlocks locked database user account and forces password reset on next login",
+    oracleViews: "ALTER USER ACCOUNT UNLOCK",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-7",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Trigger RMAN Database Backup",
+    prompt: "Take an immediate RMAN full database backup including archivelogs",
+    description: "Dispatches RMAN backup command for database files and archived redo logs",
+    oracleViews: "EXEC RMAN BACKUP DATABASE",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+  {
+    id: "act-8",
+    type: "action",
+    category: "Actions",
+    shortTitle: "Trigger Data Pump Export",
+    prompt: "Start a schema Data Pump export (expdp) for SCOTT schema to DATA_PUMP_DIR",
+    description: "Launches Oracle Data Pump export job via DBMS_DATAPUMP API",
+    oracleViews: "DBMS_DATAPUMP.OPEN",
+    badgeColor: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  },
+
+  // 🔍 Diagnostic Read-Only Queries
+  {
+    id: "perf-1",
+    type: "query",
+    category: "Performance",
+    shortTitle: "Blocking Locks",
+    prompt: "Find blocking sessions and lock details in the database",
+    description: "Identify session SIDs, lock types, blocked wait trees, and holding queries",
+    oracleViews: "V$LOCK, V$SESSION",
+    badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+  },
+  {
+    id: "perf-2",
+    type: "query",
+    category: "Performance",
+    shortTitle: "Top SQL by CPU & I/O",
+    prompt: "Show top 10 SQL queries consuming highest CPU and disk reads",
+    description: "Retrieve SQL ID, execution count, CPU time, buffer gets, and SQL text",
+    oracleViews: "V$SQL, V$SQLAREA",
+    badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+  },
+  {
+    id: "perf-3",
+    type: "query",
+    category: "Performance",
+    shortTitle: "Long Running Operations",
+    prompt: "Show long running operations currently in progress",
+    description: "Track progress percentage, elapsed time, remaining time, and target tables",
+    oracleViews: "V$SESSION_LONGOPS",
+    badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+  },
+  {
+    id: "perf-4",
+    type: "query",
+    category: "Performance",
+    shortTitle: "Top System Wait Events",
+    prompt: "List top database wait events and system wait statistics right now",
+    description: "Identify wait classes, total waits, and time waited in seconds",
+    oracleViews: "V$SYSTEM_EVENT, V$SESSION_WAIT",
+    badgeColor: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+  },
+
+  // Storage & Space
+  {
+    id: "storage-1",
+    type: "query",
+    category: "Storage",
+    shortTitle: "Tablespace Free Space",
+    prompt: "Show all tablespaces, total allocated size, free space, and usage percentage",
+    description: "Summary of used MB, free MB, max size, and percent free per tablespace",
+    oracleViews: "DBA_TABLESPACES, DBA_DATA_FILES, DBA_FREE_SPACE",
+    badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  },
+  {
+    id: "storage-2",
+    type: "query",
+    category: "Storage",
+    shortTitle: "Full & Autoextend Files",
+    prompt: "Find datafiles near full capacity or with autoextend disabled",
+    description: "Check file name, allocated size, max size, and autoextensible status",
+    oracleViews: "DBA_DATA_FILES",
+    badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  },
+  {
+    id: "storage-3",
+    type: "query",
+    category: "Storage",
+    shortTitle: "TEMP Space & Sort Usage",
+    prompt: "Check TEMP tablespace usage and active sort segments by session",
+    description: "Identify sessions allocating temporary segments and sort blocks",
+    oracleViews: "V$SORT_USAGE, V$TEMP_SPACE_HEADER",
+    badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  },
+  {
+    id: "storage-4",
+    type: "query",
+    category: "Storage",
+    shortTitle: "ASM Diskgroups",
+    prompt: "Show ASM diskgroups total capacity, free space, and redundancy state",
+    description: "Disk group health, total GB, usable free GB, and offline disks",
+    oracleViews: "V$ASM_DISKGROUP",
+    badgeColor: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  },
+
+  // Sessions & Memory
+  {
+    id: "sessions-1",
+    type: "query",
+    category: "Sessions",
+    shortTitle: "Active User Sessions",
+    prompt: "List active user sessions with username, machine, program, and current SQL",
+    description: "Filter non-background active user sessions with connection details",
+    oracleViews: "V$SESSION, V$SQL",
+    badgeColor: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+  },
+  {
+    id: "sessions-2",
+    type: "query",
+    category: "Sessions",
+    shortTitle: "Top PGA / Memory Usage",
+    prompt: "Find top 10 sessions consuming maximum PGA and UGA memory",
+    description: "Process memory consumption by session SID, username, and OS process ID",
+    oracleViews: "V$PROCESS, V$SESSION",
+    badgeColor: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+  },
+
+  // Backup & Health
+  {
+    id: "backup-1",
+    type: "query",
+    category: "Backup & Health",
+    shortTitle: "RMAN Backup Status",
+    prompt: "Check RMAN backup summary and execution status for the last 7 days",
+    description: "Status and duration of full, incremental, and archivelog backups",
+    oracleViews: "V$RMAN_STATUS, V$RMAN_BACKUP_JOB_DETAILS",
+    badgeColor: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+  },
+  {
+    id: "backup-2",
+    type: "query",
+    category: "Backup & Health",
+    shortTitle: "Data Guard Standby Sync",
+    prompt: "Check Data Guard standby synchronization gap and apply lag",
+    description: "Transport lag, apply lag, and missing archived log sequences",
+    oracleViews: "V$DATAGUARD_STATS, V$MANAGED_STANDBY",
+    badgeColor: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+  },
+
+  // Security & Objects
+  {
+    id: "security-1",
+    type: "query",
+    category: "Security & Objects",
+    shortTitle: "Invalid Objects Summary",
+    prompt: "Show invalid objects in database grouped by owner schema and object type",
+    description: "Packages, procedures, triggers, and views needing compilation",
+    oracleViews: "DBA_OBJECTS",
+    badgeColor: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300"
+  },
+  {
+    id: "security-2",
+    type: "query",
+    category: "Security & Objects",
+    shortTitle: "Locked & Expired Users",
+    prompt: "Show locked user accounts, expired passwords, and password change dates",
+    description: "User account status, lock date, profile, and expiry date",
+    oracleViews: "DBA_USERS",
+    badgeColor: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300"
+  },
+  {
+    id: "security-3",
+    type: "query",
+    category: "Security & Objects",
+    shortTitle: "DBA & SYSDBA Privileges",
+    prompt: "List users granted SYSDBA privilege or DBA role in the database",
+    description: "Audit user accounts holding administrative privileges",
+    oracleViews: "DBA_ROLE_PRIVS, V$PWFILE_USERS",
+    badgeColor: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300"
+  }
 ];
 
 const POLL_INTERVAL_MS = 1500;
@@ -447,6 +722,12 @@ export function ChatWithDb() {
   // session that has a submitted approval in-flight
   const [submittingSessionId, setSubmittingSessionId] = useState<string | null>(null);
 
+  // DB Prompts & Actions sidebar drawer state
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [promptTypeFilter, setPromptTypeFilter] = useState<PromptTypeFilter>("all");
+  const [activeCategory, setActiveCategory] = useState<SuggestedCategory>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -455,6 +736,22 @@ export function ChatWithDb() {
   const scrollToBottom = useCallback(() => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 60);
   }, []);
+
+  // Filtered prompts based on type, category, and search
+  const filteredPrompts = useMemo(() => {
+    return SUGGESTED_PROMPTS.filter((item) => {
+      const matchesType = promptTypeFilter === "all" || item.type === promptTypeFilter;
+      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+      const q = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        item.shortTitle.toLowerCase().includes(q) ||
+        item.prompt.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
+        item.oracleViews.toLowerCase().includes(q);
+      return matchesType && matchesCategory && matchesSearch;
+    });
+  }, [promptTypeFilter, activeCategory, searchQuery]);
 
   const handleDownloadChat = useCallback(() => {
     if (messages.length === 0) return;
@@ -824,7 +1121,7 @@ export function ChatWithDb() {
   // ---------------------------------------------------------------------------
   return (
     <>
-      {/* Fix #4: Fullscreen backdrop overlay */}
+      {/* Fullscreen backdrop overlay */}
       {isFullscreen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 dark:bg-black/70 backdrop-blur-sm"
@@ -834,166 +1131,352 @@ export function ChatWithDb() {
 
       <div
         className={cn(
-          "flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl dark:border-slate-700/50 dark:bg-slate-900/60 dark:shadow-2xl dark:shadow-black/40 dark:backdrop-blur-xl transition-all duration-300",
+          "flex overflow-hidden rounded-2xl border border-border bg-card shadow-xl dark:border-slate-700/50 dark:bg-slate-900/60 dark:shadow-2xl dark:shadow-black/40 dark:backdrop-blur-xl transition-all duration-300",
           isFullscreen
             ? "fixed inset-4 z-50 h-auto"
             : "h-[calc(100vh-10rem)]"
         )}
       >
 
-        {/* ── Header ── */}
-        <div className="relative border-b border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 px-5 py-3.5">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 dark:via-cyan-400/50 to-transparent" />
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/10 border border-cyan-500/30 shadow-[0_0_18px_rgba(6,182,212,0.15)] dark:shadow-[0_0_18px_rgba(6,182,212,0.25)]">
-                <Terminal className="h-4.5 w-4.5 text-cyan-600 dark:text-cyan-300" />
-                <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 dark:bg-emerald-400 border border-card dark:border-slate-900" />
-                </span>
-              </div>
-              <div className="leading-tight">
-                <h2 className="text-sm font-semibold bg-gradient-to-r from-cyan-600 to-foreground dark:from-cyan-200 dark:to-slate-100 bg-clip-text text-transparent">
-                  Chat with DB
-                </h2>
-                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="inline-block h-1 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-                  AI online · Ask in plain English
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {pollingSessionId && (
-                <span className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-600 dark:border-amber-500/30 dark:text-amber-400">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400" />
-                  Waiting for unsafe query review…
-                </span>
-              )}
-              <div className="flex items-center gap-1.5 rounded-full border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 px-3 py-1.5 text-[11px]">
-                <Database className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
-                <span className="font-medium text-foreground dark:text-slate-200">{selectedDb}</span>
-                <span className="text-muted-foreground/50 dark:text-slate-600">·</span>
-                <span>{dbTarget?.env_label ?? "PROD"}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleDownloadChat}
-                title="Download chat history"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </button>
-              {/* Fix #4: Fullscreen toggle button */}
-              <button
-                type="button"
-                onClick={() => setIsFullscreen((f) => !f)}
-                title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="h-3.5 w-3.5" />
-                ) : (
-                  <Maximize2 className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Suggested prompts strip ── */}
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 dark:border-slate-800/60 dark:bg-slate-900/40 px-4 py-2.5 scrollbar-none">
-          <span className="hidden shrink-0 items-center gap-1 pr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-slate-600 sm:flex">
-            <Sparkles className="h-3 w-3 text-cyan-600/70 dark:text-cyan-500/70" />
-            Try
-          </span>
-          {SUGGESTED_PROMPTS.map((prompt) => (
-            <button
-              key={prompt}
-              onClick={() => sendQuery(prompt)}
-              disabled={isLoading}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-secondary text-muted-foreground dark:border-slate-700/50 dark:bg-slate-800/50 dark:text-slate-400 px-3 py-1 text-[11px] transition-all hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-700 dark:hover:text-cyan-200 hover:shadow-[0_0_12px_rgba(6,182,212,0.15)] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Sparkles className="h-3 w-3 text-cyan-600/60 dark:text-cyan-500/60 transition-colors group-hover:text-cyan-300" />
-              {prompt}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Messages ── */}
-        <ScrollArea className="relative flex-1 px-4 py-4">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 to-transparent dark:from-slate-900/80" />
-          <div className="relative space-y-5">
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                onDecision={handleDecision}
-                submittingSessionId={submittingSessionId}
-              />
-            ))}
-            <div ref={bottomRef} />
-          </div>
-        </ScrollArea>
-
-        {/* ── Input area ── */}
-        <div className="border-t border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 p-4">
-          <form onSubmit={handleSubmit}>
-            <div className="flex items-center gap-3 rounded-xl border border-border bg-secondary/60 dark:border-slate-700/60 dark:bg-slate-800/50 px-4 py-3 transition-all focus-within:border-cyan-500/50 focus-within:bg-secondary dark:focus-within:bg-slate-800/70 focus-within:shadow-[0_0_0_1px_rgba(6,182,212,0.25),0_0_24px_rgba(6,182,212,0.12)]">
-              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground transition-colors focus-within:text-cyan-600 dark:focus-within:text-cyan-400" />
-              <Textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask anything about your Oracle DB…  (Shift+Enter for new line)"
-                rows={1}
-                disabled={isLoading}
-                className="min-h-0 flex-1 resize-none border-none bg-transparent p-0 text-sm text-foreground dark:text-slate-100 placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isLoading || !input.trim()}
-                className="h-8 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 px-3.5 text-white shadow-[0_0_16px_rgba(6,182,212,0.25)] transition-all hover:from-cyan-500 hover:to-blue-500 hover:shadow-[0_0_22px_rgba(6,182,212,0.4)] disabled:from-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-700 disabled:shadow-none disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:300ms]" />
+        {/* ── Main Chat Container (Clean Chat Window) ── */}
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+          {/* Header */}
+          <div className="relative border-b border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 px-5 py-3.5">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 dark:via-cyan-400/50 to-transparent" />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/10 border border-cyan-500/30 shadow-[0_0_18px_rgba(6,182,212,0.15)] dark:shadow-[0_0_18px_rgba(6,182,212,0.25)]">
+                  <Terminal className="h-4.5 w-4.5 text-cyan-600 dark:text-cyan-300" />
+                  <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 dark:bg-emerald-400 border border-card dark:border-slate-900" />
                   </span>
-                ) : (
-                  <>
-                    <Send className="h-3.5 w-3.5" />
-                    Send
-                  </>
+                </div>
+                <div className="leading-tight">
+                  <h2 className="text-sm font-semibold bg-gradient-to-r from-cyan-600 to-foreground dark:from-cyan-200 dark:to-slate-100 bg-clip-text text-transparent">
+                    Chat with DB
+                  </h2>
+                  <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="inline-block h-1 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+                    AI Online · Text-to-SQL & DB Activities via n8n
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {pollingSessionId && (
+                  <span className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-600 dark:border-amber-500/30 dark:text-amber-400">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400" />
+                    Waiting for unsafe query review…
+                  </span>
                 )}
-              </Button>
-            </div>
-            {/* Fix #5: Center-aligned footer text */}
-            <div className="mt-2 flex items-center justify-center gap-4 px-1">
-              <p className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600">
-                <ChevronRight className="h-3 w-3" />
-                Results are AI-generated · Always review before acting
-              </p>
-              {messages.length > 1 && (
+                <div className="flex items-center gap-1.5 rounded-full border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 px-3 py-1.5 text-[11px]">
+                  <Database className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
+                  <span className="font-medium text-foreground dark:text-slate-200">{selectedDb}</span>
+                  <span className="text-muted-foreground/50 dark:text-slate-600">·</span>
+                  <span>{dbTarget?.env_label ?? "PROD"}</span>
+                </div>
+
+                {/* Sidebar drawer toggle button */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setMessages([buildWelcomeMessage(selectedDb, dbTarget)]);
-                    // Also clear sessionStorage for this DB
-                    try { sessionStorage.removeItem(CHAT_STORAGE_PREFIX + selectedDb); } catch {}
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600 transition hover:text-amber-600 dark:hover:text-amber-400"
+                  onClick={() => setSidebarOpen((s) => !s)}
+                  title={sidebarOpen ? "Hide Prompts & Actions sidebar" : "Show Prompts & Actions sidebar"}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all",
+                    sidebarOpen
+                      ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300"
+                      : "border-border bg-secondary text-muted-foreground hover:bg-muted dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300"
+                  )}
                 >
-                  <X className="h-3 w-3" />
-                  Clear chat
+                  {sidebarOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+                  <Zap className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="hidden sm:inline">DB Prompts &amp; Actions</span>
+                  <span className="rounded-full bg-cyan-500/20 px-1.5 py-0.2 text-[9px] font-semibold text-cyan-700 dark:text-cyan-300">
+                    {SUGGESTED_PROMPTS.length}
+                  </span>
                 </button>
-              )}
+
+                <button
+                  type="button"
+                  onClick={handleDownloadChat}
+                  title="Download chat history"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreen((f) => !f)}
+                  title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-secondary text-muted-foreground dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-400 transition hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-300"
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
-          </form>
+          </div>
+
+          {/* ── Messages (Clean Message Window) ── */}
+          <ScrollArea className="relative flex-1 px-4 py-4">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 to-transparent dark:from-slate-900/80" />
+            <div className="relative space-y-5">
+              {messages.map((msg) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  onDecision={handleDecision}
+                  submittingSessionId={submittingSessionId}
+                />
+              ))}
+              <div ref={bottomRef} />
+            </div>
+          </ScrollArea>
+
+          {/* ── Input Area ── */}
+          <div className="border-t border-border bg-card/80 dark:border-slate-700/50 dark:bg-slate-900/80 p-4">
+            <form onSubmit={handleSubmit}>
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-secondary/60 dark:border-slate-700/60 dark:bg-slate-800/50 px-4 py-3 transition-all focus-within:border-cyan-500/50 focus-within:bg-secondary dark:focus-within:bg-slate-800/70 focus-within:shadow-[0_0_0_1px_rgba(6,182,212,0.25),0_0_24px_rgba(6,182,212,0.12)]">
+                <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground transition-colors focus-within:text-cyan-600 dark:focus-within:text-cyan-400" />
+                <Textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask anything or run database activities… (Shift+Enter for new line)"
+                  rows={1}
+                  disabled={isLoading}
+                  className="min-h-0 flex-1 resize-none border-none bg-transparent p-0 text-sm text-foreground dark:text-slate-100 placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isLoading || !input.trim()}
+                  className="h-8 shrink-0 gap-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 px-3.5 text-white shadow-[0_0_16px_rgba(6,182,212,0.25)] transition-all hover:from-cyan-500 hover:to-blue-500 hover:shadow-[0_0_22px_rgba(6,182,212,0.4)] disabled:from-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-700 disabled:shadow-none disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:300ms]" />
+                    </span>
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      Send
+                    </>
+                  )}
+                </Button>
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-4 px-1">
+                <p className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600">
+                  <ChevronRight className="h-3 w-3" />
+                  Results are AI-generated · Unsafe DML/DDL queries require explicit approval
+                </p>
+                {messages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessages([buildWelcomeMessage(selectedDb, dbTarget)]);
+                      try { sessionStorage.removeItem(CHAT_STORAGE_PREFIX + selectedDb); } catch {}
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground dark:text-slate-600 transition hover:text-amber-600 dark:hover:text-amber-400"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear chat
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
         </div>
+
+        {/* ── Dedicated DB Prompts & Actions Sidebar Panel ── */}
+        {sidebarOpen && (
+          <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-l border-border bg-card/95 dark:border-slate-800/80 dark:bg-slate-900/90 shadow-lg backdrop-blur-md transition-all duration-300">
+            {/* Sidebar Header */}
+            <div className="flex items-center justify-between border-b border-border dark:border-slate-800/80 px-4 py-3 bg-muted/40 dark:bg-slate-900/60">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/15 border border-amber-500/30">
+                  <Zap className="h-3.5 w-3.5 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-foreground dark:text-slate-100 uppercase tracking-wider">
+                    DB Prompts &amp; Actions
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground">
+                    {filteredPrompts.length} templates available
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Type Filters & Search */}
+            <div className="p-3 border-b border-border/60 dark:border-slate-800/60 bg-muted/20 dark:bg-slate-900/40 space-y-2.5">
+              {/* Type filter tabs (All / Actions / Queries) */}
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1 dark:bg-slate-800/60 text-[10px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => setPromptTypeFilter("all")}
+                  className={cn(
+                    "rounded-md py-1 text-center transition-all",
+                    promptTypeFilter === "all"
+                      ? "bg-card text-foreground font-semibold shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  All ({SUGGESTED_PROMPTS.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPromptTypeFilter("action")}
+                  className={cn(
+                    "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
+                    promptTypeFilter === "action"
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Zap className="h-2.5 w-2.5 text-amber-500" />
+                  Actions ({SUGGESTED_PROMPTS.filter((p) => p.type === "action").length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPromptTypeFilter("query")}
+                  className={cn(
+                    "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
+                    promptTypeFilter === "query"
+                      ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Queries ({SUGGESTED_PROMPTS.filter((p) => p.type === "query").length})
+                </button>
+              </div>
+
+              {/* Search bar */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search actions or SQL..."
+                  className="w-full rounded-lg border border-border bg-card dark:border-slate-700/60 dark:bg-slate-800/50 pl-7 pr-6 py-1.5 text-[11px] text-foreground dark:text-slate-200 placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Category tabs */}
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pt-0.5">
+                {SUGGESTED_CATEGORIES.map((cat) => {
+                  const isActive = activeCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
+                        isActive
+                          ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40"
+                          : "bg-secondary text-muted-foreground hover:text-foreground dark:bg-slate-800/60"
+                      )}
+                    >
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Scrollable Prompts & Actions list */}
+            <ScrollArea className="flex-1 p-3">
+              {filteredPrompts.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">
+                  No DB actions or queries match your filter.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {filteredPrompts.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        setInput(item.prompt);
+                        setTimeout(() => inputRef.current?.focus(), 50);
+                      }}
+                      className={cn(
+                        "group flex flex-col justify-between cursor-pointer rounded-xl border p-3 transition-all shadow-sm hover:shadow-md",
+                        item.type === "action"
+                          ? "border-amber-500/30 bg-amber-500/[0.04] hover:border-amber-500/60 dark:border-amber-500/20 dark:bg-amber-500/[0.03] dark:hover:border-amber-500/50"
+                          : "border-border bg-card hover:border-cyan-500/50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-cyan-500/40"
+                      )}
+                    >
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between gap-1.5">
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+                              item.type === "action"
+                                ? "bg-amber-500/20 text-amber-700 dark:text-amber-300"
+                                : "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300"
+                            )}
+                          >
+                            {item.type === "action" ? <Zap className="h-2.5 w-2.5 fill-amber-500" /> : <Search className="h-2.5 w-2.5" />}
+                            {item.type === "action" ? "Executable Action" : "Read-Only Query"}
+                          </span>
+                          <span className="font-mono text-[9px] text-muted-foreground truncate max-w-[130px] bg-muted/60 dark:bg-slate-900/60 px-1 py-0.5 rounded">
+                            {item.oracleViews}
+                          </span>
+                        </div>
+
+                        <h4 className="text-xs font-semibold text-foreground dark:text-slate-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors">
+                          {item.shortTitle}
+                        </h4>
+                        <p className="mt-1 text-[11px] font-medium leading-snug text-muted-foreground dark:text-slate-300">
+                          &quot;{item.prompt}&quot;
+                        </p>
+                        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70 dark:text-slate-400">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <div className="mt-2.5 flex items-center justify-end pt-1.5 border-t border-border/30 dark:border-slate-700/30">
+                        <span
+                          className={cn(
+                            "flex items-center gap-1 text-[10px] font-semibold transition-transform group-hover:translate-x-0.5",
+                            item.type === "action" ? "text-amber-600 dark:text-amber-400" : "text-cyan-600 dark:text-cyan-400"
+                          )}
+                        >
+                          Use Template
+                          <ArrowRight className="h-3 w-3" />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        )}
       </div>
 
       {/* Inline styles for markdown prose inside dark chat bubbles */}

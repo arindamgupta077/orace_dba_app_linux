@@ -20,7 +20,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
       cursorBlink: false,
       fontFamily: "Consolas, Menlo, Monaco, 'Courier New', monospace",
       fontSize: 12,
-      scrollback: 100000,
+      scrollback: Math.max(lineCount + 50000, 1000000),
       theme: {
         background: "#05070b",
         foreground: "#d8eef8",

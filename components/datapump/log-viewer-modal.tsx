@@ -41,7 +41,7 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
   const { runAction, status, response, error } = useDbaAction();
 
   const [logfileParam, setLogfileParam] = useState("");
-  const [lineLimit, setLineLimit] = useState("1000");
+  const [lineLimit, setLineLimit] = useState("all");
   const [filterText, setFilterText] = useState("");
   const [filterPreset, setFilterPreset] = useState<"all" | "errors" | "warnings">("all");
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
@@ -55,6 +55,8 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
     }
     if (lineLimit && lineLimit !== "all") {
       params.lines = Number(lineLimit);
+    } else {
+      params.lines = 0; // 0 indicates full log file without tail truncation
     }
     runAction(action, params, selectedDb)
       .then(() => setLastFetchedAt(new Date()))
@@ -83,21 +85,30 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
     );
   }, [response]);
 
-  // Split lines and calculate metrics
-  const lines = useMemo(() => (rawLogText ? rawLogText.split("\n") : []), [rawLogText]);
+  // Split lines and calculate metrics in a single pass to handle 200k+ line logs efficiently
+  const { lines, errorCount, warningCount } = useMemo(() => {
+    if (!rawLogText) return { lines: [], errorCount: 0, warningCount: 0 };
+    const splitLines = rawLogText.split("\n");
+    let errs = 0;
+    let warns = 0;
+    const errRegex = /ORA-|ERROR|FAILED|SEVERE/i;
+    const warnRegex = /WARNING|W-/i;
+    for (let i = 0; i < splitLines.length; i++) {
+      const line = splitLines[i];
+      if (errRegex.test(line)) errs++;
+      else if (warnRegex.test(line)) warns++;
+    }
+    return { lines: splitLines, errorCount: errs, warningCount: warns };
+  }, [rawLogText]);
+
   const totalLines = lines.length;
-
-  const errorCount = useMemo(() => {
-    return lines.filter((l) => /ORA-|ERROR|FAILED|SEVERE/i.test(l)).length;
-  }, [lines]);
-
-  const warningCount = useMemo(() => {
-    return lines.filter((l) => /WARNING|W-/i.test(l)).length;
-  }, [lines]);
 
   // Filtered log text based on search and presets
   const displayedLog = useMemo(() => {
     if (!rawLogText) return "";
+    if (filterPreset === "all" && !filterText.trim()) {
+      return rawLogText;
+    }
     let filtered = lines;
 
     if (filterPreset === "errors") {
@@ -150,15 +161,18 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
               </div>
 
               <Select value={lineLimit} onValueChange={setLineLimit}>
-                <SelectTrigger className="h-8 w-32 text-xs font-mono">
+                <SelectTrigger className="h-8 w-44 text-xs font-mono">
                   <SelectValue placeholder="Lines" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="200">Tail 200 lines</SelectItem>
-                  <SelectItem value="500">Tail 500 lines</SelectItem>
                   <SelectItem value="1000">Tail 1,000 lines</SelectItem>
                   <SelectItem value="5000">Tail 5,000 lines</SelectItem>
-                  <SelectItem value="all">Full Log File</SelectItem>
+                  <SelectItem value="20000">Tail 20,000 lines</SelectItem>
+                  <SelectItem value="50000">Tail 50,000 lines</SelectItem>
+                  <SelectItem value="100000">Tail 100,000 lines (1 Lakh)</SelectItem>
+                  <SelectItem value="200000">Tail 200,000 lines (2 Lakh)</SelectItem>
+                  <SelectItem value="500000">Tail 500,000 lines (5 Lakh)</SelectItem>
+                  <SelectItem value="all">Full Log File (All lines)</SelectItem>
                 </SelectContent>
               </Select>
 

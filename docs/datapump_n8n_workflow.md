@@ -406,12 +406,24 @@ return [{
 
 ### Node 4a: `Fetch EXPDP Log` (SSH node)
 ```bash
-# Get the directory path from Oracle and read the latest log
+# Dynamic log retrieval: Full log if lines=0 or unspecified; Tailed log if lines > 0
 # Linux:
-cat $(ls -t /oracle/dump/exp*.log 2>/dev/null | head -1)
+LOG_FILE=$(ls -t /oracle/dump/exp*.log 2>/dev/null | head -1)
+LINES="{{ $json.body.params.lines || 0 }}"
+if [ "$LINES" -eq 0 ]; then
+  cat "$LOG_FILE"
+else
+  tail -n "$LINES" "$LOG_FILE"
+fi
 
 # Windows (PowerShell):
-Get-Content (Get-ChildItem 'C:\oracle\dump\exp*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+$logFile = (Get-ChildItem 'C:\oracle\dump\exp*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+$lines = {{ $json.body.params.lines || 0 }}
+if ($lines -eq 0) {
+    Get-Content $logFile -Raw
+} else {
+    Get-Content $logFile -Tail $lines
+}
 ```
 
 ### Node 4b: `Build EXPDP Log Response` (Code node)
@@ -436,10 +448,22 @@ return [{
 ### Node 4c: `Fetch IMPDP Log` (SSH node)
 ```bash
 # Linux:
-cat $(ls -t /oracle/dump/imp*.log 2>/dev/null | head -1)
+LOG_FILE=$(ls -t /oracle/dump/imp*.log 2>/dev/null | head -1)
+LINES="{{ $json.body.params.lines || 0 }}"
+if [ "$LINES" -eq 0 ]; then
+  cat "$LOG_FILE"
+else
+  tail -n "$LINES" "$LOG_FILE"
+fi
 
-# Windows:
-Get-Content (Get-ChildItem 'C:\oracle\dump\imp*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+# Windows (PowerShell):
+$logFile = (Get-ChildItem 'C:\oracle\dump\imp*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+$lines = {{ $json.body.params.lines || 0 }}
+if ($lines -eq 0) {
+    Get-Content $logFile -Raw
+} else {
+    Get-Content $logFile -Tail $lines
+}
 ```
 
 ### Node 4d: `Build IMPDP Log Response` (Code node)
