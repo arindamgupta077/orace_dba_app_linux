@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  FileClock,
   FileText,
   FileWarning,
   Filter,
@@ -178,6 +179,7 @@ export function NotificationCenter() {
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get("category");
 
+  const user = useAppStore((s) => s.user);
   const databases = useAppStore((s) => s.databases);
   const rawNotifications = useAppStore((s) => s.notifications);
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
@@ -467,6 +469,44 @@ export function NotificationCenter() {
               </button>
             )}
           </div>
+
+          {/* Quick Filter Bar for APP_ADMIN */}
+          {user?.role === "app_admin" && category === "db" && (
+            <div className="flex flex-wrap items-center gap-2 mb-3.5 border-b border-border/40 pb-3">
+              <span className="text-xs font-semibold text-muted-foreground">Quick Filter:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setType("all");
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium border transition-all",
+                  type === "all"
+                    ? "border-cyan-500/60 bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold shadow-xs"
+                    : "border-border/60 bg-background/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                All Database Alerts
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setType("approval_workflow");
+                  setPage(1);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-all",
+                  type === "approval_workflow"
+                    ? "border-amber-500/60 bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold shadow-xs"
+                    : "border-border/60 bg-background/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <FileClock className="h-3.5 w-3.5 text-amber-500" />
+                <span>Approval Workflow Only</span>
+              </button>
+            </div>
+          )}
 
           {/* Filter Inputs Grid */}
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">

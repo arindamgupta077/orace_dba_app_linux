@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, BellRing, Check, ChevronRight, Database, FileText, FileWarning, HardDrive, ShieldAlert, UserCheck, X } from "lucide-react";
+import { Bell, BellRing, Check, ChevronRight, Database, FileClock, FileText, FileWarning, HardDrive, ShieldAlert, UserCheck, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -47,6 +47,25 @@ function severityTextClass(severity: NotificationItem["severity"]) {
   }
 }
 
+function typeLabel(type: NotificationItemType) {
+  switch (type) {
+    case "tablespace":
+      return "Tablespace Capacity";
+    case "filesystem_drive":
+      return "Filesystem Drive";
+    case "alert_log":
+      return "Alert Log Warning";
+    case "dba_shift":
+      return "DBA Shift Event";
+    case "approval_workflow":
+      return "Approval Workflow";
+    case "db_monitoring":
+      return "Database Monitoring";
+    default:
+      return "Database Alert";
+  }
+}
+
 function NotificationTypeIcon({ type }: { type: NotificationItemType }) {
   switch (type) {
     case "tablespace":
@@ -56,54 +75,36 @@ function NotificationTypeIcon({ type }: { type: NotificationItemType }) {
     case "alert_log":
       return <FileWarning className="h-3.5 w-3.5" />;
     case "dba_shift":
-      return <UserCheck className="h-3.5 w-3.5" />;
+      return <FileText className="h-3.5 w-3.5" />;
+    case "approval_workflow":
+      return <FileClock className="h-3.5 w-3.5" />;
     case "db_monitoring":
       return <ShieldAlert className="h-3.5 w-3.5" />;
-    case "approval_workflow":
-      return <FileText className="h-3.5 w-3.5" />;
     default:
       return <Bell className="h-3.5 w-3.5" />;
   }
 }
 
-function typeLabel(type: NotificationItemType) {
-  switch (type) {
-    case "tablespace":
-      return "Tablespace";
-    case "filesystem_drive":
-      return "Filesystem";
-    case "alert_log":
-      return "Alert Log";
-    case "dba_shift":
-      return "DBA Console Activity";
-    case "db_monitoring":
-      return "DB Monitoring";
-    case "approval_workflow":
-      return "Approval Workflow";
-    default:
-      return "Alert";
-  }
-}
-
-function formatRelativeTime(timestamp: string) {
+function formatRelativeTime(isoString: string) {
   try {
-    const diff = Date.now() - new Date(timestamp).getTime();
-    const minutes = Math.floor(diff / 60000);
-    if (minutes < 1) return "just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return "just now";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
   } catch {
     return "";
   }
 }
 
-/** 1. Database Related Alerts Bell Component (Aesthetic & Graceful Breathing Animations) */
 export function DatabaseAlertsBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [filterType, setFilterType] = useState<"all" | "approval_workflow">("all");
   const containerRef = useRef<HTMLDivElement>(null);
 
   const user = useAppStore((s) => s.user);
@@ -128,9 +129,16 @@ export function DatabaseAlertsBell() {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 30);
 
+  const approvalWorkflowCount = notifications.filter((n) => n.type === "approval_workflow").length;
+
+  const displayedNotifications =
+    user?.role === "app_admin" && filterType === "approval_workflow"
+      ? notifications.filter((n) => n.type === "approval_workflow")
+      : notifications;
+
   const unreadCount = notifications.filter((n) => !n.read).length;
   const hasCritical = notifications.some((n) => !n.read && (n.severity === "critical" || n.severity === "error"));
-  const hasAny = notifications.length > 0;
+  const hasAny = displayedNotifications.length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -270,29 +278,72 @@ export function DatabaseAlertsBell() {
             </div>
           </div>
 
+          {/* APP_ADMIN Filter Bar */}
+          {user?.role === "app_admin" && (
+            <div className="flex items-center justify-between border-b border-border/60 bg-cyan-500/5 px-4 py-1.5 text-xs">
+              <span className="text-[11px] font-medium text-muted-foreground">Filter View:</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFilterType("all")}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[11px] font-medium transition-colors border",
+                    filterType === "all"
+                      ? "border-cyan-500/50 bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold shadow-xs"
+                      : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  All Alerts ({notifications.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType("approval_workflow")}
+                  className={cn(
+                    "flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors border",
+                    filterType === "approval_workflow"
+                      ? "border-amber-500/50 bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold shadow-xs"
+                      : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <FileClock className="h-3 w-3 text-amber-500" />
+                  <span>Approval Workflow Only</span>
+                  {approvalWorkflowCount > 0 && (
+                    <span className="ml-0.5 rounded-full bg-amber-500/30 px-1.5 py-0.2 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+                      {approvalWorkflowCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Body */}
           {!hasAny ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
                 <Database className="h-6 w-6" />
               </div>
-              <p className="text-sm font-medium text-foreground">No database alerts yet</p>
+              <p className="text-sm font-medium text-foreground">
+                {filterType === "approval_workflow" ? "No approval workflow requests" : "No database alerts yet"}
+              </p>
               <p className="text-xs text-muted-foreground max-w-[260px]">
-                Tablespace capacity, filesystem usage & database monitoring events will surface here.
+                {filterType === "approval_workflow"
+                  ? "Pending approval requests submitted by DBA admins will appear here."
+                  : "Tablespace capacity, filesystem usage & database monitoring events will surface here."}
               </p>
               <Link
-                href="/notifications?category=db"
+                href={filterType === "approval_workflow" ? "/admin-panel/pending-approvals" : "/notifications?category=db"}
                 onClick={() => setOpen(false)}
                 className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:underline"
               >
-                <span>View Notification History</span>
+                <span>{filterType === "approval_workflow" ? "Open Pending Approvals" : "View Notification History"}</span>
                 <ChevronRight className="h-3.5 w-3.5" />
               </Link>
             </div>
           ) : (
             <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
               <div className="divide-y divide-border/40">
-                {notifications.slice(0, 30).map((notif) => (
+                {displayedNotifications.slice(0, 30).map((notif) => (
                   <div
                     key={notif.id}
                     onClick={() => handleClick(notif)}
