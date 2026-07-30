@@ -933,9 +933,17 @@ return [{
 // ── Node: Build system_privilege SQL ────────────────────────
 const ALLOWED_OPS   = ['GRANT', 'REVOKE'];
 const ALLOWED_PRIVS = [
-  'CREATE SESSION', 'CREATE TABLE', 'CREATE VIEW', 'CREATE PROCEDURE',
-  'CREATE USER', 'ALTER USER', 'DROP USER', 'ALTER SYSTEM',
-  'SELECT ANY TABLE', 'EXECUTE ANY PROCEDURE'
+  'CREATE SESSION', 'ALTER SESSION', 'RESTRICTED SESSION',
+  'CREATE TABLE', 'CREATE ANY TABLE', 'ALTER ANY TABLE', 'DROP ANY TABLE', 'SELECT ANY TABLE', 'INSERT ANY TABLE', 'UPDATE ANY TABLE', 'DELETE ANY TABLE', 'READ ANY TABLE', 'LOCK ANY TABLE',
+  'CREATE INDEX', 'CREATE ANY INDEX', 'ALTER ANY INDEX', 'DROP ANY INDEX',
+  'CREATE VIEW', 'CREATE ANY VIEW', 'DROP ANY VIEW', 'CREATE SYNONYM', 'CREATE ANY SYNONYM', 'CREATE PUBLIC SYNONYM', 'DROP ANY SYNONYM', 'DROP PUBLIC SYNONYM',
+  'CREATE SEQUENCE', 'CREATE ANY SEQUENCE', 'ALTER ANY SEQUENCE', 'DROP ANY SEQUENCE', 'SELECT ANY SEQUENCE',
+  'CREATE PROCEDURE', 'CREATE ANY PROCEDURE', 'ALTER ANY PROCEDURE', 'DROP ANY PROCEDURE', 'EXECUTE ANY PROCEDURE',
+  'CREATE TRIGGER', 'CREATE ANY TRIGGER', 'ALTER ANY TRIGGER', 'DROP ANY TRIGGER', 'CREATE TYPE', 'CREATE ANY TYPE', 'ALTER ANY TYPE', 'DROP ANY TYPE', 'EXECUTE ANY TYPE',
+  'CREATE MATERIALIZED VIEW', 'CREATE ANY MATERIALIZED VIEW', 'ALTER ANY MATERIALIZED VIEW', 'DROP ANY MATERIALIZED VIEW', 'CREATE ANY DIRECTORY', 'DROP ANY DIRECTORY',
+  'CREATE USER', 'ALTER USER', 'DROP USER', 'CREATE ROLE', 'DROP ANY ROLE', 'GRANT ANY ROLE', 'GRANT ANY PRIVILEGE', 'GRANT ANY OBJECT PRIVILEGE', 'AUDIT ANY', 'CREATE PROFILE', 'ALTER ANY PROFILE', 'DROP PROFILE', 'EXEMPT ACCESS POLICY',
+  'ALTER SYSTEM', 'ALTER DATABASE', 'UNLIMITED TABLESPACE', 'CREATE TABLESPACE', 'ALTER TABLESPACE', 'DROP TABLESPACE', 'MANAGE TABLESPACE',
+  'CREATE JOB', 'CREATE ANY JOB', 'EXECUTE ANY JOB', 'CREATE DATABASE LINK', 'CREATE PUBLIC DATABASE LINK', 'DROP PUBLIC DATABASE LINK', 'ANALYZE ANY', 'DEBUG CONNECT SESSION', 'DEBUG ANY PROCEDURE'
 ];
 
 const p         = $json.params;
@@ -1254,6 +1262,77 @@ In the **User Management** sub-router, create a Switch node with the following `
 | 23     | `create_role`        | Create Role                    |
 | 24     | `role_to_user`       | Grant/Revoke Role to User      |
 | 25     | `drop_role`          | Drop Role                      |
+| 26     | `check_privileges`   | Check User Privileges          |
+
+---
+
+### 3E. `check_privileges` — Check Existing User Privileges
+
+**Params received:**
+```json
+{
+  "username": "APP_USER"
+}
+```
+
+**Oracle Database SQL query for n8n (Oracle Node):**
+```sql
+SELECT 
+    'SYSTEM PRIVILEGE' AS CATEGORY,
+    GRANTEE,
+    PRIVILEGE AS PRIVILEGE_NAME,
+    ADMIN_OPTION AS GRANTABLE,
+    '-' AS OBJECT_OWNER,
+    '-' AS OBJECT_NAME
+FROM DBA_SYS_PRIVS
+WHERE GRANTEE = UPPER(:username)
+
+UNION ALL
+
+SELECT 
+    'GRANTED ROLE' AS CATEGORY,
+    GRANTEE,
+    GRANTED_ROLE AS PRIVILEGE_NAME,
+    ADMIN_OPTION AS GRANTABLE,
+    '-' AS OBJECT_OWNER,
+    '-' AS OBJECT_NAME
+FROM DBA_ROLE_PRIVS
+WHERE GRANTEE = UPPER(:username)
+
+UNION ALL
+
+SELECT 
+    'OBJECT PRIVILEGE' AS CATEGORY,
+    GRANTEE,
+    PRIVILEGE AS PRIVILEGE_NAME,
+    GRANTABLE AS GRANTABLE,
+    OWNER AS OBJECT_OWNER,
+    TABLE_NAME AS OBJECT_NAME
+FROM DBA_TAB_PRIVS
+WHERE GRANTEE = UPPER(:username)
+
+ORDER BY CATEGORY, PRIVILEGE_NAME;
+```
+
+**Code Node: "Format check_privileges Response"**
+```js
+const rows = $items().map(i => i.json);
+const username = ($json.params?.username || '').toUpperCase();
+
+return [{
+  json: {
+    status: "success",
+    request_id: `DBA-${Date.now()}`,
+    action: "check_privileges",
+    db_status: "healthy",
+    ai_summary: `Retrieved ${rows.length} total granted privilege records for user ${username}.`,
+    findings: [],
+    recommendations: [],
+    raw_data: { rows: rows },
+    raw_output: `Found ${rows.length} granted privileges/roles for ${username}.`
+  }
+}];
+```
 
 ---
 

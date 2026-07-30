@@ -47,6 +47,7 @@ type PrivModal =
   | "grant_sys_privs_role"
   | "grant_obj_privs_role"
   | "drop_role"
+  | "check_privileges"
   | null;
 
 type ModalStep = "form" | "result";
@@ -63,16 +64,106 @@ const emptyDropdown = (): DropdownState => ({ items: [], typesMap: {}, loading: 
 /* ── Constants ─────────────────────────────────────── */
 
 const SYSTEM_PRIVILEGES = [
+  // Session & Connection
   "CREATE SESSION",
+  "ALTER SESSION",
+  "RESTRICTED SESSION",
+
+  // Tables & Data Access
   "CREATE TABLE",
+  "CREATE ANY TABLE",
+  "ALTER ANY TABLE",
+  "DROP ANY TABLE",
+  "SELECT ANY TABLE",
+  "INSERT ANY TABLE",
+  "UPDATE ANY TABLE",
+  "DELETE ANY TABLE",
+  "READ ANY TABLE",
+  "LOCK ANY TABLE",
+
+  // Indexes
+  "CREATE INDEX",
+  "CREATE ANY INDEX",
+  "ALTER ANY INDEX",
+  "DROP ANY INDEX",
+
+  // Views & Synonyms
   "CREATE VIEW",
+  "CREATE ANY VIEW",
+  "DROP ANY VIEW",
+  "CREATE SYNONYM",
+  "CREATE ANY SYNONYM",
+  "CREATE PUBLIC SYNONYM",
+  "DROP ANY SYNONYM",
+  "DROP PUBLIC SYNONYM",
+
+  // Sequences
+  "CREATE SEQUENCE",
+  "CREATE ANY SEQUENCE",
+  "ALTER ANY SEQUENCE",
+  "DROP ANY SEQUENCE",
+  "SELECT ANY SEQUENCE",
+
+  // Procedures, Functions, Packages
   "CREATE PROCEDURE",
+  "CREATE ANY PROCEDURE",
+  "ALTER ANY PROCEDURE",
+  "DROP ANY PROCEDURE",
+  "EXECUTE ANY PROCEDURE",
+
+  // Triggers & Types
+  "CREATE TRIGGER",
+  "CREATE ANY TRIGGER",
+  "ALTER ANY TRIGGER",
+  "DROP ANY TRIGGER",
+  "CREATE TYPE",
+  "CREATE ANY TYPE",
+  "ALTER ANY TYPE",
+  "DROP ANY TYPE",
+  "EXECUTE ANY TYPE",
+
+  // Materialized Views & Directories
+  "CREATE MATERIALIZED VIEW",
+  "CREATE ANY MATERIALIZED VIEW",
+  "ALTER ANY MATERIALIZED VIEW",
+  "DROP ANY MATERIALIZED VIEW",
+  "CREATE ANY DIRECTORY",
+  "DROP ANY DIRECTORY",
+
+  // User, Profile & Role Administration
   "CREATE USER",
   "ALTER USER",
   "DROP USER",
+  "CREATE ROLE",
+  "DROP ANY ROLE",
+  "GRANT ANY ROLE",
+  "GRANT ANY PRIVILEGE",
+  "GRANT ANY OBJECT PRIVILEGE",
+  "AUDIT ANY",
+  "CREATE PROFILE",
+  "ALTER ANY PROFILE",
+  "DROP PROFILE",
+  "EXEMPT ACCESS POLICY",
+
+  // System, Tablespace & Storage Administration
   "ALTER SYSTEM",
-  "SELECT ANY TABLE",
-  "EXECUTE ANY PROCEDURE"
+  "ALTER DATABASE",
+  "UNLIMITED TABLESPACE",
+  "CREATE TABLESPACE",
+  "ALTER TABLESPACE",
+  "DROP TABLESPACE",
+  "MANAGE TABLESPACE",
+
+  // Jobs, Database Links & Debugging
+  "CREATE JOB",
+  "CREATE ANY JOB",
+  "EXECUTE ANY JOB",
+  "CREATE DATABASE LINK",
+  "CREATE PUBLIC DATABASE LINK",
+  "DROP PUBLIC DATABASE LINK",
+  "ANALYZE ANY",
+  "DEBUG CONNECT SESSION",
+  "DEBUG ANY PROCEDURE"
 ] as const;
 
 const OBJECT_PRIVILEGES = [
@@ -180,22 +271,22 @@ const PRIV_CARDS: {
   destructive?: boolean;
 }[] = [
   {
+    modal: "check_privileges" as PrivModal,
+    label: "Check User Privileges",
+    description: "View all granted system privileges, roles, and object-level privileges for a database user.",
+    icon: ShieldCheck
+  },
+  {
     modal: "system_privilege" as PrivModal,
     label: "Grant / Revoke System Privileges",
     description: "Grant or revoke Oracle system-level privileges to/from a user.",
     icon: ShieldAlert
   },
   {
-    modal: "object_privilege" as PrivModal,
-    label: "Grant / Revoke Object Privileges",
-    description: "Grant or revoke SELECT, INSERT, UPDATE, DELETE, EXECUTE on specific objects.",
-    icon: Shield
-  },
-  {
     modal: "bulk_object_privilege" as PrivModal,
-    label: "Bulk Object Privileges",
-    description: "Grant or revoke privileges on multiple objects (or all objects of a schema) in one operation.",
-    icon: Boxes
+    label: "Grant / Revoke Object Privileges",
+    description: "Grant or revoke privileges on single or multiple objects (or all objects of a schema) in one operation.",
+    icon: Shield
   },
   {
     modal: "create_role" as PrivModal,
@@ -236,14 +327,19 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
   const isError = Boolean(error) || result?.status === "error";
   const isPendingApproval = result?.status === "pending_approval";
   const rows = (result?.raw_data?.rows ?? []) as Record<string, unknown>[];
-  const summary = result?.ai_summary || error || "";
-  const [filterText, setFilterText] = useState("");
-  const [showRawOutput, setShowRawOutput] = useState(false);
 
   // Extract key metadata from first row if available
   const sampleRow = rows[0] || {};
-  const grantee = String(sampleRow.GRANTEE || sampleRow.grantee || "");
+  const grantee = String(sampleRow.GRANTEE || sampleRow.grantee || sampleRow.USERNAME || sampleRow.username || "");
   const owner = String(sampleRow.OWNER || sampleRow.owner || "");
+
+  let summary = result?.ai_summary || error || "";
+  if (summary.includes("for user .") && grantee) {
+    summary = summary.replace("for user .", `for user ${grantee}.`);
+  }
+
+  const [filterText, setFilterText] = useState("");
+  const [showRawOutput, setShowRawOutput] = useState(false);
 
   // Filter rows based on search text
   const filteredRows = useMemo(() => {
@@ -912,59 +1008,161 @@ function MultiPrivilegeSelector<T extends string>({
   label: string;
   disabledOptions?: Record<string, string>;
 }) {
+  const [filterText, setFilterText] = useState("");
+
   const toggle = (item: T) => {
     if (disabledOptions[item]) return;
     if (selected.includes(item)) onChange(selected.filter((s) => s !== item));
     else onChange([...selected, item]);
   };
 
-  return (
-    <div className="space-y-1.5">
-      <Label>{label} {selected.length > 0 && <span className="text-cyan-400 text-xs">({selected.length} selected)</span>}</Label>
-      <div className="rounded-md border border-border/60 p-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-        {options.map((opt) => {
-          const isDisabled = !!disabledOptions[opt];
-          const isSelected = selected.includes(opt);
-          const reason = disabledOptions[opt];
+  const filteredOptions = useMemo(() => {
+    if (!filterText.trim()) return options;
+    const q = filterText.trim().toUpperCase();
+    return options.filter((opt) => opt.toUpperCase().includes(q));
+  }, [options, filterText]);
 
-          return (
-            <label
-              key={opt}
-              title={reason || ""}
-              className={`flex items-start gap-2 group ${isDisabled ? "opacity-45 cursor-not-allowed select-none" : "cursor-pointer"}`}
-            >
-              <div
-                className={`h-4 w-4 shrink-0 rounded border transition-colors mt-0.5 ${
-                  isSelected
-                    ? "border-cyan-400 bg-cyan-400/20"
-                    : isDisabled
-                    ? "border-border/40 bg-muted/30"
-                    : "border-border/60"
-                } flex items-center justify-center`}
-                onClick={() => toggle(opt)}
-              >
-                {isSelected && (
-                  <svg className="h-2.5 w-2.5 text-cyan-400" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </div>
-              <div className="flex flex-col min-w-0" onClick={() => toggle(opt)}>
-                <span className={`text-xs ${isDisabled ? "text-muted-foreground/60 line-through decoration-muted-foreground/40" : "group-hover:text-foreground text-muted-foreground"} transition-colors`}>
-                  {opt}
-                </span>
-                {isDisabled && reason && (
-                  <span className="text-[9px] text-amber-400/90 font-normal truncate">
-                    {reason}
-                  </span>
-                )}
-              </div>
-            </label>
-          );
-        })}
+  const selectAllFiltered = () => {
+    const validFiltered = filteredOptions.filter((opt) => !disabledOptions[opt]);
+    const next = Array.from(new Set([...selected, ...validFiltered]));
+    onChange(next);
+  };
+
+  const deselectAllFiltered = () => {
+    const filteredSet = new Set(filteredOptions);
+    onChange(selected.filter((s) => !filteredSet.has(s)));
+  };
+
+  const showSearch = options.length > 8;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label>
+          {label}{" "}
+          {selected.length > 0 && (
+            <span className="text-cyan-400 text-xs font-mono font-medium">
+              ({selected.length} of {options.length} selected)
+            </span>
+          )}
+        </Label>
+        {selected.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => onChange([])}
+          >
+            Clear selection
+          </Button>
+        )}
       </div>
-      {selected.length > 0 && (
-        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onChange([])}>Clear all</Button>
+
+      {showSearch && (
+        <div className="flex items-center justify-between gap-2">
+          <Input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search privileges (e.g. TABLE, USER, SESSION)..."
+            className="h-8 text-xs font-mono bg-background/50 placeholder:font-sans"
+          />
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-[11px] font-mono text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+              onClick={selectAllFiltered}
+            >
+              {filterText ? "Select Filtered" : "Select All"}
+            </Button>
+            {selected.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px] font-mono text-muted-foreground"
+                onClick={deselectAllFiltered}
+              >
+                Deselect
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-md border border-border/60 p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto bg-background/30">
+        {filteredOptions.length === 0 ? (
+          <div className="col-span-full py-4 text-center text-xs text-muted-foreground italic">
+            No privileges matching &ldquo;{filterText}&rdquo;
+          </div>
+        ) : (
+          filteredOptions.map((opt) => {
+            const isDisabled = !!disabledOptions[opt];
+            const isSelected = selected.includes(opt);
+            const reason = disabledOptions[opt];
+
+            return (
+              <label
+                key={opt}
+                title={reason || opt}
+                className={`flex items-start gap-2 p-1 rounded hover:bg-muted/20 transition-colors group ${
+                  isDisabled ? "opacity-45 cursor-not-allowed select-none" : "cursor-pointer"
+                }`}
+              >
+                <div
+                  className={`h-4 w-4 shrink-0 rounded border transition-colors mt-0.5 ${
+                    isSelected
+                      ? "border-cyan-400 bg-cyan-400/20"
+                      : isDisabled
+                      ? "border-border/40 bg-muted/30"
+                      : "border-border/60 group-hover:border-border"
+                  } flex items-center justify-center`}
+                  onClick={() => toggle(opt)}
+                >
+                  {isSelected && (
+                    <svg className="h-2.5 w-2.5 text-cyan-400" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex flex-col min-w-0 flex-1" onClick={() => toggle(opt)}>
+                  <span
+                    className={`text-xs font-mono ${
+                      isDisabled
+                        ? "text-muted-foreground/60 line-through decoration-muted-foreground/40"
+                        : isSelected
+                        ? "text-cyan-300 font-semibold"
+                        : "group-hover:text-foreground text-muted-foreground"
+                    } transition-colors leading-tight truncate`}
+                  >
+                    {opt}
+                  </span>
+                  {isDisabled && reason && (
+                    <span className="text-[9px] text-amber-400/90 font-normal truncate">
+                      {reason}
+                    </span>
+                  )}
+                </div>
+              </label>
+            );
+          })
+        )}
+      </div>
+
+      {filterText && filteredOptions.length > 0 && (
+        <div className="text-[11px] text-muted-foreground flex justify-between px-1">
+          <span>Showing {filteredOptions.length} of {options.length} privileges</span>
+          <button
+            type="button"
+            onClick={() => setFilterText("")}
+            className="text-cyan-400 hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1091,7 +1289,7 @@ export function PrivilegeManagementSection() {
     setAllObjectsSelected(false);
     setObjects({ items: [], loading: false, loaded: false });
     // Schemas are used as usernames and object owners
-    const needsSchemas = ["system_privilege", "object_privilege", "bulk_object_privilege", "role_to_user", "grant_obj_privs_role"].includes(modal ?? "");
+    const needsSchemas = ["system_privilege", "object_privilege", "bulk_object_privilege", "role_to_user", "grant_obj_privs_role", "check_privileges"].includes(modal ?? "");
     const needsRoles = ["role_to_user", "grant_sys_privs_role", "grant_obj_privs_role", "drop_role"].includes(modal ?? "");
     if (needsSchemas) ensureSchemas();
     if (needsRoles) ensureRoles();
@@ -1110,9 +1308,16 @@ export function PrivilegeManagementSection() {
   };
 
   const handleSubmit = async () => {
+    setModalError(null);
+    setModalResult(null);
     try {
       let res: DbaResponse;
       switch (activeModal) {
+        case "check_privileges":
+          res = await execute("check_privileges", {
+            username: form.username
+          });
+          break;
         case "system_privilege":
           res = await execute("system_privilege", {
             username: form.username,
@@ -1193,6 +1398,8 @@ export function PrivilegeManagementSection() {
   const isSubmitDisabled = () => {
     if (executing) return true;
     switch (activeModal) {
+      case "check_privileges":
+        return !form.username;
       case "system_privilege":
         return !form.username || !form.operation || selectedSysPrivs.length === 0;
       case "object_privilege":
@@ -1264,6 +1471,27 @@ export function PrivilegeManagementSection() {
 
   const renderFormContent = () => {
     switch (activeModal) {
+      case "check_privileges":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Database User</Label>
+              <LazySelect
+                value={form.username ?? ""}
+                onChange={(v) => setField("username", v)}
+                placeholder="Select user…"
+                state={schemas}
+                onOpen={ensureSchemas}
+              />
+            </div>
+            {form.username && (
+              <p className="text-xs text-muted-foreground">
+                n8n will execute: <code className="text-cyan-400">Query all system privileges, granted roles, and object privileges for {form.username}</code>
+              </p>
+            )}
+          </div>
+        );
+
       case "system_privilege":
         return (
           <div className="space-y-4">
@@ -1633,19 +1861,19 @@ export function PrivilegeManagementSection() {
 
       {/* Modal */}
       <Dialog open={!!activeModal} onOpenChange={(open) => { if (!open) closeModal(); }}>
-        <DialogContent className={modalStep === "result" ? "max-w-2xl sm:max-w-3xl transition-all" : "max-w-lg"}>
-          <DialogHeader>
+        <DialogContent className={modalStep === "result" ? "sm:max-w-4xl lg:max-w-5xl max-h-[90vh] flex flex-col overflow-hidden transition-all" : "max-w-lg max-h-[90vh] flex flex-col"}>
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               {getModalTitle()}
               <span className="text-xs text-muted-foreground font-normal">— {selectedDb}</span>
             </DialogTitle>
           </DialogHeader>
 
-          <div className="py-2">
+          <div className="flex-1 overflow-y-auto pr-1 py-2">
             {modalStep === "form" ? renderFormContent() : <ResultPanel result={modalResult} error={modalError} />}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 pt-3 border-t border-border/40">
             {modalStep === "form" ? (
               <>
                 <Button variant="outline" onClick={closeModal} disabled={executing}>Cancel</Button>
@@ -1655,7 +1883,7 @@ export function PrivilegeManagementSection() {
                   variant={activeModal === "drop_role" ? "destructive" : "default"}
                 >
                   {executing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Execute
+                  {activeModal === "check_privileges" ? "Check Privileges" : "Execute"}
                 </Button>
               </>
             ) : (

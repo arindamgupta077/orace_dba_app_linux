@@ -532,6 +532,14 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
     icon: "Trash2",
     params: []
   },
+  {
+    action: "check_privileges",
+    title: "Check User Privileges",
+    description: "View all granted system privileges, roles, and object-level privileges for a database user.",
+    category: "user_management",
+    icon: "ShieldCheck",
+    params: []
+  },
 
   // ── General Administration — Database Control ─────────────
   {

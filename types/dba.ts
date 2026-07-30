@@ -126,6 +126,7 @@ export type DbaAction =
   | "grant_sys_privs_role"
   | "grant_obj_privs_role"
   | "drop_role"
+  | "check_privileges"
   | "list_objects"
   // ── General Administration ───────────────────────────────
   | "status_database"
