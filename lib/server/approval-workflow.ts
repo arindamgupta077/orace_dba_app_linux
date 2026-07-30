@@ -230,7 +230,8 @@ export async function createApprovalRequest(
       severity:   "warning",
       status:     "pending_approval",
       message:    `${input.username} requested "${displayName}" on ${input.db} (${input.environment})`,
-      createdBy:  input.username
+      createdBy:  input.username,
+      metadata:   { target_role: "app_admin", requester_user_id: input.userId, requester_username: input.username }
     });
   } catch { /* ignore duplicate */ }
 
@@ -243,7 +244,22 @@ export async function createApprovalRequest(
     title:      "Approval Required",
     message:    `${input.username} requested "${displayName}" on ${input.db} (${input.environment})`,
     timestamp:  new Date().toISOString(),
-    targetPath: "/admin-panel/pending-approvals"
+    targetPath: "/admin-panel/pending-approvals",
+    targetRole: "app_admin"
+  });
+
+  // Broadcast SSE notification so requester's navbar workflow status icon updates immediately
+  emitGlobalNotification({
+    id:         `REQ-${requestId}`,
+    type:       "approval_workflow",
+    severity:   "info",
+    db:         input.db,
+    title:      "Approval Submitted",
+    message:    `Approval request submitted for "${displayName}" on ${input.db}.`,
+    timestamp:  new Date().toISOString(),
+    targetPath: "/dba-console",
+    targetUserId: input.userId,
+    targetUsername: input.username
   });
 
   return {
@@ -331,7 +347,13 @@ export async function decideApprovalRequest(
       severity: input.decision === "approved" ? "info" : "error",
       status: input.decision === "approved" ? "approved" : "rejected",
       message: `Request for "${updated.display_name}" on ${updated.db_name} was ${input.decision} by ${input.reviewerUsername}.`,
-      createdBy: input.reviewerUsername
+      createdBy: input.reviewerUsername,
+      metadata: {
+        target_user_id: updated.requester_user_id,
+        target_username: updated.requester_username,
+        requester_user_id: updated.requester_user_id,
+        requester_username: updated.requester_username
+      }
     });
   } catch { /* ignore duplicate */ }
 
@@ -344,7 +366,7 @@ export async function decideApprovalRequest(
     });
   } catch { /* ignore if not found */ }
 
-  // Broadcast real-time SSE notification so dba_admin navbar button updates immediately
+  // Broadcast real-time SSE notification so dba_admin navbar button updates immediately for the requester
   emitGlobalNotification({
     id:         updNotifId,
     type:       "approval_workflow",
@@ -353,7 +375,9 @@ export async function decideApprovalRequest(
     title:      `Approval ${input.decision === "approved" ? "Approved" : "Rejected"}`,
     message:    `Request for "${updated.display_name}" on ${updated.db_name} was ${input.decision} by ${input.reviewerUsername}.`,
     timestamp:  new Date().toISOString(),
-    targetPath: "/dba-console"
+    targetPath: "/dba-console",
+    targetUserId: updated.requester_user_id,
+    targetUsername: updated.requester_username
   });
 
   let dbaResponse: DbaResponse | undefined;
@@ -481,7 +505,13 @@ async function dispatchApprovedWebhook(
         severity: "info",
         status: "completed",
         message: `Approved action "${request.display_name}" on ${request.db_name} executed successfully.`,
-        createdBy: actorUsername
+        createdBy: actorUsername,
+        metadata: {
+          target_user_id: request.requester_user_id,
+          target_username: request.requester_username,
+          requester_user_id: request.requester_user_id,
+          requester_username: request.requester_username
+        }
       });
     } catch { /* ignore duplicate */ }
 
@@ -493,7 +523,9 @@ async function dispatchApprovedWebhook(
       title:      `Execution Complete: ${request.display_name}`,
       message:    `Approved action "${request.display_name}" on ${request.db_name} executed successfully.`,
       timestamp:  new Date().toISOString(),
-      targetPath: "/dba-console"
+      targetPath: "/dba-console",
+      targetUserId: request.requester_user_id,
+      targetUsername: request.requester_username
     });
 
     return dbaResponse;
@@ -526,7 +558,13 @@ async function dispatchApprovedWebhook(
         severity: "error",
         status: "failed",
         message: `Approved action "${request.display_name}" on ${request.db_name} failed: ${message}`,
-        createdBy: actorUsername
+        createdBy: actorUsername,
+        metadata: {
+          target_user_id: request.requester_user_id,
+          target_username: request.requester_username,
+          requester_user_id: request.requester_user_id,
+          requester_username: request.requester_username
+        }
       });
     } catch { /* ignore duplicate */ }
 
@@ -538,7 +576,9 @@ async function dispatchApprovedWebhook(
       title:      `Execution Failed: ${request.display_name}`,
       message:    `Approved action "${request.display_name}" on ${request.db_name} failed: ${message}`,
       timestamp:  new Date().toISOString(),
-      targetPath: "/dba-console"
+      targetPath: "/dba-console",
+      targetUserId: request.requester_user_id,
+      targetUsername: request.requester_username
     });
 
     throw error;

@@ -113,7 +113,18 @@ export function DatabaseAlertsBell() {
   const setSelectedDb = useAppStore((s) => s.setSelectedDb);
 
   const notifications = rawNotifications
-    .filter((n) => n.type !== "dba_shift")
+    .filter((n) => {
+      if (!n.title && !n.message) return false;
+      if (user?.role !== "app_admin") {
+        if (n.title === "Approval Required" || (n.type === "approval_workflow" && (n.targetRole === "app_admin" || (!n.title.includes("Approved") && !n.title.includes("Rejected") && !n.title.includes("Complete") && !n.title.includes("Failed"))))) {
+          return false;
+        }
+      }
+      if (n.targetRole && user?.role && n.targetRole !== user.role) return false;
+      if (n.targetUserId !== undefined && user?.userId !== undefined && n.targetUserId !== user.userId) return false;
+      if (n.targetUsername && user?.username && n.targetUsername.toLowerCase() !== user.username.toLowerCase()) return false;
+      return true;
+    })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 30);
 

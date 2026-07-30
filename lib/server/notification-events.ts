@@ -11,8 +11,26 @@ interface BroadcastPayload extends NotificationPayload {
 interface NotificationListener {
   id: string;
   userRole?: string;
+  userId?: number;
+  username?: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   heartbeatId?: ReturnType<typeof setInterval>;
+}
+
+export function isNotificationForUser(
+  payload: NotificationPayload,
+  listener: { userRole?: string; userId?: number; username?: string }
+): boolean {
+  if (payload.targetRole && listener.userRole !== payload.targetRole) {
+    return false;
+  }
+  if (payload.targetUserId !== undefined && listener.userId !== undefined && listener.userId !== payload.targetUserId) {
+    return false;
+  }
+  if (payload.targetUsername && listener.username && listener.username.toLowerCase() !== payload.targetUsername.toLowerCase()) {
+    return false;
+  }
+  return true;
 }
 
 const encoder = new TextEncoder();
@@ -49,10 +67,12 @@ function removeListener(id: string) {
 export function addGlobalNotificationListener(
   controller: ReadableStreamDefaultController<Uint8Array>,
   replayItems?: NotificationPayload[],
-  userRole?: string
+  userRole?: string,
+  userId?: number,
+  username?: string
 ) {
   const id = `gn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const listener: NotificationListener = { id, userRole, controller };
+  const listener: NotificationListener = { id, userRole, userId, username, controller };
   listeners.set(id, listener);
 
   try {
@@ -60,6 +80,8 @@ export function addGlobalNotificationListener(
 
     if (replayItems && replayItems.length > 0) {
       for (const item of replayItems) {
+        if (!item.title && !item.message) continue;
+        if (!isNotificationForUser(item, listener)) continue;
         try {
           writeSse(listener, "notification", { ...item, replayed: true, sent_at: new Date().toISOString() });
         } catch {
@@ -72,6 +94,8 @@ export function addGlobalNotificationListener(
       const replayedIds = new Set((replayItems ?? []).map((r) => r.id));
       for (const item of recentBroadcasts) {
         if (replayedIds.has(item.id)) continue;
+        if (!item.title && !item.message) continue;
+        if (!isNotificationForUser(item, listener)) continue;
         try {
           writeSse(listener, "notification", { ...item, replayed: true });
         } catch {
@@ -114,6 +138,7 @@ export function emitGlobalNotification(payload: NotificationPayload) {
   }
 
   for (const listener of listeners.values()) {
+    if (!isNotificationForUser(payload, listener)) continue;
     try {
       writeSse(listener, "notification", broadcast);
     } catch {

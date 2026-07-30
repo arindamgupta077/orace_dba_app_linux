@@ -296,6 +296,10 @@ export interface NotificationPayload {
   read?: boolean;
   readBy?: string;
   readAt?: string;
+  targetRole?: string;
+  targetUserId?: number;
+  targetUsername?: string;
+  replayed?: boolean;
 }
 
 /** A notification item stored in the client-side store (adds the `read` flag) */

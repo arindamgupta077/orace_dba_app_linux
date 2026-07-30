@@ -7085,18 +7085,30 @@ export async function listRecentShiftNotifications(limit: number = 30): Promise<
 
 /**
  * List recent approval requests from app_approval_requests so they can be replayed in notification streams.
+ * Only returns pending requests for app_admin (decision notifications for requesters live in app_alert_notifications).
  */
-export async function listRecentApprovalNotifications(limit: number = 30): Promise<NotificationPayload[]> {
+export async function listRecentApprovalNotifications(
+  limit: number = 30,
+  options?: { userRole?: string; userId?: number; username?: string }
+): Promise<NotificationPayload[]> {
+  // dba_admin users do not receive pending approval requests; their decision alerts are in app_alert_notifications
+  if (options?.userRole === "dba_admin") {
+    return [];
+  }
+
   await ensureNotificationReadColumnsExist();
 
   return executeOne(async (connection) => {
     try {
+      const binds: Record<string, number | string> = { limit };
+
       const res = await connection.execute<DbRow>(
-        `SELECT request_id, display_name, db_name, environment, requester_username, request_status, created_at, is_read, read_at, read_by
+        `SELECT request_id, display_name, db_name, environment, requester_user_id, requester_username, request_status, created_at, is_read, read_at, read_by
          FROM app_approval_requests
+         WHERE LOWER(request_status) = 'pending'
          ORDER BY created_at DESC
          FETCH FIRST :limit ROWS ONLY`,
-        { limit }
+        binds
       );
 
       const items: NotificationPayload[] = [];
@@ -7106,34 +7118,24 @@ export async function listRecentApprovalNotifications(limit: number = 30): Promi
         const db = String(row.DB_NAME || "");
         const env = String(row.ENVIRONMENT || "");
         const username = String(row.REQUESTER_USERNAME || "DBA");
-        const status = String(row.REQUEST_STATUS || "pending").toLowerCase();
         const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
         const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
         const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
         const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
 
-        let severity: NotificationPayload["severity"] = "warning";
-        let title = "Approval Required";
-        if (status === "approved") {
-          severity = "info";
-          title = "Approval Approved";
-        } else if (status === "rejected") {
-          severity = "error";
-          title = "Approval Rejected";
-        }
-
         items.push({
           id,
           type: "approval_workflow",
-          severity,
+          severity: "warning",
           db,
-          title,
+          title: "Approval Required",
           message: `${username} requested "${displayName}" on ${db}${env ? ` (${env})` : ""}`,
           timestamp: createdAt,
           targetPath: "/admin-panel/pending-approvals",
           read: isRead,
           readBy,
-          readAt
+          readAt,
+          targetRole: "app_admin"
         });
       }
       return items;

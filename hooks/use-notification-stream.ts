@@ -40,7 +40,23 @@ export function useNotificationStream() {
 
       es.addEventListener("notification", (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data as string);
+          const data = JSON.parse(event.data as string) as NotificationPayload;
+
+          const isForMe =
+            (!data.targetRole || data.targetRole === user?.role) &&
+            (data.targetUserId === undefined || data.targetUserId === user?.userId) &&
+            (!data.targetUsername || data.targetUsername.toLowerCase() === user?.username?.toLowerCase());
+
+          if (!isForMe) return;
+
+          const isPendingApprovalRequest =
+            data.title === "Approval Required" ||
+            (data.type === "approval_workflow" && (data.targetRole === "app_admin" || !data.title.includes("Approved") && !data.title.includes("Rejected") && !data.title.includes("Complete") && !data.title.includes("Failed")));
+
+          if (isPendingApprovalRequest && user?.role !== "app_admin") {
+            return;
+          }
+
           if (data.id === "ALL_READ_EVENT") {
             const cat = data.type === "dba_shift" ? "console" : data.db === "db" ? "db" : undefined;
             // skipApi=true to prevent re-calling the API which would re-broadcast and create a loop

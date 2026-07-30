@@ -31,6 +31,57 @@ async function parseErrorMessage(response: Response) {
   }
 }
 
+function buildActionDedupSignature(action: string, params: Record<string, unknown>): string {
+  const targetKeys = [
+    "username",
+    "user",
+    "target_user",
+    "old_username",
+    "new_username",
+    "tablespace",
+    "tablespace_name",
+    "file_name",
+    "datafile",
+    "profile_name",
+    "role_name",
+    "job_name",
+    "owner",
+    "schema",
+    "table_name",
+    "object_name",
+    "sid",
+    "serial",
+    "sql_id"
+  ];
+
+  const sigParts: string[] = [`action=${action}`];
+
+  for (const key of targetKeys) {
+    const val = params[key];
+    if (val !== undefined && val !== null && val !== "") {
+      sigParts.push(`${key}=${String(val).trim().toLowerCase()}`);
+    }
+  }
+
+  if (sigParts.length === 1 && Object.keys(params).length > 0) {
+    const sortedKeys = Object.keys(params).sort();
+    for (const key of sortedKeys) {
+      if (key.startsWith("_")) continue;
+      const val = params[key];
+      if (
+        val !== undefined &&
+        val !== null &&
+        val !== "" &&
+        (typeof val === "string" || typeof val === "number" || typeof val === "boolean")
+      ) {
+        sigParts.push(`${key}=${String(val).trim().toLowerCase()}`);
+      }
+    }
+  }
+
+  return sigParts.join(";");
+}
+
 export async function POST(request: Request) {
   const requestId = `REQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const startedAt = Date.now();
@@ -93,6 +144,8 @@ export async function POST(request: Request) {
         displayNameOverride = `Execute Destructive SQL — ${analysis.reasons[0] ?? "destructive operation"}`;
         riskLevelOverride = "critical";
         dedupSignature = sqlDedupSignature(analysis.normalizedSql);
+      } else {
+        dedupSignature = buildActionDedupSignature(action, params);
       }
 
       const { dbaResponse: pendingResponse } = await createApprovalRequest({

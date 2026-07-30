@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * and DBA console shift activities so bell icon feeds are populated immediately
  * when the browser loads or reconnects.
  */
-async function buildReplayItems(): Promise<NotificationPayload[]> {
+async function buildReplayItems(userRole?: string, userId?: number, username?: string): Promise<NotificationPayload[]> {
   const replayMap = new Map<string, NotificationPayload>();
 
   // 1. Database Alerts (Latest 50 records from app_alert_notifications)
@@ -23,7 +23,18 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
     });
 
     for (const alert of result.items) {
-      replayMap.set(alert.id, {
+      const metadata = alert.metadata || {};
+      const targetRole = typeof metadata.target_role === "string" ? metadata.target_role : undefined;
+      const targetUserId = typeof metadata.target_user_id === "number" ? metadata.target_user_id : undefined;
+      const targetUsername = typeof metadata.target_username === "string" ? metadata.target_username : (typeof metadata.requester_username === "string" ? metadata.requester_username : undefined);
+
+      const isPendingReq = alert.alert_type === "approval_workflow" && (
+        (alert.status || "").toLowerCase() === "pending_approval" ||
+        (alert.status || "").toLowerCase() === "pending" ||
+        (!alert.id.startsWith("UPD-") && !alert.id.startsWith("EXEC-") && !alert.id.startsWith("ERR-") && alert.status !== "approved" && alert.status !== "rejected")
+      );
+
+      const itemPayload: NotificationPayload = {
         id: alert.id,
         type: resolveNotificationType(alert.alert_type),
         severity: alert.severity,
@@ -35,10 +46,11 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
           if (alert.alert_type === "dba_shift") return `DBA Console Event`;
           if (alert.alert_type === "approval_workflow") {
             const st = (alert.status || "").toLowerCase();
-            if (st === "approved") return "Approval Approved";
-            if (st === "rejected") return "Approval Rejected";
-            if (st === "completed") return "Execution Complete";
-            if (st === "failed") return "Execution Failed";
+            if (alert.id.startsWith("EXEC-") || st === "completed") return "Execution Complete";
+            if (alert.id.startsWith("ERR-") || st === "failed") return "Execution Failed";
+            if (alert.id.startsWith("UPD-") || st === "approved" || st === "rejected") {
+              return st === "approved" ? "Approval Approved" : "Approval Rejected";
+            }
             return "Approval Required";
           }
           if (alert.alert_type === "db_monitoring") {
@@ -49,11 +61,31 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
         })(),
         message: alert.message,
         timestamp: alert.created_at,
-        targetPath: alertTypeToTargetPath(alert.alert_type),
+        targetPath: isPendingReq ? "/admin-panel/pending-approvals" : alertTypeToTargetPath(alert.alert_type),
         read: alert.read ?? false,
         readBy: alert.readBy,
-        readAt: alert.readAt
-      });
+        readAt: alert.readAt,
+        targetRole: isPendingReq ? "app_admin" : targetRole,
+        targetUserId: isPendingReq ? undefined : targetUserId,
+        targetUsername: isPendingReq ? undefined : targetUsername
+      };
+
+      // Filter replay items per user context:
+      // 1. Pending approval request notifications are strictly for app_admin ONLY
+      if (isPendingReq && userRole !== "app_admin") {
+        continue;
+      }
+      // 2. Decision / execution alerts for dba_admin: check target user match
+      if (userRole === "dba_admin") {
+        if (itemPayload.targetUserId !== undefined && userId !== undefined && itemPayload.targetUserId !== userId) {
+          continue;
+        }
+        if (itemPayload.targetUsername && username && itemPayload.targetUsername.toLowerCase() !== username.toLowerCase()) {
+          continue;
+        }
+      }
+
+      replayMap.set(alert.id, itemPayload);
     }
   } catch {
     // Ignore alert notification replay errors
@@ -71,7 +103,7 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
 
   // 3. Approval Workflow Requests (Latest 30 approval request records from app_approval_requests)
   try {
-    const approvalItems = await listRecentApprovalNotifications(30);
+    const approvalItems = await listRecentApprovalNotifications(30, { userRole, userId, username });
     for (const item of approvalItems) {
       if (!replayMap.has(item.id)) {
         replayMap.set(item.id, item);
@@ -88,21 +120,25 @@ async function buildReplayItems(): Promise<NotificationPayload[]> {
 
 export async function GET(request: Request) {
   let userRole: string | undefined;
+  let userId: number | undefined;
+  let username: string | undefined;
   try {
     const session = await requireAuthenticatedSession();
     userRole = session?.user?.role;
+    userId = session?.userId;
+    username = session?.user?.username;
   } catch {
     return new Response("Unauthorized", { status: 401 });
   }
 
   // Fetch missed alerts before opening the stream to avoid race conditions
-  const replayItems = await buildReplayItems();
+  const replayItems = await buildReplayItems(userRole, userId, username);
 
   let unsubscribe: () => void = () => {};
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      unsubscribe = addGlobalNotificationListener(controller, replayItems, userRole);
+      unsubscribe = addGlobalNotificationListener(controller, replayItems, userRole, userId, username);
 
       // Guard against connection already being aborted before start runs
       if (request.signal.aborted) {

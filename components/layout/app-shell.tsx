@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArchiveRestore,
-  Bell,
   Bot,
   ClipboardList,
   ClipboardCheck,

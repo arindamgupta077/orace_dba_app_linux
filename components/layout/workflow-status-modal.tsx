@@ -245,9 +245,24 @@ export function WorkflowStatusModal() {
     void loadRequests();
 
     function handleApprovalEvent(e: Event) {
-      void loadRequests();
-      const customEv = e as CustomEvent<{ title?: string; message?: string; replayed?: boolean }>;
+      const customEv = e as CustomEvent<
+        import("@/types/dba").NotificationPayload & {
+          requester_user_id?: number;
+          requester_username?: string;
+        }
+      >;
       const detail = customEv.detail;
+
+      // Check if this notification targets the current logged-in user or was raised by this user
+      const isTargetedToMe =
+        Boolean((detail as unknown as { isCreatedByMe?: boolean })?.isCreatedByMe) ||
+        (detail.targetUserId !== undefined && detail.targetUserId === user?.userId) ||
+        (detail.targetUsername && user?.username && detail.targetUsername.toLowerCase() === user.username.toLowerCase()) ||
+        (detail.requester_username && user?.username && detail.requester_username.toLowerCase() === user.username.toLowerCase());
+
+      if (!isTargetedToMe) return;
+
+      void loadRequests();
       // Ignore replayed historical events so toasts don't pop up on page reload
       if (!detail?.replayed) {
         if (detail?.title) {
@@ -271,7 +286,7 @@ export function WorkflowStatusModal() {
       window.removeEventListener("dba-approval-update", handleApprovalEvent);
       window.removeEventListener("dba-open-workflow-modal", handleOpenModalEvent);
     };
-  }, [loadRequests, isActiveRole, pageSize]);
+  }, [loadRequests, isActiveRole, pageSize, user?.userId, user?.username]);
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);

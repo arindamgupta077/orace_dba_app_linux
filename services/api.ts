@@ -114,10 +114,25 @@ export async function executeDBAAction(
   db: string,
   params: Record<string, unknown> = {}
 ): Promise<DbaResponse> {
-  return requestJson<DbaResponse>("/api/dba/actions", {
+  const res = await requestJson<DbaResponse>("/api/dba/actions", {
     method: "POST",
     body: JSON.stringify({ action, db, params })
   });
+
+  if (typeof window !== "undefined" && res?.status === "pending_approval") {
+    window.dispatchEvent(
+      new CustomEvent("dba-approval-update", {
+        detail: {
+          title: "Approval Requested",
+          message: `Approval request submitted for "${action}" on ${db}.`,
+          replayed: false,
+          isCreatedByMe: true
+        }
+      })
+    );
+  }
+
+  return res;
 }
 
 export async function testDbConnection(

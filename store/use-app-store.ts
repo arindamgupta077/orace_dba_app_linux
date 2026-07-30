@@ -106,6 +106,13 @@ export const useAppStore = create<AppState>()(
       addNotification: (item) =>
         set((state) => {
           const existingIndex = state.notifications.findIndex((n) => String(n.id) === String(item.id));
+
+          // If this is a lightweight read-status sync event (empty title and message) and the item
+          // isn't in memory, ignore it so we don't create a blank phantom card.
+          if (existingIndex < 0 && !item.title && !item.message) {
+            return state;
+          }
+
           let updated: NotificationItem[];
           if (existingIndex >= 0) {
             updated = [...state.notifications];
