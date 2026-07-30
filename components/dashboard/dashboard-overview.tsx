@@ -13,9 +13,11 @@ import {
   Database,
   FileDown,
   HardDrive,
+  History,
   Info,
   Layers,
   RefreshCw,
+  RotateCcw,
   Server,
   Shield,
   Unplug,
@@ -41,12 +43,14 @@ import { ScheduleModal } from "@/components/dashboard/schedule-modal";
 import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
 import { FailedJobsModal } from "@/components/dashboard/failed-jobs-modal";
 import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-modal";
+import { HistoricalSnapshotsModal } from "@/components/dashboard/historical-snapshots-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type {
   DashboardArchiveLogMonthRow,
+  DashboardHistoryRow,
   DashboardMetrics,
   DashboardTablespaceRow
 } from "@/types/dba";
@@ -576,6 +580,8 @@ export function DashboardOverview() {
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
   const [failedJobsModalOpen, setFailedJobsModalOpen]       = useState(false);
   const [invalidObjectsModalOpen, setInvalidObjectsModalOpen] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen]             = useState(false);
+  const [activeSnapshot, setActiveSnapshot]                 = useState<DashboardHistoryRow | null>(null);
 
   const dbTarget  = databases.find((db) => db.name === selectedDb);
   const prevDb    = useRef(selectedDb);
@@ -602,6 +608,20 @@ export function DashboardOverview() {
     }
   }, []);
 
+  const handleSelectSnapshot = useCallback((snapshot: DashboardHistoryRow) => {
+    setActiveSnapshot(snapshot);
+    if (snapshot.metrics) {
+      setMetrics(normalizeMetrics(snapshot.metrics) ?? snapshot.metrics);
+      setRefreshedAt(snapshot.refresh_timestamp);
+      setRefreshedBy(snapshot.refreshed_by);
+    }
+  }, []);
+
+  const handleReturnToLatest = useCallback(() => {
+    setActiveSnapshot(null);
+    loadHistory(selectedDb);
+  }, [loadHistory, selectedDb]);
+
   const loadServerSchedule = useCallback(async (db: string) => {
     try {
       const res = await fetch("/api/dashboard/schedules");
@@ -620,6 +640,7 @@ export function DashboardOverview() {
     if (prevDb.current !== selectedDb) {
       prevDb.current = selectedDb;
       setMetrics(null);
+      setActiveSnapshot(null);
     }
     loadHistory(selectedDb);
     loadServerSchedule(selectedDb);
@@ -630,6 +651,7 @@ export function DashboardOverview() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     setError(null);
+    setActiveSnapshot(null);
     try {
       const response = await runAction("refresh_dashboard", {}, selectedDb);
       if (response) {
@@ -867,8 +889,54 @@ export function DashboardOverview() {
             <FileDown className="h-3.5 w-3.5" />
             PDF
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHistoryModalOpen(true)}
+            className="gap-1.5 border-cyan-500/30 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10"
+            title="View historical snapshots for this database"
+          >
+            <History className="h-3.5 w-3.5" />
+            Historical Snapshots
+          </Button>
         </div>
       </div>
+
+      {/* ── Active Historical Snapshot Banner ────────────────────────────── */}
+      {activeSnapshot && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/30 p-3.5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+              <History className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  Viewing Historical Snapshot
+                </span>
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-amber-800 dark:text-amber-200">
+                  ID #{activeSnapshot.id}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Captured at <span className="font-semibold text-foreground">{formatAppDateTime(activeSnapshot.refresh_timestamp)}</span>
+                {activeSnapshot.refreshed_by && <> by <span className="font-semibold text-cyan-600 dark:text-cyan-300">{activeSnapshot.refreshed_by.toUpperCase()}</span></>}
+              </p>
+            </div>
+          </div>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleReturnToLatest}
+            className="gap-1.5 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20 text-xs font-semibold"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Return to Latest Live View
+          </Button>
+        </div>
+      )}
 
       {/* ── Error Banner ───────────────────────────────────────────────── */}
       {error && (
@@ -1442,6 +1510,15 @@ export function DashboardOverview() {
         open={invalidObjectsModalOpen}
         onClose={() => setInvalidObjectsModalOpen(false)}
         selectedDb={selectedDb}
+      />
+
+      {/* ── Historical Snapshots Modal ───────────────────────────────── */}
+      <HistoricalSnapshotsModal
+        open={historyModalOpen}
+        onClose={() => setHistoryModalOpen(false)}
+        selectedDb={selectedDb}
+        activeSnapshotId={activeSnapshot?.id ?? null}
+        onSelectSnapshot={handleSelectSnapshot}
       />
     </div>
   );

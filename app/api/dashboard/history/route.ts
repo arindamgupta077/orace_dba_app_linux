@@ -1,9 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getServerEnv } from "@/lib/server/env";
-import { getLatestDashboardHistory } from "@/lib/server/repository";
+import { getDashboardHistoryList, getLatestDashboardHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
-import type { DashboardMetrics } from "@/types/dba";
+import type { DashboardHistoryRow, DashboardMetrics } from "@/types/dba";
 
 const MOCK_METRICS: DashboardMetrics = {
   db_health: {
@@ -81,6 +81,52 @@ const MOCK_METRICS: DashboardMetrics = {
   captured_at: new Date(Date.now() - 1000 * 60 * 3).toISOString()
 };
 
+function generateMockSnapshots(db: string): DashboardHistoryRow[] {
+  const now = Date.now();
+  const offsets = [
+    { minsAgo: 5, user: "ARINDAM", active: 29, cpu: 45.2, blockers: 1, fraPct: 46.3 },
+    { minsAgo: 60, user: "SCHEDULER", active: 18, cpu: 32.1, blockers: 0, fraPct: 42.0 },
+    { minsAgo: 240, user: "ARINDAM", active: 42, cpu: 78.4, blockers: 3, fraPct: 68.5 },
+    { minsAgo: 480, user: "SCHEDULER", active: 14, cpu: 22.5, blockers: 0, fraPct: 40.1 },
+    { minsAgo: 1440, user: "DB_ADMIN", active: 58, cpu: 89.2, blockers: 4, fraPct: 88.5 },
+    { minsAgo: 2880, user: "SCHEDULER", active: 22, cpu: 38.0, blockers: 0, fraPct: 39.5 },
+    { minsAgo: 4320, user: "ARINDAM", active: 31, cpu: 51.0, blockers: 0, fraPct: 41.2 }
+  ];
+
+  return offsets.map((o, index) => {
+    const timestamp = new Date(now - o.minsAgo * 60 * 1000).toISOString();
+    const mockMetric: DashboardMetrics = {
+      ...MOCK_METRICS,
+      db_health: {
+        ...MOCK_METRICS.db_health,
+        db_name: db
+      },
+      os_resources: {
+        ...MOCK_METRICS.os_resources,
+        cpu_usage_pct: o.cpu
+      },
+      active_sessions: o.active,
+      blocking_sessions: o.blockers > 0 ? MOCK_METRICS.blocking_sessions : [],
+      fra: {
+        ...MOCK_METRICS.fra,
+        pct_used: o.fraPct,
+        used_gb: Math.round((o.fraPct / 100) * 500 * 10) / 10
+      },
+      captured_at: timestamp
+    };
+
+    return {
+      id: 100 - index,
+      db_name: db,
+      environment: "PROD",
+      os: "Linux",
+      refreshed_by: o.user,
+      refresh_timestamp: timestamp,
+      metrics: mockMetric
+    };
+  });
+}
+
 export async function GET(request: NextRequest) {
   const session = await requireAuthenticatedSession();
   if (!session) {
@@ -90,6 +136,38 @@ export async function GET(request: NextRequest) {
   try {
     const env = getServerEnv();
     const db = request.nextUrl.searchParams.get("db") || "ORCL";
+    const page = Math.max(1, parseInt(request.nextUrl.searchParams.get("page") || "1", 10));
+    const pageSize = Math.max(1, Math.min(100, parseInt(request.nextUrl.searchParams.get("pageSize") || request.nextUrl.searchParams.get("limit") || "10", 10)));
+    const offset = (page - 1) * pageSize;
+    const isList = request.nextUrl.searchParams.get("list") === "true";
+
+    if (isList) {
+      if (env.mockMode) {
+        const fullMockList = generateMockSnapshots(db);
+        const total = fullMockList.length;
+        const snapshots = fullMockList.slice(offset, offset + pageSize);
+        const totalPages = Math.ceil(total / pageSize) || 1;
+        return NextResponse.json({
+          db_name: db,
+          snapshots,
+          total,
+          page,
+          pageSize,
+          totalPages
+        });
+      }
+
+      const { rows: snapshots, total } = await getDashboardHistoryList(db, pageSize, offset);
+      const totalPages = Math.ceil(total / pageSize) || 1;
+      return NextResponse.json({
+        db_name: db,
+        snapshots,
+        total,
+        page,
+        pageSize,
+        totalPages
+      });
+    }
 
     if (env.mockMode) {
       return NextResponse.json({
@@ -118,3 +196,4 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message }, { status: 500 });
   }
 }
+

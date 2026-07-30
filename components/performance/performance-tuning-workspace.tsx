@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
-import { ChevronDown, ChevronUp, Download, Loader2, Play, RefreshCcw, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, History, Loader2, Play, RefreshCcw, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,7 +17,7 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchPerformanceAuditLogs, fetchPerformanceRunAllHistory, type PerformanceRunAllHistoryResponse } from "@/services/api";
+import { fetchPerformanceAuditLogs, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, type PerformanceRunAllHistoryResponse } from "@/services/api";
 import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
@@ -418,6 +418,7 @@ export function PerformanceTuningWorkspace() {
   // Loaded from the DB on mount and after each successful RUN ALL.
   const [latestRunAll, setLatestRunAll] = useState<RunAllSource | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [autoExpandSummary, setAutoExpandSummary] = useState(false);
 
   // ── Audit-log based card metadata ──────────────────────────────
   // Keyed by action name; fetched from APP_AUDIT_LOGS via the performance audit API.
@@ -458,6 +459,7 @@ export function PerformanceTuningWorkspace() {
 
   // Load persisted RUN ALL history whenever the selected database changes.
   useEffect(() => {
+    setAutoExpandSummary(false);
     void loadAuditMeta();
     void loadHistoryFromDb();
   }, [loadAuditMeta, loadHistoryFromDb]);
@@ -570,6 +572,7 @@ export function PerformanceTuningWorkspace() {
       // n8n will run all 8 queries, call the LLM node, and INSERT a row
       // into performance_run_all_hist before responding.
       await runAll.runAction("check_performance", {}, selectedDb);
+      setAutoExpandSummary(true);
       // Re-fetch the persisted row so the panel displays data from the DB.
       await loadHistoryFromDb();
       void loadAuditMeta();
@@ -631,7 +634,7 @@ export function PerformanceTuningWorkspace() {
 
       {runAll.error ? <div className="mb-4 rounded-md border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{runAll.error}</div> : null}
 
-      {latestRunAll ? <RunAllResult source={latestRunAll} configs={PERFORMANCE_ACTIONS} /> : null}
+      {latestRunAll ? <RunAllResult source={latestRunAll} configs={PERFORMANCE_ACTIONS} defaultExpanded={autoExpandSummary} /> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {actions.map(({ definition }) => {
@@ -825,8 +828,20 @@ function PerformanceRunMeta({ auditLog }: { auditLog: AuditLogItem | null }) {
   );
 }
 
-function RunAllResult({ source, configs }: { source: RunAllSource; configs: PerformanceActionConfig[] }) {
-  const [summaryExpanded, setSummaryExpanded] = useState(true);
+function RunAllResult({
+  source,
+  configs,
+  defaultExpanded = false
+}: {
+  source: RunAllSource;
+  configs: PerformanceActionConfig[];
+  defaultExpanded?: boolean;
+}) {
+  const [summaryExpanded, setSummaryExpanded] = useState(defaultExpanded);
+
+  useEffect(() => {
+    setSummaryExpanded(defaultExpanded);
+  }, [defaultExpanded, source.response.request_id]);
 
   return (
     <div className="mb-4 space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
@@ -886,7 +901,7 @@ function RunAllResult({ source, configs }: { source: RunAllSource; configs: Perf
         </div>
       ) : null}
 
-      <RunAllTables response={source.response} configs={configs} createdAt={source.createdAt} />
+      <RunAllTables response={source.response} configs={configs} createdAt={source.createdAt} dbName={source.db} />
     </div>
   );
 }
@@ -1004,7 +1019,22 @@ function MarkdownSummary({ text }: { text: string }) {
   return <div className="space-y-2 rounded-md border border-border/60 bg-card/40 p-4">{elements}</div>;
 }
 
-function RunAllTables({ response, configs, createdAt }: { response: DbaResponse; configs: PerformanceActionConfig[]; createdAt?: string | null }) {
+function RunAllTables({
+  response,
+  configs,
+  createdAt,
+  dbName,
+  hideHistoryButton = false
+}: {
+  response: DbaResponse;
+  configs: PerformanceActionConfig[];
+  createdAt?: string | null;
+  dbName?: string;
+  hideHistoryButton?: boolean;
+}) {
+  const currentDb = useAppStore((state) => state.selectedDb);
+  const targetDb = dbName || currentDb;
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const tableConfigs = configs.map((config) => ({ config, rows: getRows(response, config) }));
   const defaultValue = tableConfigs[0]?.config.action;
 
@@ -1012,9 +1042,17 @@ function RunAllTables({ response, configs, createdAt }: { response: DbaResponse;
 
   return (
     <div className="space-y-3">
-      <div>
-        <p className="font-medium">Detailed SQL outputs</p>
-        <p className="mt-1 text-xs text-muted-foreground">Full row output returned by n8n for each performance check.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-medium">Detailed SQL outputs</p>
+          <p className="mt-1 text-xs text-muted-foreground">Full row output returned by n8n for each performance check.</p>
+        </div>
+        {!hideHistoryButton && targetDb ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => setHistoryModalOpen(true)}>
+            <History className="h-4 w-4" />
+            View Historical Outputs
+          </Button>
+        ) : null}
       </div>
       <Tabs defaultValue={defaultValue}>
         <TabsList className="h-auto flex-wrap justify-start gap-1 bg-secondary/50">
@@ -1031,7 +1069,143 @@ function RunAllTables({ response, configs, createdAt }: { response: DbaResponse;
           </TabsContent>
         ))}
       </Tabs>
+
+      {!hideHistoryButton && targetDb ? (
+        <HistoricalOutputsModal
+          open={historyModalOpen}
+          onOpenChange={setHistoryModalOpen}
+          dbName={targetDb}
+          configs={configs}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function HistoricalOutputsModal({
+  open,
+  onOpenChange,
+  dbName,
+  configs
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  dbName: string;
+  configs: PerformanceActionConfig[];
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [historyRuns, setHistoryRuns] = useState<PerformanceRunAllHistoryResponse[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string>("");
+
+  useEffect(() => {
+    if (!open || !dbName) return;
+    setLoading(true);
+    setError(null);
+    fetchPerformanceRunAllHistoryList(dbName, 50)
+      .then((res) => {
+        const items = res.items || [];
+        setHistoryRuns(items);
+        if (items.length > 0) {
+          setSelectedRunId(String(items[0].run_id));
+        }
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "Failed to load historical runs.";
+        setError(msg);
+      })
+      .finally(() => setLoading(false));
+  }, [open, dbName]);
+
+  const activeRun = useMemo(() => {
+    return historyRuns.find((run) => String(run.run_id) === selectedRunId) || historyRuns[0] || null;
+  }, [historyRuns, selectedRunId]);
+
+  const activeSource = useMemo(() => {
+    if (!activeRun) return null;
+    return historyRowToRunAllSource(activeRun, `HIST-${activeRun.run_id ?? 0}`);
+  }, [activeRun]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-slate-100">
+            <History className="h-5 w-5 text-cyan-400" />
+            Historical SQL Outputs — {dbName}
+          </DialogTitle>
+          <DialogDescription>
+            Select and review output tables saved from past RUN ALL executions for {dbName}.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin text-cyan-400" />
+            Loading historical runs for {dbName}...
+          </div>
+        ) : error ? (
+          <div className="rounded-md border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">{error}</div>
+        ) : historyRuns.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
+            No historical run records found for {dbName}.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card/40 p-3">
+              <div className="space-y-1.5 min-w-72">
+                <Label className="text-xs text-muted-foreground">Select Execution Snapshot</Label>
+                <Select value={selectedRunId} onValueChange={setSelectedRunId}>
+                  <SelectTrigger className="w-full min-w-72">
+                    <SelectValue placeholder="Select historical run" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {historyRuns.map((run) => (
+                      <SelectItem key={run.run_id} value={String(run.run_id)}>
+                        Run #{run.run_id} — {formatIstTimestamp(run.created_at)} ({run.refreshed_by})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {activeRun ? (
+                <div className="flex flex-wrap items-center gap-4 text-xs">
+                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <span className="text-muted-foreground">Run ID:</span>{" "}
+                    <span className="font-mono text-cyan-100">#{activeRun.run_id}</span>
+                  </div>
+                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <span className="text-muted-foreground">Ran At:</span>{" "}
+                    <span className="font-mono text-amber-100">{formatIstTimestamp(activeRun.created_at)}</span>
+                  </div>
+                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <span className="text-muted-foreground">Executed By:</span>{" "}
+                    <span className="font-mono text-slate-100">{activeRun.refreshed_by || "-"}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {activeSource ? (
+              <RunAllTables
+                response={activeSource.response}
+                configs={configs}
+                createdAt={activeSource.createdAt}
+                dbName={dbName}
+                hideHistoryButton
+              />
+            ) : null}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

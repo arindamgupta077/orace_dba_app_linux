@@ -45,7 +45,7 @@ import type { ChatMessage, DatabaseTarget } from "@/types/dba";
 // Constants & Suggested Prompts Catalog
 // ---------------------------------------------------------------------------
 
-export type PromptTypeFilter = "all" | "action" | "query";
+export type PromptTypeFilter = "query" | "action";
 
 export type SuggestedCategory =
   | "All"
@@ -724,7 +724,7 @@ export function ChatWithDb() {
 
   // DB Prompts & Actions sidebar drawer state
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [promptTypeFilter, setPromptTypeFilter] = useState<PromptTypeFilter>("all");
+  const [promptTypeFilter, setPromptTypeFilter] = useState<PromptTypeFilter>("query");
   const [activeCategory, setActiveCategory] = useState<SuggestedCategory>("All");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -740,7 +740,7 @@ export function ChatWithDb() {
   // Filtered prompts based on type, category, and search
   const filteredPrompts = useMemo(() => {
     return SUGGESTED_PROMPTS.filter((item) => {
-      const matchesType = promptTypeFilter === "all" || item.type === promptTypeFilter;
+      const matchesType = item.type === promptTypeFilter;
       const matchesCategory = activeCategory === "All" || item.category === activeCategory;
       const q = searchQuery.trim().toLowerCase();
       const matchesSearch =
@@ -1323,19 +1323,20 @@ export function ChatWithDb() {
 
             {/* Type Filters & Search */}
             <div className="p-3 border-b border-border/60 dark:border-slate-800/60 bg-muted/20 dark:bg-slate-900/40 space-y-2.5">
-              {/* Type filter tabs (All / Actions / Queries) */}
-              <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1 dark:bg-slate-800/60 text-[10px] font-medium">
+              {/* Type filter tabs (Queries / Actions) */}
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1 dark:bg-slate-800/60 text-[10px] font-medium">
                 <button
                   type="button"
-                  onClick={() => setPromptTypeFilter("all")}
+                  onClick={() => setPromptTypeFilter("query")}
                   className={cn(
-                    "rounded-md py-1 text-center transition-all",
-                    promptTypeFilter === "all"
-                      ? "bg-card text-foreground font-semibold shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
+                    promptTypeFilter === "query"
+                      ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  All ({SUGGESTED_PROMPTS.length})
+                  <Search className="h-2.5 w-2.5 text-cyan-500" />
+                  Queries ({SUGGESTED_PROMPTS.filter((p) => p.type === "query").length})
                 </button>
                 <button
                   type="button"
@@ -1349,18 +1350,6 @@ export function ChatWithDb() {
                 >
                   <Zap className="h-2.5 w-2.5 text-amber-500" />
                   Actions ({SUGGESTED_PROMPTS.filter((p) => p.type === "action").length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPromptTypeFilter("query")}
-                  className={cn(
-                    "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
-                    promptTypeFilter === "query"
-                      ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Queries ({SUGGESTED_PROMPTS.filter((p) => p.type === "query").length})
                 </button>
               </div>
 

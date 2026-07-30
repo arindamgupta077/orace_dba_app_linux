@@ -3537,6 +3537,53 @@ export async function getLatestDashboardHistory(dbName: string): Promise<Dashboa
   });
 }
 
+export async function getDashboardHistoryList(
+  dbName: string,
+  limit: number = 10,
+  offset: number = 0
+): Promise<{ rows: DashboardHistoryRow[]; total: number }> {
+  return withOracleConnection(async (connection) => {
+    const countResult = await connection.execute<DbRow>(
+      `SELECT COUNT(*) AS total_cnt FROM dashboard_history WHERE db_name = :dbName`,
+      { dbName }
+    );
+    const total = Number(countResult.rows?.[0]?.TOTAL_CNT ?? countResult.rows?.[0]?.total_cnt ?? 0);
+
+    if (total === 0) {
+      return { rows: [], total: 0 };
+    }
+
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         id,
+         db_name,
+         environment,
+         os,
+         refreshed_by,
+         refresh_timestamp,
+         metrics_payload
+       FROM dashboard_history
+       WHERE db_name = :dbName
+       ORDER BY refresh_timestamp DESC
+       OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`,
+      { dbName, offset, limit }
+    );
+
+    const rows = (result.rows ?? []).map((row) => ({
+      id: Number(row.ID ?? row.id),
+      db_name: String(row.DB_NAME ?? row.db_name ?? dbName),
+      environment: row.ENVIRONMENT != null ? String(row.ENVIRONMENT) : null,
+      os: row.OS != null ? String(row.OS) : null,
+      refreshed_by: row.REFRESHED_BY != null ? String(row.REFRESHED_BY) : null,
+      refresh_timestamp: toIsoString(row.REFRESH_TIMESTAMP ?? row.refresh_timestamp),
+      metrics: parseJson<DashboardMetrics>(row.METRICS_PAYLOAD ?? row.metrics_payload) ?? null
+    }));
+
+    return { rows, total };
+  });
+}
+
+
 // ============================================================
 // Performance Run All History â€” performance_run_all_hist
 // ============================================================
@@ -3591,6 +3638,46 @@ export async function getLatestPerformanceRunAll(
         row.AI_SUMMARY != null ? String(row.AI_SUMMARY) : null,
       created_at: toIstIsoString(row.CREATED_AT ?? row.created_at)
     };
+  });
+}
+
+export async function getPerformanceRunAllHistoryList(
+  db: string,
+  limit: number = 50
+): Promise<PerformanceRunAllRow[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  return executeOne(async (connection) => {
+    const result = await connection.execute<DbRow>(
+      `SELECT
+         run_id,
+         db_name,
+         environment,
+         os,
+         refreshed_by,
+         metrics_payload,
+         ai_summary,
+         created_at
+       FROM performance_run_all_hist
+       WHERE db_name = :dbName
+       ORDER BY created_at DESC
+       FETCH FIRST :fetchLimit ROWS ONLY`,
+      { dbName: db, fetchLimit: safeLimit }
+    );
+
+    const rows = result.rows || [];
+    return rows.map((row) => ({
+      run_id: Number(row.RUN_ID ?? row.run_id),
+      db_name: String(row.DB_NAME ?? row.db_name ?? db),
+      environment: row.ENVIRONMENT != null ? String(row.ENVIRONMENT) : null,
+      os: row.OS != null ? String(row.OS) : null,
+      refreshed_by: String(row.REFRESHED_BY ?? row.refreshed_by ?? ""),
+      metrics_payload: parseJson<Record<string, unknown>>(
+        row.METRICS_PAYLOAD ?? row.metrics_payload
+      ) ?? null,
+      ai_summary:
+        row.AI_SUMMARY != null ? String(row.AI_SUMMARY) : null,
+      created_at: toIstIsoString(row.CREATED_AT ?? row.created_at)
+    }));
   });
 }
 

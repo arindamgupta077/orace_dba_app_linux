@@ -13,6 +13,7 @@ import type {
   CurrentShiftState,
   DatabaseInventoryInput,
   DatabaseInventoryItem,
+  DashboardHistoryRow,
   DashboardMetrics,
   DbStatusCheck,
   DbStatusValue,
@@ -465,6 +466,27 @@ export async function fetchDashboardHistory(db: string): Promise<DashboardHistor
   return requestJson<DashboardHistoryResponse>(`/api/dashboard/history${qs}`);
 }
 
+export interface DashboardSnapshotHistoryResponse {
+  db_name: string;
+  snapshots: DashboardHistoryRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export async function fetchDashboardSnapshotHistory(
+  db: string,
+  params: { page?: number; pageSize?: number } = {}
+): Promise<DashboardSnapshotHistoryResponse> {
+  const query = new URLSearchParams({ list: "true" });
+  if (db) query.set("db", db);
+  if (params.page) query.set("page", String(params.page));
+  if (params.pageSize) query.set("pageSize", String(params.pageSize));
+  return requestJson<DashboardSnapshotHistoryResponse>(`/api/dashboard/history?${query.toString()}`);
+}
+
+
 // ============================================================
 // DBA Alert Log (dba_alert_log) — Section 1
 // ============================================================
@@ -594,6 +616,22 @@ export async function fetchPerformanceRunAllHistory(
 ): Promise<PerformanceRunAllHistoryResponse> {
   const qs = `?db=${encodeURIComponent(db)}`;
   return requestJson<PerformanceRunAllHistoryResponse>(
+    `/api/performance/history${qs}`
+  );
+}
+
+export interface PerformanceRunAllHistoryListResponse {
+  has_data: boolean;
+  db_name: string;
+  items?: PerformanceRunAllHistoryResponse[];
+}
+
+export async function fetchPerformanceRunAllHistoryList(
+  db: string,
+  limit: number = 50
+): Promise<PerformanceRunAllHistoryListResponse> {
+  const qs = `?db=${encodeURIComponent(db)}&list=true&limit=${limit}`;
+  return requestJson<PerformanceRunAllHistoryListResponse>(
     `/api/performance/history${qs}`
   );
 }
