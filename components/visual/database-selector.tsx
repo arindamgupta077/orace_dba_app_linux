@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import type { DatabaseTarget } from "@/types/dba";
-import { DatabaseZap, Building2, Cpu, ShieldAlert, Search, X } from "lucide-react";
+import { DatabaseZap, Building2, Cpu, ShieldAlert, Search, X, Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/store/use-app-store";
+import { fetchDataPumpJobsApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 
 const ENV_PRIORITY: Record<string, number> = {
@@ -36,14 +37,67 @@ const ENV_FULL_NAMES: Record<string, string> = {
   DR: "Disaster Recovery",
 };
 
+interface ActiveDbActivity {
+  type: "expdp" | "impdp" | "rman";
+  label: string;
+  description: string;
+  colorClass: string;
+}
+
 export function DatabaseSelector() {
   const databases = useAppStore((state) => state.databases);
   const selectedDb = useAppStore((state) => state.selectedDb);
   const setSelectedDb = useAppStore((state) => state.setSelectedDb);
   const setDatabases = useAppStore((state) => state.setDatabases);
+  const dataPumpJobs = useAppStore((state) => state.dataPumpJobs);
+  const rmanJobs = useAppStore((state) => state.rmanJobs);
+  const upsertDataPumpJob = useAppStore((state) => state.upsertDataPumpJob);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEnvFilter, setSelectedEnvFilter] = useState<string>("ALL");
+
+  const getActiveActivitiesForDb = (dbName?: string): ActiveDbActivity[] => {
+    if (!dbName) return [];
+    const normalized = dbName.trim().toUpperCase();
+    const activities: ActiveDbActivity[] = [];
+
+    // Data Pump running jobs (expdp / impdp)
+    const runningDataPump = dataPumpJobs.filter(
+      (j) => j.status === "running" && j.db && j.db.trim().toUpperCase() === normalized
+    );
+    for (const job of runningDataPump) {
+      if (job.operation === "expdp" && !activities.some((a) => a.type === "expdp")) {
+        activities.push({
+          type: "expdp",
+          label: "EXPDP",
+          description: "Data Pump Export in progress",
+          colorClass: "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40"
+        });
+      } else if (job.operation === "impdp" && !activities.some((a) => a.type === "impdp")) {
+        activities.push({
+          type: "impdp",
+          label: "IMPDP",
+          description: "Data Pump Import in progress",
+          colorClass: "bg-violet-500/20 text-violet-700 dark:text-violet-300 border-violet-500/40"
+        });
+      }
+    }
+
+    // RMAN running jobs
+    const runningRman = rmanJobs.filter(
+      (j) => j.status === "running" && j.db && j.db.trim().toUpperCase() === normalized
+    );
+    if (runningRman.length > 0) {
+      activities.push({
+        type: "rman",
+        label: "RMAN",
+        description: "RMAN Backup in progress",
+        colorClass: "bg-orange-500/20 text-orange-700 dark:text-orange-300 border-orange-500/40"
+      });
+    }
+
+    return activities;
+  };
 
   const logicalDatabases = useMemo(() => {
     const seenNames = new Set<string>();
@@ -56,13 +110,23 @@ export function DatabaseSelector() {
   }, [databases]);
 
   const selected = logicalDatabases.find((db) => db.name === selectedDb);
+  const selectedActivities = getActiveActivitiesForDb(selected?.name);
 
   const refreshDatabaseStatuses = async () => {
     try {
-      const response = await fetch("/api/databases?selector=1", { cache: "no-store" });
-      if (!response.ok) return;
-      const { databases: refreshedDatabases } = (await response.json()) as { databases?: DatabaseTarget[] };
-      if (refreshedDatabases) setDatabases(refreshedDatabases);
+      const [dbRes, dpRes] = await Promise.allSettled([
+        fetch("/api/databases?selector=1", { cache: "no-store" }),
+        fetchDataPumpJobsApi()
+      ]);
+
+      if (dbRes.status === "fulfilled" && dbRes.value.ok) {
+        const { databases: refreshedDatabases } = (await dbRes.value.json()) as { databases?: DatabaseTarget[] };
+        if (refreshedDatabases) setDatabases(refreshedDatabases);
+      }
+
+      if (dpRes.status === "fulfilled" && Array.isArray(dpRes.value?.active)) {
+        dpRes.value.active.forEach((j) => upsertDataPumpJob(j));
+      }
     } catch {
       // Retain existing selector data if background refresh fails.
     }
@@ -161,13 +225,34 @@ export function DatabaseSelector() {
         }}
         disabled={!logicalDatabases.length}
       >
-        <SelectTrigger className="h-9 w-auto min-w-[145px] max-w-[220px] rounded-xl border border-cyan-500/30 bg-background/60 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-foreground shadow-[0_1px_6px_rgba(6,182,212,0.12)] hover:border-cyan-500/60 hover:bg-background/90 hover:shadow-[0_2px_10px_rgba(6,182,212,0.2)] transition-all duration-200 focus:ring-cyan-500/30 focus:ring-1">
+        <SelectTrigger className="h-9 w-auto min-w-[145px] max-w-[240px] rounded-xl border border-cyan-500/30 bg-background/60 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-foreground shadow-[0_1px_6px_rgba(6,182,212,0.12)] hover:border-cyan-500/60 hover:bg-background/90 hover:shadow-[0_2px_10px_rgba(6,182,212,0.2)] transition-all duration-200 focus:ring-cyan-500/30 focus:ring-1">
           <div className="flex w-full items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-cyan-500 dark:text-cyan-400" />
               {selected ? (
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="font-bold tracking-tight text-foreground truncate text-xs sm:text-sm">{selected.name}</span>
+                  {selectedActivities.length > 0 && (
+                    <div
+                      className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 animate-pulse"
+                      title={selectedActivities.map((a) => a.description).join(", ")}
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin text-amber-500 shrink-0" />
+                      <div className="flex items-center gap-0.5">
+                        {selectedActivities.map((act) => (
+                          <span
+                            key={act.type}
+                            className={cn(
+                              "px-1 py-0 text-[8px] font-black rounded uppercase tracking-tight border",
+                              act.colorClass
+                            )}
+                          >
+                            {act.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <Badge
                     variant="outline"
                     className={cn(
@@ -269,52 +354,78 @@ export function DatabaseSelector() {
                     {dbs.length} {dbs.length > 1 ? "DBs" : "DB"}
                   </span>
                 </SelectLabel>
-                {dbs.map((db) => (
-                  <SelectItem
-                    key={db.name}
-                    value={db.name}
-                    className="rounded-md py-1.5 px-2.5 pl-8 cursor-pointer focus:bg-cyan-500/10 focus:text-foreground text-foreground/90 transition-all border-b border-border/50 last:border-b-0 hover:bg-muted/30 pb-1.5 my-0.5"
-                  >
-                    <div className="flex flex-col gap-0.5 w-full">
-                      {/* Top Row: Crisp DB Name + Health Status Dot */}
-                      <div className="flex items-center justify-between gap-2 w-full">
-                        <span className="font-bold text-xs sm:text-[13.5px] tracking-tight text-foreground group-focus:text-cyan-600 dark:group-focus:text-cyan-300">
-                          {db.name}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span className={cn("h-2 w-2 rounded-full shrink-0", getStatusDotStyle(db.status))} />
+                {dbs.map((db) => {
+                  const dbActivities = getActiveActivitiesForDb(db.name);
+                  return (
+                    <SelectItem
+                      key={db.name}
+                      value={db.name}
+                      className="rounded-md py-1.5 px-2.5 pl-8 cursor-pointer focus:bg-cyan-500/10 focus:text-foreground text-foreground/90 transition-all border-b border-border/50 last:border-b-0 hover:bg-muted/30 pb-1.5 my-0.5"
+                    >
+                      <div className="flex flex-col gap-0.5 w-full">
+                        {/* Top Row: Crisp DB Name + Activity Spinner + Health Status Dot */}
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-bold text-xs sm:text-[13.5px] tracking-tight text-foreground group-focus:text-cyan-600 dark:group-focus:text-cyan-300 truncate">
+                              {db.name}
+                            </span>
+                            {dbActivities.length > 0 && (
+                              <div
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-300 shrink-0"
+                                title={dbActivities.map((a) => a.description).join(", ")}
+                              >
+                                <Loader2 className="h-3 w-3 animate-spin text-amber-500 shrink-0" />
+                                <div className="flex items-center gap-0.5">
+                                  {dbActivities.map((act) => (
+                                    <span
+                                      key={act.type}
+                                      className={cn(
+                                        "px-1 py-0 text-[8px] font-black rounded uppercase tracking-tight border",
+                                        act.colorClass
+                                      )}
+                                    >
+                                      {act.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={cn("h-2 w-2 rounded-full shrink-0", getStatusDotStyle(db.status))} />
+                          </div>
+                        </div>
+
+                        {/* Subtitle Row: Division + OS + Security Posture */}
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
+                          <span className="flex items-center gap-1 font-semibold text-foreground/80">
+                            <Building2 className="h-3 w-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                            <span>{db.division || "PCPB"}</span>
+                          </span>
+                          <span className="text-muted-foreground/40">•</span>
+                          <span className="flex items-center gap-1">
+                            <Cpu className="h-3 w-3 text-muted-foreground/80 shrink-0" />
+                            <span>{db.os}</span>
+                          </span>
+                          {db.security_posture_outdated && (
+                            <>
+                              <span className="text-muted-foreground/40">•</span>
+                              <span
+                                className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold"
+                                aria-label="Security posture is outdated"
+                                title="Security posture is outdated"
+                                data-testid="posture"
+                              >
+                                <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
+                                Posture
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
-
-                      {/* Subtitle Row: Division + OS + Security Posture */}
-                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
-                        <span className="flex items-center gap-1 font-semibold text-foreground/80">
-                          <Building2 className="h-3 w-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
-                          <span>{db.division || "PCPB"}</span>
-                        </span>
-                        <span className="text-muted-foreground/40">•</span>
-                        <span className="flex items-center gap-1">
-                          <Cpu className="h-3 w-3 text-muted-foreground/80 shrink-0" />
-                          <span>{db.os}</span>
-                        </span>
-                        {db.security_posture_outdated && (
-                          <>
-                            <span className="text-muted-foreground/40">•</span>
-                            <span
-                              className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold"
-                              aria-label="Security posture is outdated"
-                              title="Security posture is outdated"
-                              data-testid="posture"
-                            >
-                              <ShieldAlert className="h-3 w-3 text-rose-500 shrink-0" />
-                              Posture
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </SelectItem>
-                ))}
+                    </SelectItem>
+                  );
+                })}
               </SelectGroup>
             ))
           ) : (
@@ -328,4 +439,5 @@ export function DatabaseSelector() {
     </div>
   );
 }
+
 
