@@ -7700,7 +7700,7 @@ export async function markAllNotificationsReadInDb(category: "db" | "console" | 
   return executeOne(async (connection) => {
     if (category === "db" || category === "all") {
       await connection.execute(
-        `UPDATE app_alert_notifications SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        `UPDATE app_alert_notifications SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y' AND NVL(alert_type, 'generic') != 'dba_shift'`,
         { actor },
         { autoCommit: true }
       );
@@ -7717,6 +7717,11 @@ export async function markAllNotificationsReadInDb(category: "db" | "console" | 
     }
 
     if (category === "console" || category === "all") {
+      await connection.execute(
+        `UPDATE app_alert_notifications SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y' AND alert_type = 'dba_shift'`,
+        { actor },
+        { autoCommit: true }
+      );
       await connection.execute(
         `UPDATE app_shift_sessions SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
         { actor },

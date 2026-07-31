@@ -116,6 +116,7 @@ export function DatabaseAlertsBell() {
   const notifications = rawNotifications
     .filter((n) => {
       if (!n.title && !n.message) return false;
+      if (n.type === "dba_shift") return false;
       if (user?.role !== "app_admin") {
         if (n.title === "Approval Required" || (n.type === "approval_workflow" && (n.targetRole === "app_admin" || (!n.title.includes("Approved") && !n.title.includes("Rejected") && !n.title.includes("Complete") && !n.title.includes("Failed"))))) {
           return false;

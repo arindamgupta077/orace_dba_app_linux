@@ -391,7 +391,7 @@ function MarkdownContent({ content }: { content: string }) {
   const codeBlockBg = isDark ? "" : "!bg-muted/50";
 
   return (
-    <div className="markdown-body max-w-none text-sm leading-relaxed text-foreground dark:text-slate-100">
+    <div className="markdown-body max-w-full min-w-0 overflow-hidden text-sm leading-relaxed text-foreground dark:text-slate-100">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -430,7 +430,7 @@ function MarkdownContent({ content }: { content: string }) {
           // Tables with full styling
           table({ children }) {
             return (
-              <div className="my-3 overflow-x-auto rounded-lg border border-border dark:border-slate-700/60">
+              <div className="my-3 max-w-full overflow-x-auto rounded-lg border border-border dark:border-slate-700/60">
                 <table className="min-w-full divide-y divide-border dark:divide-slate-700/50 text-xs">
                   {children}
                 </table>
@@ -620,7 +620,7 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
   return (
     <div
       className={cn(
-        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
+        "flex w-full min-w-0 overflow-hidden gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
         isUser ? "justify-end" : "justify-start"
       )}
     >
@@ -632,10 +632,10 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
       )}
 
       {/* Bubble */}
-      <div className={cn("flex max-w-[80%] flex-col gap-1.5", isUser && "items-end")}>
+      <div className={cn("flex max-w-[85%] sm:max-w-[80%] min-w-0 flex-col gap-1.5", isUser && "items-end")}>
         <div
           className={cn(
-            "rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-md",
+            "rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-md min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere]",
             isUser
               ? "rounded-tr-sm bg-primary/15 border border-primary/30 text-foreground dark:text-slate-100"
               : "rounded-tl-sm bg-secondary border border-border text-foreground dark:bg-slate-800/70 dark:border-slate-700/60 dark:text-slate-100 backdrop-blur-sm"
@@ -644,7 +644,7 @@ function MessageBubble({ message, onDecision, submittingSessionId }: MessageBubb
           {isStreaming ? (
             <TypingIndicator />
           ) : isUser ? (
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0">{message.content}</p>
           ) : (
             <MarkdownContent content={message.content} />
           )}
@@ -1221,7 +1221,7 @@ export function ChatWithDb() {
           </div>
 
           {/* ── Messages (Clean Message Window) ── */}
-          <ScrollArea className="relative flex-1 px-4 py-4">
+          <ScrollArea className="relative flex-1 px-4 py-4 w-full min-w-0 overflow-hidden">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-card/80 to-transparent dark:from-slate-900/80" />
             <div className="relative space-y-5">
               {messages.map((msg) => (
@@ -1296,7 +1296,7 @@ export function ChatWithDb() {
 
         {/* ── Dedicated DB Prompts & Actions Sidebar Panel ── */}
         {sidebarOpen && (
-          <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col border-l border-border bg-card/95 dark:border-slate-800/80 dark:bg-slate-900/90 shadow-lg backdrop-blur-md transition-all duration-300">
+          <div className="w-full lg:w-72 xl:w-80 shrink-0 flex flex-col border-l border-border bg-card/95 dark:border-slate-800/80 dark:bg-slate-900/90 shadow-lg backdrop-blur-md transition-all duration-300">
             {/* Sidebar Header */}
             <div className="flex items-center justify-between border-b border-border dark:border-slate-800/80 px-4 py-3 bg-muted/40 dark:bg-slate-900/60">
               <div className="flex items-center gap-2">

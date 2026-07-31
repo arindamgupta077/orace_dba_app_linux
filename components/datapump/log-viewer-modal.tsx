@@ -285,8 +285,8 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
           )}
 
           {!isLoading && displayedLog && (
-            <div className="flex-1 min-h-0 h-full w-full overflow-hidden">
-              <TerminalViewer output={displayedLog} title={title} className="flex-1 h-full min-h-[500px] w-full" />
+            <div className="flex-1 min-h-0 h-full w-full overflow-hidden flex flex-col">
+              <TerminalViewer output={displayedLog} title={title} className="flex-1 min-h-0 h-full w-full" />
             </div>
           )}
 
