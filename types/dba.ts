@@ -804,10 +804,12 @@ export type RmanJobStatus = "running" | "success" | "error";
 
 export interface RmanJob {
   id: string;
+  request_id?: string;
   db: string;
   status: RmanJobStatus;
   started_at: string;
   completed_at?: string;
+  requested_by?: string;
   params: Record<string, unknown>;
   response?: DbaResponse;
   error?: string;

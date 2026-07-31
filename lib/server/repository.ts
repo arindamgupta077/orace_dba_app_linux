@@ -62,6 +62,8 @@ import type {
   DataPumpJob,
   DataPumpJobStatus,
   DataPumpOperation,
+  RmanJob,
+  RmanJobStatus,
   MonitoringIncident,
   MonitoringIncidentStatus,
   AlertClearanceStatus
@@ -6680,6 +6682,221 @@ export async function upsertDataPumpJobHistory(job: DataPumpJob): Promise<void> 
     } catch (error) {
       if (isOracleMissingTableError(error)) return;
       console.error("[upsertDataPumpJobHistory] Oracle DB Error:", error);
+      throw error;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// RMAN Job History Database Operations (APP_RMAN_JOB_HISTORY)
+// ---------------------------------------------------------------------------
+
+async function ensureRmanJobHistoryTable(connection: Connection): Promise<void> {
+  try {
+    await connection.execute(`
+      CREATE TABLE app_rman_job_history (
+        job_id          VARCHAR2(100)  NOT NULL PRIMARY KEY,
+        database_name   VARCHAR2(50)   NOT NULL,
+        backup_type     VARCHAR2(50)   DEFAULT 'FULL',
+        status          VARCHAR2(20)   NOT NULL CHECK (status IN ('running','success','error','completed')),
+        started_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        completed_at    TIMESTAMP WITH TIME ZONE,
+        ai_summary      CLOB,
+        raw_output      CLOB,
+        params_json     CLOB,
+        requested_by    VARCHAR2(100)
+      )
+    `);
+  } catch {
+    // Ignore table exists error
+  }
+}
+
+export async function listRmanJobHistory(limit = 100, db?: string): Promise<RmanJob[]> {
+  return executeOne(async (connection) => {
+    try {
+      const dbFilter = db?.trim() ? db.trim().toUpperCase() : null;
+      const sql = dbFilter
+        ? `SELECT job_id, database_name, backup_type, status, started_at, completed_at,
+                ai_summary,
+                raw_output,
+                params_json,
+                requested_by
+           FROM (
+             SELECT * FROM app_rman_job_history WHERE UPPER(database_name) = :dbFilter ORDER BY started_at DESC
+           )
+          WHERE ROWNUM <= :limit`
+        : `SELECT job_id, database_name, backup_type, status, started_at, completed_at,
+                ai_summary,
+                raw_output,
+                params_json,
+                requested_by
+           FROM (
+             SELECT * FROM app_rman_job_history ORDER BY started_at DESC
+           )
+          WHERE ROWNUM <= :limit`;
+      const binds = dbFilter ? { limit, dbFilter } : { limit };
+      const result = await connection.execute<DbRow>(sql, binds);
+      return (result.rows ?? []).map((row) => {
+        const rawParams = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawParams);
+        } catch {
+          parsedParams = {};
+        }
+        const statusVal = String(row.STATUS || "running").toLowerCase();
+        const normalizedStatus: RmanJobStatus = statusVal === "success" || statusVal === "completed" ? "success" : statusVal === "error" ? "error" : "running";
+        const aiSummary = row.AI_SUMMARY ? String(row.AI_SUMMARY) : undefined;
+        const rawOutput = row.RAW_OUTPUT ? String(row.RAW_OUTPUT) : undefined;
+
+        return {
+          id: String(row.JOB_ID),
+          request_id: String(row.JOB_ID),
+          db: String(row.DATABASE_NAME || ""),
+          status: normalizedStatus,
+          started_at: toIsoString(row.STARTED_AT),
+          completed_at: row.COMPLETED_AT ? toIsoString(row.COMPLETED_AT) : undefined,
+          requested_by: row.REQUESTED_BY ? String(row.REQUESTED_BY) : (parsedParams.requested_by ? String(parsedParams.requested_by) : undefined),
+          params: { ...parsedParams, backup_type: row.BACKUP_TYPE ? String(row.BACKUP_TYPE) : parsedParams.backup_type || "FULL" },
+          response: (aiSummary || rawOutput) ? {
+            status: normalizedStatus === "error" ? "error" : "success",
+            request_id: String(row.JOB_ID),
+            action: "take_rman_backup",
+            db_status: normalizedStatus === "success" ? "healthy" : "critical",
+            ai_summary: aiSummary || "Execution completed.",
+            findings: [],
+            recommendations: [],
+            raw_data: {},
+            raw_output: rawOutput || ""
+          } : undefined
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      console.error("[listRmanJobHistory] Oracle DB Error:", error);
+      throw error;
+    }
+  });
+}
+
+export async function listActiveRmanJobs(db?: string): Promise<RmanJob[]> {
+  return executeOne(async (connection) => {
+    try {
+      const dbFilter = db?.trim() ? db.trim().toUpperCase() : null;
+      const sql = dbFilter
+        ? `SELECT job_id, database_name, backup_type, status, started_at, completed_at,
+                ai_summary,
+                raw_output,
+                params_json,
+                requested_by
+           FROM app_rman_job_history
+          WHERE LOWER(status) = 'running' AND UPPER(database_name) = :dbFilter
+          ORDER BY started_at DESC`
+        : `SELECT job_id, database_name, backup_type, status, started_at, completed_at,
+                ai_summary,
+                raw_output,
+                params_json,
+                requested_by
+           FROM app_rman_job_history
+          WHERE LOWER(status) = 'running'
+          ORDER BY started_at DESC`;
+      const binds = dbFilter ? { dbFilter } : {};
+      const result = await connection.execute<DbRow>(sql, binds);
+      return (result.rows ?? []).map((row) => {
+        const rawParams = String(row.PARAMS_JSON || "{}");
+        let parsedParams: Record<string, unknown> = {};
+        try {
+          parsedParams = JSON.parse(rawParams);
+        } catch {
+          parsedParams = {};
+        }
+        return {
+          id: String(row.JOB_ID),
+          request_id: String(row.JOB_ID),
+          db: String(row.DATABASE_NAME || ""),
+          status: "running",
+          started_at: toIsoString(row.STARTED_AT),
+          completed_at: row.COMPLETED_AT ? toIsoString(row.COMPLETED_AT) : undefined,
+          requested_by: row.REQUESTED_BY ? String(row.REQUESTED_BY) : (parsedParams.requested_by ? String(parsedParams.requested_by) : undefined),
+          params: { ...parsedParams, backup_type: row.BACKUP_TYPE ? String(row.BACKUP_TYPE) : parsedParams.backup_type || "FULL" }
+        };
+      });
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return [];
+      console.error("[listActiveRmanJobs] Oracle DB Error:", error);
+      throw error;
+    }
+  });
+}
+
+export async function upsertRmanJobHistory(job: RmanJob): Promise<void> {
+  return executeOne(async (connection) => {
+    try {
+      await ensureRmanJobHistoryTable(connection);
+
+      const jobIdStr = String(job.request_id || job.id || `RMAN-${Date.now()}`).slice(0, 100);
+      const dbName = String(job.db || "DEFAULT").trim().slice(0, 50) || "DEFAULT";
+      const backupType = String(job.params?.backup_type ?? "FULL").slice(0, 50);
+      const statusVal = String(job.status || "running").toLowerCase().slice(0, 20);
+      const requestedBy = String(job.requested_by || job.params?.requested_by || "dba").slice(0, 100);
+      const paramsJson = JSON.stringify(job.params || {});
+
+      const startedAtIso = (job.started_at ? new Date(job.started_at) : new Date()).toISOString();
+      const completedAtIso = job.completed_at ? new Date(job.completed_at).toISOString() : null;
+      const aiSummary = job.response?.ai_summary ? String(job.response.ai_summary) : job.error ? String(job.error) : null;
+      const rawOutput = job.response?.raw_output ? String(job.response.raw_output) : null;
+
+      const updateResult = await connection.execute(
+        `UPDATE app_rman_job_history
+            SET status = :statusVal,
+                completed_at = CASE WHEN :completedAtIso IS NOT NULL THEN TO_TIMESTAMP_TZ(:completedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') ELSE completed_at END,
+                ai_summary = COALESCE(TO_CLOB(:aiSummary), ai_summary),
+                raw_output = COALESCE(TO_CLOB(:rawOutput), raw_output),
+                params_json = CASE WHEN :paramsJson IS NOT NULL AND :paramsJson <> '{}' THEN TO_CLOB(:paramsJson) ELSE params_json END,
+                requested_by = CASE WHEN :requestedBy IS NOT NULL AND :requestedBy <> 'dba' THEN :requestedBy ELSE requested_by END
+          WHERE job_id = :jobId`,
+        {
+          jobId: jobIdStr,
+          statusVal,
+          completedAtIso,
+          aiSummary,
+          rawOutput,
+          paramsJson,
+          requestedBy
+        },
+        { autoCommit: true }
+      );
+
+      if ((updateResult.rowsAffected ?? 0) === 0) {
+        await connection.execute(
+          `INSERT INTO app_rman_job_history (
+             job_id, database_name, backup_type, status, started_at, completed_at,
+             ai_summary, raw_output, params_json, requested_by
+           ) VALUES (
+             :jobId, :dbName, :backupType, :statusVal,
+             TO_TIMESTAMP_TZ(:startedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'),
+             CASE WHEN :completedAtIso IS NOT NULL THEN TO_TIMESTAMP_TZ(:completedAtIso, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') ELSE NULL END,
+             :aiSummary, :rawOutput, :paramsJson, :requestedBy
+           )`,
+          {
+            jobId: jobIdStr,
+            dbName,
+            backupType,
+            statusVal,
+            startedAtIso,
+            completedAtIso,
+            aiSummary,
+            rawOutput,
+            paramsJson,
+            requestedBy
+          },
+          { autoCommit: true }
+        );
+      }
+    } catch (error) {
+      if (isOracleMissingTableError(error)) return;
+      console.error("[upsertRmanJobHistory] Oracle DB Error:", error);
       throw error;
     }
   });

@@ -220,14 +220,20 @@ export function RmanStatusModal({ open, onOpenChange }: RmanStatusModalProps) {
       try {
         const parsed = JSON.parse(rawJson) as typeof fullPayload;
         const resolvedParams = { date_from: String(parsed.params?.date_from ?? dateFrom), date_to: String(parsed.params?.date_to ?? dateTo) };
-        await runAction("backup_status", resolvedParams, selectedDb);
+        const res = await runAction("backup_status", resolvedParams, selectedDb);
+        if (res?.status === "success") {
+          useAppStore.getState().completeRmanJobForDb(selectedDb);
+        }
         return;
       } catch {
         setJsonError("Invalid JSON — cannot submit.");
         return;
       }
     }
-    await runAction("backup_status", { date_from: dateFrom, date_to: dateTo }, selectedDb);
+    const res = await runAction("backup_status", { date_from: dateFrom, date_to: dateTo }, selectedDb);
+    if (res?.status === "success") {
+      useAppStore.getState().completeRmanJobForDb(selectedDb);
+    }
   };
 
   const isLoading = status === "loading";

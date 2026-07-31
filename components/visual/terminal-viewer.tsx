@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Download, Expand, Minimize2, TerminalSquare } from "lucide-react";
+import { Copy, Download, Expand, FileText, Minimize2, TerminalSquare } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { Button } from "@/components/ui/button";
 import { downloadText } from "@/lib/utils";
@@ -10,16 +10,21 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
   const ref = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [viewMode, setViewMode] = useState<"terminal" | "text">("terminal");
+
   const safeOutput = output || "";
   const lineCount = safeOutput ? safeOutput.split("\n").length : 0;
 
   useEffect(() => {
-    if (!ref.current) return;
+    if (viewMode !== "terminal" || !ref.current) return;
+    const computedRows = Math.min(Math.max(lineCount, 25), 1000);
     const term = new Terminal({
       convertEol: true,
       cursorBlink: false,
       fontFamily: "Consolas, Menlo, Monaco, 'Courier New', monospace",
       fontSize: 12,
+      rows: computedRows,
+      cols: 120,
       scrollback: Math.max(lineCount + 50000, 1000000),
       theme: {
         background: "#05070b",
@@ -35,7 +40,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
     term.write(safeOutput.replace(/\n/g, "\r\n"));
     termRef.current = term;
     return () => term.dispose();
-  }, [safeOutput, fullscreen]);
+  }, [safeOutput, fullscreen, viewMode, lineCount]);
 
   return (
     <div
@@ -56,6 +61,16 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
           )}
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-cyan-300 gap-1"
+            onClick={() => setViewMode((m) => (m === "terminal" ? "text" : "terminal"))}
+            title="Toggle view mode"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {viewMode === "terminal" ? "Text View" : "Terminal View"}
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -85,14 +100,27 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
           </Button>
         </div>
       </div>
-      <div
-        ref={ref}
-        className={
-          fullscreen
-            ? "flex-1 h-[calc(100vh-7rem)] w-full overflow-hidden"
-            : className || "h-[34rem] w-full overflow-hidden"
-        }
-      />
+
+      {viewMode === "terminal" ? (
+        <div
+          ref={ref}
+          className={
+            fullscreen
+              ? "flex-1 h-[calc(100vh-7rem)] w-full overflow-auto"
+              : className || "max-h-[34rem] min-h-[16rem] w-full overflow-auto"
+          }
+        />
+      ) : (
+        <pre
+          className={
+            fullscreen
+              ? "flex-1 h-[calc(100vh-7rem)] w-full overflow-auto p-4 font-mono text-xs text-cyan-200 bg-[#05070b] leading-relaxed whitespace-pre-wrap select-text"
+              : "max-h-[34rem] min-h-[16rem] w-full overflow-auto p-4 font-mono text-xs text-cyan-200 bg-[#05070b] leading-relaxed whitespace-pre-wrap select-text"
+          }
+        >
+          {safeOutput || "No output logs available."}
+        </pre>
+      )}
     </div>
   );
 }

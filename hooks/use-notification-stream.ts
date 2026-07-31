@@ -67,6 +67,18 @@ export function useNotificationStream() {
             window.dispatchEvent(new CustomEvent("dba-approval-update", { detail: data }));
           }
           addNotificationRef.current(payloadToNotificationItem(data));
+
+          // Sync RMAN background jobs state if an RMAN notification arrives
+          const lowerTitle = (data.title || "").toLowerCase();
+          const lowerMsg = (data.message || "").toLowerCase();
+          if (lowerTitle.includes("rman") || lowerMsg.includes("rman")) {
+            const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
+            const isDone = lowerTitle.includes("completed") || lowerTitle.includes("finished") || lowerMsg.includes("completed") || lowerMsg.includes("finished") || data.severity === "info";
+            if (isFail || isDone) {
+              useAppStore.getState().completeRmanJobForDb(data.db, isFail ? "error" : "success", data.message);
+            }
+          }
+
           if (!data.replayed) {
             console.log("[useNotificationStream] New live notification received:", data);
             window.dispatchEvent(new CustomEvent("dba-notification", { detail: data }));

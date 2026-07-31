@@ -7,10 +7,10 @@ import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sq
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { notifyDataPumpJob, type DataPumpCallbackPayload } from "@/lib/server/datapump-events";
 import { getServerEnv } from "@/lib/server/env";
-import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory, upsertRmanJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { createMockResponse } from "@/services/mock-data";
-import type { DbaAction, DbaRequestPayload, DbaResponse } from "@/types/dba";
+import type { DbaAction, DbaRequestPayload, DbaResponse, RmanJobStatus } from "@/types/dba";
 
 interface RequestBody {
   action?: string;
@@ -257,12 +257,40 @@ export async function POST(request: Request) {
       });
     }
 
+    const isRmanAction = action === "take_rman_backup";
+    const rmanRequestId = isRmanAction
+      ? ((params.request_id as string) || (params.job_id as string) || `RMAN-${Date.now()}-${Math.floor(Math.random() * 1000)}`)
+      : undefined;
+
+    if (isRmanAction && rmanRequestId) {
+      const sessionUser = session?.user?.username;
+      const requestedBy = String(params.requested_by || params.requestedBy || sessionUser || "dba");
+      params.request_id = rmanRequestId;
+      params.requested_by = requestedBy;
+      payload.params = { ...params, request_id: rmanRequestId, requested_by: requestedBy };
+
+      await upsertRmanJobHistory({
+        id: rmanRequestId,
+        request_id: rmanRequestId,
+        db,
+        status: "running",
+        started_at: new Date(startedAt).toISOString(),
+        requested_by: requestedBy,
+        params
+      }).catch((err: unknown) => {
+        console.error("[dba/actions] Failed to persist RMAN job start row:", err);
+      });
+    }
+
     const env = getServerEnv();
     let result: DbaResponse;
 
     if (env.mockMode) {
       await sleep(850 + Math.random() * 650);
       result = normalizeDbaResponse(createMockResponse(action, db, Boolean(definition.destructive), params), action);
+      if (isRmanAction && rmanRequestId) {
+        result.request_id = rmanRequestId;
+      }
     } else {
       if (!env.webhookUrl) {
         throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
@@ -285,10 +313,24 @@ export async function POST(request: Request) {
         }
 
         result = normalizeDbaResponse(await response.json(), action);
+        if (isRmanAction && rmanRequestId) {
+          result.request_id = result.request_id || rmanRequestId;
+        }
       } catch (fetchErr) {
-        // Data Pump long-running actions (expdp / impdp) can take hours, causing n8n respond node socket timeout.
-        // If fetch failed due to socket timeout / aborted connection after starting, n8n is still running in background.
-        if (action === "expdp" || action === "impdp") {
+        if (action === "take_rman_backup" && rmanRequestId) {
+          const errMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          result = {
+            status: "success",
+            request_id: rmanRequestId,
+            action,
+            db_status: "warning",
+            ai_summary: `RMAN backup initiated for ${db}. Running in background on Oracle server (waiting for n8n status update).`,
+            findings: [],
+            recommendations: [],
+            raw_data: { async: true, job_id: rmanRequestId, status: "running", note: errMessage },
+            raw_output: `RMAN job ${rmanRequestId} dispatched to server via n8n. Backup log will update upon completion.`
+          };
+        } else if (action === "expdp" || action === "impdp") {
           const errMessage = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
           const jobIdStr = (params.job_id as string) || requestId;
           result = {
@@ -311,6 +353,65 @@ export async function POST(request: Request) {
           throw fetchErr;
         }
       }
+    }
+
+    if (isRmanAction && rmanRequestId) {
+      const outputText = String(result.raw_output || "");
+      const isCompleted =
+        outputText.includes("Recovery Manager complete") ||
+        outputText.includes("Finished backup") ||
+        (result.raw_data as Record<string, unknown>)?.status === "completed";
+
+      const isError = result.status === "error" || outputText.includes("ORA-") || outputText.includes("RMAN-0");
+
+      const finalStatus: RmanJobStatus = isError
+        ? "error"
+        : isCompleted
+          ? "success"
+          : "running";
+
+      const isStillRunning = finalStatus === "running";
+
+      if (isStillRunning) {
+        result = {
+          ...result,
+          status: "success",
+          ai_summary: result.ai_summary || `RMAN backup ${rmanRequestId} initiated for ${db}. Running in background on Oracle server (waiting for n8n completion callback).`,
+          raw_data: {
+            ...result.raw_data,
+            async: true,
+            status: "running",
+            request_id: rmanRequestId
+          },
+          raw_output: result.raw_output || `RMAN job ${rmanRequestId} dispatched to server via n8n. Log will update upon n8n callback.`
+        };
+      } else {
+        result = {
+          ...result,
+          status: finalStatus === "error" ? "error" : "success",
+          request_id: rmanRequestId,
+          raw_data: {
+            ...result.raw_data,
+            async: false,
+            status: finalStatus,
+            request_id: rmanRequestId
+          }
+        };
+      }
+
+      await upsertRmanJobHistory({
+        id: rmanRequestId,
+        request_id: result.request_id || rmanRequestId,
+        db,
+        status: finalStatus,
+        started_at: new Date(startedAt).toISOString(),
+        completed_at: isStillRunning ? undefined : new Date().toISOString(),
+        requested_by: String(params.requested_by || session?.user?.username || "dba"),
+        params,
+        response: result
+      }).catch((err: unknown) => {
+        console.error("[dba/actions] Failed to save RMAN job history:", err);
+      });
     }
 
     const durationMs = Date.now() - startedAt;

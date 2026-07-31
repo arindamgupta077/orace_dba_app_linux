@@ -184,7 +184,13 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
       }
     }
 
-    startRmanBackgroundJob(selectedDb, finalParams);
+    const currentUsername = user?.username || "dba";
+    const rmanRequestId = `RMAN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    startRmanBackgroundJob(selectedDb, {
+      ...finalParams,
+      request_id: rmanRequestId,
+      requested_by: currentUsername
+    });
     onOpenChange(false);
   };
 

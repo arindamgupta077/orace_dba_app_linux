@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchDataPumpJobsApi } from "@/services/api";
+import { fetchDataPumpJobsApi, fetchRmanJobsApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 
 const ENV_PRIORITY: Record<string, number> = {
@@ -52,6 +52,7 @@ export function DatabaseSelector() {
   const dataPumpJobs = useAppStore((state) => state.dataPumpJobs);
   const rmanJobs = useAppStore((state) => state.rmanJobs);
   const upsertDataPumpJob = useAppStore((state) => state.upsertDataPumpJob);
+  const upsertRmanJob = useAppStore((state) => state.upsertRmanJob);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEnvFilter, setSelectedEnvFilter] = useState<string>("ALL");
@@ -114,9 +115,10 @@ export function DatabaseSelector() {
 
   const refreshDatabaseStatuses = async () => {
     try {
-      const [dbRes, dpRes] = await Promise.allSettled([
+      const [dbRes, dpRes, rmanRes] = await Promise.allSettled([
         fetch("/api/databases?selector=1", { cache: "no-store" }),
-        fetchDataPumpJobsApi()
+        fetchDataPumpJobsApi(),
+        fetchRmanJobsApi()
       ]);
 
       if (dbRes.status === "fulfilled" && dbRes.value.ok) {
@@ -126,6 +128,10 @@ export function DatabaseSelector() {
 
       if (dpRes.status === "fulfilled" && Array.isArray(dpRes.value?.active)) {
         dpRes.value.active.forEach((j) => upsertDataPumpJob(j));
+      }
+
+      if (rmanRes.status === "fulfilled" && Array.isArray(rmanRes.value?.active)) {
+        rmanRes.value.active.forEach((j) => upsertRmanJob(j));
       }
     } catch {
       // Retain existing selector data if background refresh fails.

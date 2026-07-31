@@ -501,7 +501,7 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
         type: backupType,
         started_at: new Date().toISOString(),
         duration_min: 0,
-        status: "RUNNING",
+        status: "SUCCESS",
         compression_ratio: params.compressed === false ? 1 : 3,
         size_gb: 0
       },

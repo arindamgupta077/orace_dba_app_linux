@@ -27,6 +27,7 @@ import type {
   ImpdpParams,
   ImpdpTemplate,
   DataPumpJob,
+  RmanJob,
   Handover,
   MonitoringIncident,
   ShiftReportData,
@@ -928,6 +929,23 @@ export async function fetchDataPumpJobsApi(db?: string): Promise<{
 
 export async function recordDataPumpJobApi(job: DataPumpJob): Promise<{ job: DataPumpJob }> {
   return requestJson<{ job: DataPumpJob }>("/api/datapump/jobs", {
+    method: "POST",
+    body: JSON.stringify(job)
+  });
+}
+
+// ── RMAN Job Tracking & History API (Database-Backed) ───────────────────
+
+export async function fetchRmanJobsApi(db?: string): Promise<{
+  active: RmanJob[];
+  history: RmanJob[];
+}> {
+  const query = db ? `?db=${encodeURIComponent(db)}` : "";
+  return requestJson<{ active: RmanJob[]; history: RmanJob[] }>(`/api/rman/jobs${query}`);
+}
+
+export async function recordRmanJobApi(job: RmanJob): Promise<{ job: RmanJob }> {
+  return requestJson<{ job: RmanJob }>("/api/rman/jobs", {
     method: "POST",
     body: JSON.stringify(job)
   });

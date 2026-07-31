@@ -25,15 +25,24 @@ export function startRmanBackgroundJob(
   db: string,
   params: Record<string, unknown>
 ): string {
-  const id = `rman-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const requestId = (params.request_id as string) || `RMAN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const id = requestId;
   const started_at = new Date().toISOString();
+  const requested_by =
+    (params.requested_by as string) ||
+    (params.requestedBy as string) ||
+    useAppStore.getState().user?.username ||
+    "dba";
+  const jobParams = { ...params, request_id: requestId, requested_by };
 
   const runningJob: RmanJob = {
     id,
+    request_id: requestId,
     db,
     status: "running",
     started_at,
-    params
+    requested_by,
+    params: jobParams
   };
 
   useAppStore.getState().upsertRmanJob(runningJob);
@@ -43,23 +52,46 @@ export function startRmanBackgroundJob(
     severity: "info",
     db,
     title: "RMAN Backup Started",
-    message: `${String(params.backup_type ?? "FULL")} backup started on ${db}. Running in background — you can freely navigate the app.`,
+    message: `${String(params.backup_type ?? "FULL")} backup started on ${db}. Running in background — request ID ${requestId}.`,
     timestamp: started_at,
     targetPath: "/backups"
   });
 
-  const promise = executeDBAAction("take_rman_backup", db, params)
+  const promise = executeDBAAction("take_rman_backup", db, jobParams)
     .then((response) => {
+      const outputText = String(response.raw_output || "");
+      const isCompleted =
+        outputText.includes("Recovery Manager complete") ||
+        outputText.includes("Finished backup") ||
+        (response.raw_data as Record<string, unknown>)?.status === "completed" ||
+        ((response.raw_data as Record<string, unknown>)?.async === false && response.status === "success");
+
+      const isStillRunning = !isCompleted;
+
+      if (isStillRunning) {
+        useAppStore.getState().upsertRmanJob({
+          id,
+          request_id: response.request_id || requestId,
+          db,
+          status: "running",
+          started_at,
+          params: jobParams,
+          response
+        });
+        return;
+      }
+
       const completed_at = new Date().toISOString();
-      const succeeded = response.status === "success";
+      const succeeded = response.status === "success" && !outputText.includes("ORA-") && !outputText.includes("RMAN-0");
 
       useAppStore.getState().upsertRmanJob({
         id,
+        request_id: response.request_id || requestId,
         db,
         status: succeeded ? "success" : "error",
         started_at,
         completed_at,
-        params,
+        params: jobParams,
         response
       });
 
@@ -107,6 +139,11 @@ export function startRmanBackgroundJob(
 
   activeJobs.set(id, promise);
   return id;
+}
+
+/** Check if an RMAN job is currently in-flight in this window session. */
+export function isRmanJobActive(id: string): boolean {
+  return activeJobs.has(id);
 }
 
 /** How many RMAN jobs are currently in-flight (for badge counts). */

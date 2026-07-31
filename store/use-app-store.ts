@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, ExpdpTemplate, ImpdpTemplate, RmanJob } from "@/types/dba";
+import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
 import { markAllNotificationsReadApi, markNotificationReadApi } from "@/services/api";
 
 interface AppState {
@@ -41,6 +41,7 @@ interface AppState {
   addImpdpTemplate: (template: ImpdpTemplate) => void;
   deleteImpdpTemplate: (id: string) => void;
   upsertRmanJob: (job: RmanJob) => void;
+  completeRmanJobForDb: (db?: string, status?: RmanJobStatus, message?: string) => void;
   clearCompletedRmanJobs: () => void;
 }
 
@@ -234,13 +235,55 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ impdpTemplates: state.impdpTemplates.filter((t) => t.id !== id) })),
       upsertRmanJob: (job) =>
         set((state) => {
-          const existing = state.rmanJobs.findIndex((j) => j.id === job.id);
+          const existing = state.rmanJobs.findIndex(
+            (j) =>
+              j.id === job.id ||
+              (job.request_id && j.request_id && j.request_id === job.request_id)
+          );
           if (existing >= 0) {
             const updated = [...state.rmanJobs];
-            updated[existing] = job;
+            const old = updated[existing];
+            updated[existing] = {
+              ...old,
+              ...job,
+              id: old.id || job.id,
+              request_id: job.request_id || old.request_id,
+              status: job.status || old.status,
+              completed_at: job.completed_at || old.completed_at || (job.status !== "running" ? new Date().toISOString() : undefined),
+              response: job.response || old.response,
+              error: job.error || old.error
+            };
             return { rmanJobs: updated };
           }
           return { rmanJobs: [job, ...state.rmanJobs].slice(0, 10) };
+        }),
+      completeRmanJobForDb: (db, status = "success", message) =>
+        set((state) => {
+          const nowIso = new Date().toISOString();
+          let updatedAny = false;
+          const updated = state.rmanJobs.map((j) => {
+            if (j.status === "running" && (!db || j.db?.toUpperCase() === db.toUpperCase())) {
+              updatedAny = true;
+              return {
+                ...j,
+                status,
+                completed_at: j.completed_at || nowIso,
+                response: j.response || (message ? {
+                  status: status === "error" ? "error" : "success",
+                  request_id: j.request_id || `RMAN-${Date.now()}`,
+                  action: "take_rman_backup",
+                  db_status: status === "success" ? "healthy" : "critical",
+                  ai_summary: message,
+                  findings: [],
+                  recommendations: [],
+                  raw_data: {},
+                  raw_output: message
+                } : undefined)
+              };
+            }
+            return j;
+          });
+          return updatedAny ? { rmanJobs: updated } : state;
         }),
       clearCompletedRmanJobs: () =>
         set((state) => ({
@@ -302,13 +345,6 @@ export const useAppStore = create<AppState>()(
         dataPumpJobs: state.dataPumpJobs.slice(0, 50).map(({ params: _p, ...rest }) => ({
           ...rest,
           params: {}
-        })),
-
-        // ── RMAN Jobs (cap 10, strip response + params) ────────
-        rmanJobs: state.rmanJobs.slice(0, 10).map(({ response: _r, params: _p, ...rest }) => ({
-          ...rest,
-          params: {},
-          response: undefined
         })),
 
         // ── Templates (cap 20 each) ────────────────────────────
