@@ -87,6 +87,9 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
         const res = await fetchDataPumpJobsApi(activeDbName || undefined);
         serverActive = res.active || [];
         serverHistory = res.history || [];
+        const upsert = useAppStore.getState().upsertDataPumpJob;
+        serverActive.forEach((j) => upsert(j));
+        serverHistory.forEach((j) => upsert(j));
       } catch (fetchErr) {
         console.warn("[JobHistoryModal] Failed to fetch server job history, falling back to local store:", fetchErr);
       }

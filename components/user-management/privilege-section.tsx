@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeCheck,
   BadgePlus,
-  Boxes,
   CheckCircle2,
   Loader2,
   Shield,
@@ -326,7 +325,10 @@ const PRIV_CARDS: {
 function ResultPanel({ result, error }: { result: DbaResponse | null; error: string | null }) {
   const isError = Boolean(error) || result?.status === "error";
   const isPendingApproval = result?.status === "pending_approval";
-  const rows = (result?.raw_data?.rows ?? []) as Record<string, unknown>[];
+  const rows = useMemo(
+    () => (result?.raw_data?.rows ?? []) as Record<string, unknown>[],
+    [result]
+  );
 
   // Extract key metadata from first row if available
   const sampleRow = rows[0] || {};
@@ -1184,6 +1186,18 @@ export function PrivilegeManagementSection() {
   const [selectedObjectNames, setSelectedObjectNames] = useState<string[]>([]);
   const [allObjectsSelected, setAllObjectsSelected] = useState(false);
 
+  // Check privileges inline result
+  const [checkPrivsResult, setCheckPrivsResult] = useState<DbaResponse | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("user_mgmt_check_privileges");
+      if (saved) {
+        setCheckPrivsResult(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
   const [schemas, setSchemas] = useState<DropdownState>(emptyDropdown);
   const [roles, setRoles] = useState<DropdownState>(emptyDropdown);
   const [objects, setObjects] = useState<DropdownState>(emptyDropdown);
@@ -1317,7 +1331,12 @@ export function PrivilegeManagementSection() {
           res = await execute("check_privileges", {
             username: form.username
           });
-          break;
+          setCheckPrivsResult(res);
+          try {
+            sessionStorage.setItem("user_mgmt_check_privileges", JSON.stringify(res));
+          } catch {}
+          closeModal();
+          return;
         case "system_privilege":
           res = await execute("system_privilege", {
             username: form.username,
@@ -1858,6 +1877,28 @@ export function PrivilegeManagementSection() {
           </Card>
         ))}
       </div>
+
+      {/* Check User Privileges Result */}
+      {checkPrivsResult && (
+        <div className="rounded-lg border border-border/60 p-4 space-y-3 bg-card/30">
+          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+            <p className="text-sm font-semibold">User Privileges Report</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setCheckPrivsResult(null);
+                try {
+                  sessionStorage.removeItem("user_mgmt_check_privileges");
+                } catch {}
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+          <ResultPanel result={checkPrivsResult} error={null} />
+        </div>
+      )}
 
       {/* Modal */}
       <Dialog open={!!activeModal} onOpenChange={(open) => { if (!open) closeModal(); }}>

@@ -190,23 +190,26 @@ export const useAppStore = create<AppState>()(
           if (existingIndex >= 0) {
             const updated = [...state.dataPumpJobs];
             const old = updated[existingIndex];
+            const isFinished = job.status === "success" || job.status === "completed" || job.status === "error";
+            const newStatus = (old.status === "running" && job.status === "error" && (
+              (job.message || "").toLowerCase().includes("failed to fetch") ||
+              (job.message || "").toLowerCase().includes("fetch failed") ||
+              (job.message || "").toLowerCase().includes("network")
+            )) ? "running" : (job.status || old.status);
+
+            let newMessage = job.message || old.message;
+            if (isFinished && (!newMessage || newMessage === "In progress — waiting for n8n callback…")) {
+              newMessage = job.status === "error" ? "Job failed" : "Completed successfully";
+            }
+
             updated[existingIndex] = {
               ...old,
               ...job,
-              // Preserve non-empty fields if incoming job payload lacks them
-              // Do not downgrade a running job to error if the incoming message is a transient fetch/network error
-              status: (old.status === "running" && job.status === "error" && (
-                (job.message || "").toLowerCase().includes("failed to fetch") ||
-                (job.message || "").toLowerCase().includes("fetch failed") ||
-                (job.message || "").toLowerCase().includes("network")
-              )) ? "running" : (job.status || old.status),
+              status: newStatus,
               dump_file: job.dump_file || old.dump_file,
               transfer_status: job.transfer_status || old.transfer_status,
-              message: (old.status === "running" && (
-                (job.message || "").toLowerCase().includes("failed to fetch") ||
-                (job.message || "").toLowerCase().includes("fetch failed")
-              )) ? "In progress — waiting for n8n callback…" : (job.message || old.message),
-              completed_at: job.completed_at || old.completed_at,
+              message: newMessage,
+              completed_at: job.completed_at || old.completed_at || (isFinished ? new Date().toISOString() : undefined),
               requested_by: job.requested_by || old.requested_by
             };
             return { dataPumpJobs: updated };

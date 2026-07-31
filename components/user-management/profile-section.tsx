@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   ClipboardList,
@@ -241,6 +241,15 @@ export function ProfileManagementSection() {
   // View profiles inline result
   const [viewProfilesResult, setViewProfilesResult] = useState<DbaResponse | null>(null);
 
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("user_mgmt_view_profiles");
+      if (saved) {
+        setViewProfilesResult(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
   const loadingRef = useRef<Record<string, boolean>>({});
 
   const ensureProfiles = useCallback(async () => {
@@ -281,6 +290,9 @@ export function ProfileManagementSection() {
         case "view_profiles":
           res = await execute("view_profiles", {});
           setViewProfilesResult(res);
+          try {
+            sessionStorage.setItem("user_mgmt_view_profiles", JSON.stringify(res));
+          } catch {}
           closeModal();
           return;
         case "create_profile": {
@@ -503,7 +515,19 @@ export function ProfileManagementSection() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="ghost" size="sm" onClick={() => { setViewProfilesResult(null); setProfileFilter("__all"); }}>Clear</Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setViewProfilesResult(null);
+                  setProfileFilter("__all");
+                  try {
+                    sessionStorage.removeItem("user_mgmt_view_profiles");
+                  } catch {}
+                }}
+              >
+                Clear
+              </Button>
             </div>
           </div>
           <div className="overflow-auto">

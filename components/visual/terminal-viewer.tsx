@@ -20,7 +20,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
     const container = ref.current;
 
     const getCellMetrics = () => {
-      let cellH = 14;
+      const cellH = 14;
       let cellW = 7.2;
       try {
         const canvas = document.createElement("canvas");

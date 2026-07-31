@@ -161,8 +161,9 @@ export function DataPumpDashboard() {
     <div className="space-y-6">
       <PageHeader
         title="Oracle Data Pump"
-        description="High-speed server-side Oracle utility for transferring and backing up data and metadata between databases. Supports both export (EXPDP) and import (IMPDP) operations with dynamic parameter configuration."
+        description="High-speed server-side Oracle utility for transferring and backing up data and metadata between databases with dynamic parameter configuration."
         icon={Database}
+        descriptionClassName="whitespace-nowrap truncate max-w-none"
       />
 
       {/* Environment badge & Job History button */}

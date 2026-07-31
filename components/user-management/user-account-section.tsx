@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   Database,
@@ -358,6 +358,9 @@ export function UserAccountSection() {
         case "user_status":
           res = await execute("user_status", {});
           setStatusResult(res);
+          try {
+            sessionStorage.setItem("user_mgmt_user_status", JSON.stringify(res));
+          } catch {}
           closeModal();
           return;
         case "create_user":
@@ -657,6 +660,16 @@ export function UserAccountSection() {
 
   /* ── User Status inline result ── */
   const [statusResult, setStatusResult] = useState<DbaResponse | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("user_mgmt_user_status");
+      if (saved) {
+        setStatusResult(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
   const statusRows = ((statusResult?.raw_data?.rows ?? []) as Array<Record<string, unknown>>).map(
     (row) => {
       const normalized: Record<string, unknown> = {};
@@ -694,7 +707,18 @@ export function UserAccountSection() {
         <div className="rounded-lg border border-border/60">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
             <p className="text-sm font-semibold">All Database Users — Account Status</p>
-            <Button variant="ghost" size="sm" onClick={() => setStatusResult(null)}>Clear</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatusResult(null);
+                try {
+                  sessionStorage.removeItem("user_mgmt_user_status");
+                } catch {}
+              }}
+            >
+              Clear
+            </Button>
           </div>
           <div className="overflow-auto">
             <table className="w-full text-sm">

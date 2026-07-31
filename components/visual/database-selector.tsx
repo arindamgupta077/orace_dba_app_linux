@@ -126,8 +126,13 @@ export function DatabaseSelector() {
         if (refreshedDatabases) setDatabases(refreshedDatabases);
       }
 
-      if (dpRes.status === "fulfilled" && Array.isArray(dpRes.value?.active)) {
-        dpRes.value.active.forEach((j) => upsertDataPumpJob(j));
+      if (dpRes.status === "fulfilled") {
+        if (Array.isArray(dpRes.value?.active)) {
+          dpRes.value.active.forEach((j) => upsertDataPumpJob(j));
+        }
+        if (Array.isArray(dpRes.value?.history)) {
+          dpRes.value.history.forEach((j) => upsertDataPumpJob(j));
+        }
       }
 
       if (rmanRes.status === "fulfilled" && Array.isArray(rmanRes.value?.active)) {
