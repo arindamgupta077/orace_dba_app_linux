@@ -52,7 +52,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
       if (lastDimRef.current.cols === cols && lastDimRef.current.rows === rows) return;
 
       try {
-        const core = (term as any)._core;
+        const core = (term as Terminal & { _core?: { _renderService?: { dimensions?: unknown } } })._core;
         if (core && core._renderService && core._renderService.dimensions) {
           term.resize(cols, rows);
           lastDimRef.current = { cols, rows };
@@ -86,7 +86,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
     term.open(container);
     termRef.current = term;
 
-    let animationFrameId = requestAnimationFrame(() => {
+    const animationFrameId = requestAnimationFrame(() => {
       const preciseDim = calcDimensions();
       safeResize(term, preciseDim.cols, preciseDim.rows);
       try {
