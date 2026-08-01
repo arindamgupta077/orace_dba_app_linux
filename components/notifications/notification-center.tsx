@@ -35,7 +35,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { fetchNotificationHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
-import { cn, formatAppDateTime } from "@/lib/utils";
+import { cn, formatAppDateTime, stripHtmlText } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 interface NotificationRecord {
@@ -840,7 +840,7 @@ export function NotificationCenter() {
                     <h3 className="text-sm font-semibold text-foreground group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
                       {item.title}
                     </h3>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{item.message}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{stripHtmlText(item.message)}</p>
                   </div>
                 </ContentWrapper>
               );

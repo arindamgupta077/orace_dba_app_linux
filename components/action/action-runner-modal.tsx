@@ -287,7 +287,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="max-h-[92vh] max-w-5xl w-full min-w-0 overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>{definition.title}</DialogTitle>
@@ -296,7 +296,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
           <DialogDescription>{definition.description}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={submit} className="space-y-5">
+        <form onSubmit={submit} className="space-y-5 w-full min-w-0 max-w-full">
           {/* ── Tablespace result replaces the form after execution ── */}
           {showTablespaceResult ? (
             <TablespaceCheckResult rows={dbRows} loading={fetchingDb} />

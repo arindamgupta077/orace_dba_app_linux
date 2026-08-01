@@ -4,7 +4,7 @@ import { Bell, BellRing, Check, ChevronRight, Database, FileClock, FileText, Fil
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { cn, formatAppDateTime } from "@/lib/utils";
+import { cn, formatAppDateTime, stripHtmlText } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
 import type { NotificationItem, NotificationItemType } from "@/types/dba";
 
@@ -387,7 +387,7 @@ export function DatabaseAlertsBell() {
                         </div>
                       </div>
                       <p className="mt-0.5 line-clamp-1 text-sm font-medium text-foreground">{notif.title}</p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{notif.message}</p>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{stripHtmlText(notif.message)}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
                         <span>{formatRelativeTime(notif.timestamp)}</span>
                         {notif.db && (
@@ -606,7 +606,7 @@ export function DbaConsoleBell() {
                         </div>
                       </div>
                       <p className="mt-0.5 line-clamp-1 text-sm font-medium text-foreground">{notif.title}</p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{notif.message}</p>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{stripHtmlText(notif.message)}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
                         <span>{formatRelativeTime(notif.timestamp)}</span>
                         {notif.db && (

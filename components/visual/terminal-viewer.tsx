@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { cn, downloadText } from "@/lib/utils";
 
 export function TerminalViewer({ output, title = "Raw Output", className }: { output?: string; title?: string; className?: string }) {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const lastDimRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
   const [fullscreen, setFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState<"terminal" | "text">("terminal");
 
@@ -16,8 +17,8 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
   const lineCount = safeOutput ? safeOutput.split("\n").length : 0;
 
   useEffect(() => {
-    if (viewMode !== "terminal" || !ref.current) return;
-    const container = ref.current;
+    if (viewMode !== "terminal" || !containerRef.current) return;
+    const container = containerRef.current;
 
     const getCellMetrics = () => {
       const cellH = 14;
@@ -37,12 +38,28 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
     };
 
     const calcDimensions = () => {
-      const h = container.clientHeight || 400;
-      const w = container.clientWidth || 800;
+      const rect = container.getBoundingClientRect();
+      const h = rect.height || container.clientHeight || 400;
+      const w = rect.width || container.clientWidth || 800;
       const { cellH, cellW } = getCellMetrics();
       const rows = Math.max(Math.floor((h - 16) / cellH), 5);
       const cols = Math.max(Math.floor((w - 16) / cellW), 40);
       return { rows, cols };
+    };
+
+    const safeResize = (term: Terminal, cols: number, rows: number) => {
+      if (cols <= 0 || rows <= 0) return;
+      if (lastDimRef.current.cols === cols && lastDimRef.current.rows === rows) return;
+
+      try {
+        const core = (term as any)._core;
+        if (core && core._renderService && core._renderService.dimensions) {
+          term.resize(cols, rows);
+          lastDimRef.current = { cols, rows };
+        }
+      } catch {
+        // Safe catch for missing xterm dimensions during mount/unmount
+      }
     };
 
     const initialDim = calcDimensions();
@@ -67,34 +84,43 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
     });
 
     term.open(container);
-
-    // Recalculate dimensions to fit container exactly
-    const preciseDim = calcDimensions();
-    try {
-      term.resize(preciseDim.cols, preciseDim.rows);
-    } catch {
-      // ignore
-    }
-
-    term.write(safeOutput.replace(/\n/g, "\r\n"));
     termRef.current = term;
 
-    const resizeObserver = new ResizeObserver(() => {
-      if (!container) return;
-      const { rows: r, cols: c } = calcDimensions();
+    let animationFrameId = requestAnimationFrame(() => {
+      const preciseDim = calcDimensions();
+      safeResize(term, preciseDim.cols, preciseDim.rows);
       try {
-        term.resize(c, r);
+        term.write(safeOutput.replace(/\n/g, "\r\n"));
       } catch {
-        // ignore if term is disposed
+        // ignore
       }
+    });
+
+    let resizeRafId: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (!container || !termRef.current) return;
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+      resizeRafId = requestAnimationFrame(() => {
+        const { rows: r, cols: c } = calcDimensions();
+        if (termRef.current) {
+          safeResize(termRef.current, c, r);
+        }
+      });
     });
 
     resizeObserver.observe(container);
 
     return () => {
+      cancelAnimationFrame(animationFrameId);
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       resizeObserver.disconnect();
-      term.dispose();
+      try {
+        term.dispose();
+      } catch {
+        // ignore
+      }
       termRef.current = null;
+      lastDimRef.current = { cols: 0, rows: 0 };
     };
   }, [safeOutput, fullscreen, viewMode, lineCount]);
 
@@ -104,7 +130,7 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
         fullscreen
           ? "keep-dark fixed inset-3 z-[100] flex flex-col rounded-xl border border-cyan-500/30 bg-[#05070b] p-4 shadow-2xl backdrop-blur-2xl"
           : cn(
-              "keep-dark flex flex-col w-full rounded-xl border border-border/70 bg-[#05070b]/95 overflow-hidden shadow-inner",
+              "keep-dark flex flex-col w-full min-w-0 max-w-full rounded-xl border border-border/70 bg-[#05070b]/95 overflow-hidden shadow-inner",
               className || "h-full min-h-[16rem] max-h-[34rem]"
             )
       }
@@ -161,10 +187,12 @@ export function TerminalViewer({ output, title = "Raw Output", className }: { ou
       </div>
 
       {viewMode === "terminal" ? (
-        <div
-          ref={ref}
-          className="relative flex-1 min-h-0 w-full overflow-hidden"
-        />
+        <div className="relative flex-1 min-h-0 w-full max-w-full overflow-hidden">
+          <div
+            ref={containerRef}
+            className="absolute inset-0 overflow-hidden"
+          />
+        </div>
       ) : (
         <pre
           className="flex-1 min-h-0 w-full overflow-auto terminal-scroll p-4 font-mono text-xs text-cyan-200 bg-[#05070b] leading-relaxed whitespace-pre-wrap select-text"

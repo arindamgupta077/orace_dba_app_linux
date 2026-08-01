@@ -152,3 +152,25 @@ export function downloadText(filename: string, content: string, type = "text/pla
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Strips HTML tags and unescapes common HTML entities from rich-text content
+ * for clean plain-text display in notification items and messages.
+ */
+export function stripHtmlText(html?: string | null): string {
+  if (!html) return "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+

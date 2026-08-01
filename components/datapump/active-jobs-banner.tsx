@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Server, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Server, XCircle } from "lucide-react";
 import { fetchDataPumpJobsApi } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { DataPumpJob } from "@/types/dba";
@@ -15,7 +15,6 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
   const selectedDb = useAppStore((s) => s.selectedDb);
   const jobs = useAppStore((s) => s.dataPumpJobs);
   const upsertDataPumpJob = useAppStore((s) => s.upsertDataPumpJob);
-  const clearCompletedDataPumpJobs = useAppStore((s) => s.clearCompletedDataPumpJobs);
 
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -121,17 +120,6 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
             >
               {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               {isExpanded ? "Hide completed" : `Show completed (${completedJobs.length})`}
-            </button>
-          )}
-
-          {completedJobs.length > 0 && (
-            <button
-              type="button"
-              onClick={() => clearCompletedDataPumpJobs(selectedDb)}
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Trash2 className="h-3 w-3" />
-              Clear
             </button>
           )}
         </div>

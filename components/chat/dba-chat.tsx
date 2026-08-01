@@ -82,7 +82,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-1",
     type: "action",
-    category: "Actions",
+    category: "Sessions",
     shortTitle: "Kill Blocking Session",
     prompt: "Kill blocking session SID 142 serial# 5210",
     description: "Generates ALTER SYSTEM KILL SESSION command with mandatory DBA review",
@@ -92,7 +92,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-2",
     type: "action",
-    category: "Actions",
+    category: "Storage",
     shortTitle: "Add Datafile to Tablespace",
     prompt: "Add a 10GB datafile to USERS tablespace with autoextend enabled",
     description: "Expands tablespace storage by creating and attaching a new datafile",
@@ -102,7 +102,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-3",
     type: "action",
-    category: "Actions",
+    category: "Security & Objects",
     shortTitle: "Recompile Invalid Objects",
     prompt: "Recompile all invalid packages, procedures, and views in APPS schema",
     description: "Executes parallel recompilation for invalid schema packages and triggers",
@@ -112,7 +112,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-4",
     type: "action",
-    category: "Actions",
+    category: "Performance",
     shortTitle: "Gather Optimizer Statistics",
     prompt: "Gather optimizer statistics for table ORDERS in APPS schema with cascade",
     description: "Runs DBMS_STATS.GATHER_TABLE_STATS for updated CBO query plans",
@@ -122,7 +122,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-5",
     type: "action",
-    category: "Actions",
+    category: "Performance",
     shortTitle: "Flush Shared Pool",
     prompt: "Flush shared pool to clear invalid cursor cache and bad execution plans",
     description: "Purges cached execution plans and SQL statements from SGA shared pool",
@@ -132,7 +132,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-6",
     type: "action",
-    category: "Actions",
+    category: "Security & Objects",
     shortTitle: "Unlock Account & Expire Password",
     prompt: "Unlock user account HR and expire password for security reset",
     description: "Unlocks locked database user account and forces password reset on next login",
@@ -142,7 +142,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-7",
     type: "action",
-    category: "Actions",
+    category: "Backup & Health",
     shortTitle: "Trigger RMAN Database Backup",
     prompt: "Take an immediate RMAN full database backup including archivelogs",
     description: "Dispatches RMAN backup command for database files and archived redo logs",
@@ -152,7 +152,7 @@ export const SUGGESTED_PROMPTS: SuggestedPromptItem[] = [
   {
     id: "act-8",
     type: "action",
-    category: "Actions",
+    category: "Backup & Health",
     shortTitle: "Trigger Data Pump Export",
     prompt: "Start a schema Data Pump export (expdp) for SCOTT schema to DATA_PUMP_DIR",
     description: "Launches Oracle Data Pump export job via DBMS_DATAPUMP API",
@@ -727,6 +727,16 @@ export function ChatWithDb() {
   const [promptTypeFilter, setPromptTypeFilter] = useState<PromptTypeFilter>("query");
   const [activeCategory, setActiveCategory] = useState<SuggestedCategory>("All");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Dynamically filter categories based on active master filter (Queries vs Actions)
+  const availableCategories = useMemo(() => {
+    return SUGGESTED_CATEGORIES.filter((cat) => {
+      if (cat.id === "All") return true;
+      return SUGGESTED_PROMPTS.some(
+        (p) => p.type === promptTypeFilter && p.category === cat.id
+      );
+    });
+  }, [promptTypeFilter]);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1327,7 +1337,10 @@ export function ChatWithDb() {
               <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1 dark:bg-slate-800/60 text-[10px] font-medium">
                 <button
                   type="button"
-                  onClick={() => setPromptTypeFilter("query")}
+                  onClick={() => {
+                    setPromptTypeFilter("query");
+                    setActiveCategory("All");
+                  }}
                   className={cn(
                     "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
                     promptTypeFilter === "query"
@@ -1340,7 +1353,10 @@ export function ChatWithDb() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPromptTypeFilter("action")}
+                  onClick={() => {
+                    setPromptTypeFilter("action");
+                    setActiveCategory("All");
+                  }}
                   className={cn(
                     "rounded-md py-1 text-center transition-all flex items-center justify-center gap-1",
                     promptTypeFilter === "action"
@@ -1374,9 +1390,9 @@ export function ChatWithDb() {
                 )}
               </div>
 
-              {/* Category tabs */}
-              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pt-0.5">
-                {SUGGESTED_CATEGORIES.map((cat) => {
+              {/* Category tabs filtered by active master filter */}
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pt-0.5 pb-0.5">
+                {availableCategories.map((cat) => {
                   const isActive = activeCategory === cat.id;
                   return (
                     <button
@@ -1384,10 +1400,10 @@ export function ChatWithDb() {
                       type="button"
                       onClick={() => setActiveCategory(cat.id)}
                       className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
+                        "shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-all border",
                         isActive
-                          ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40"
-                          : "bg-secondary text-muted-foreground hover:text-foreground dark:bg-slate-800/60"
+                          ? "border-cyan-400 bg-cyan-500/15 text-cyan-700 dark:border-cyan-500/70 dark:bg-cyan-950/50 dark:text-cyan-300 font-semibold shadow-sm"
+                          : "border-transparent bg-slate-200/60 text-slate-700 hover:bg-slate-200 hover:text-slate-900 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                       )}
                     >
                       {cat.label}

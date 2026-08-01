@@ -98,7 +98,7 @@ export function FilesystemDriveResult({ response, threshold = DEFAULT_THRESHOLD 
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full min-w-0 max-w-full overflow-hidden">
       {criticalRows.length ? (
         <div className="rounded-md border border-red-400/30 bg-red-500/10 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-100">

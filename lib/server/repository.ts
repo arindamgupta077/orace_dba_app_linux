@@ -12,6 +12,7 @@ import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
 import { getBackupResponsibleShift } from "@/lib/backup-shifts";
 import { getActiveShifts, getSelectableShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
+import { stripHtmlText } from "@/lib/utils";
 import type {
   AlertNotification,
   AlertNotificationSeverity,
@@ -7366,7 +7367,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
           const shiftLabel = `Shift ${shiftNum}`;
           const status = String(row.STATUS || "PENDING");
           const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
-          const text = row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "";
+          const text = stripHtmlText(row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "");
           const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
           const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
           const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
@@ -7519,7 +7520,7 @@ export async function listRecentShiftNotifications(limit: number = 30): Promise<
         const shiftLabel = `Shift ${shiftNum}`;
         const status = String(row.STATUS || "PENDING");
         const createdAt = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
-        const text = row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "";
+        const text = stripHtmlText(row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : "");
         const isRead = String(row.IS_READ || "N").toUpperCase() === "Y";
         const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
         const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
