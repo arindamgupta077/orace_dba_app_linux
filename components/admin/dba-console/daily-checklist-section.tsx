@@ -47,7 +47,7 @@ import {
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { getBackupResponsibleShift, parseScheduledFinishMinutes } from "@/lib/backup-shifts";
-import { cn, formatTime, getDefaultShiftForTime, toIstDateString } from "@/lib/utils";
+import { cn, formatTime, getDefaultShiftDateForTime, getDefaultShiftForTime, toIstDateString } from "@/lib/utils";
 import type {
   BackupStatusCheck,
   BackupStatusValue,
@@ -98,7 +98,7 @@ export function DailyChecklistSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [shiftNumber, setShiftNumber] = useState<string>(getDefaultShiftForTime());
-  const [shiftDate, setShiftDate] = useState<string>(todayStr());
+  const [shiftDate, setShiftDate] = useState<string>(getDefaultShiftDateForTime());
   const [search, setSearch] = useState("");
   const [templateDialog, setTemplateDialog] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<BackupTemplate | null>(null);
