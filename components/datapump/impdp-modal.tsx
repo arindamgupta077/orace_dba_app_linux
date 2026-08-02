@@ -18,7 +18,6 @@ import {
   Plus,
   RotateCcw,
   Save,
-  Server,
   Table,
   Terminal,
   Trash2,

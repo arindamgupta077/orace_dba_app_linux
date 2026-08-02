@@ -39,12 +39,29 @@ BEGIN
         approved_at TIMESTAMP(6),
         completed_at TIMESTAMP(6),
         metadata_json CLOB,
+        is_read CHAR(1) DEFAULT 'N' NOT NULL,
+        read_at TIMESTAMP(6) WITH TIME ZONE,
+        read_by VARCHAR2(100 CHAR),
         CONSTRAINT app_alert_notifications_pk PRIMARY KEY (alert_id),
         CONSTRAINT app_alert_notifications_sev_ck CHECK (severity IN ('info', 'warning', 'critical', 'error')),
         CONSTRAINT app_alert_notifications_status_ck CHECK (alert_status IN ('pending_approval', 'approved', 'rejected', 'completed', 'failed', 'acknowledged'))
       )
     ]';
   END IF;
+END;
+/
+
+DECLARE
+  v_count NUMBER;
+  PROCEDURE add_col(p_col VARCHAR2, p_sql VARCHAR2) IS
+  BEGIN
+    SELECT COUNT(*) INTO v_count FROM user_tab_columns WHERE table_name = 'APP_ALERT_NOTIFICATIONS' AND column_name = UPPER(p_col);
+    IF v_count = 0 THEN EXECUTE IMMEDIATE p_sql; END IF;
+  END;
+BEGIN
+  add_col('is_read', q'[ALTER TABLE app_alert_notifications ADD (is_read CHAR(1) DEFAULT 'N' NOT NULL)]');
+  add_col('read_at', 'ALTER TABLE app_alert_notifications ADD (read_at TIMESTAMP(6) WITH TIME ZONE)');
+  add_col('read_by', 'ALTER TABLE app_alert_notifications ADD (read_by VARCHAR2(100 CHAR))');
 END;
 /
 

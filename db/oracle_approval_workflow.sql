@@ -149,7 +149,10 @@ BEGIN
         executed_at         TIMESTAMP(6),
         expires_at          TIMESTAMP(6),
         created_at          TIMESTAMP(6)         DEFAULT SYSTIMESTAMP NOT NULL,
-        updated_at          TIMESTAMP(6)         DEFAULT SYSTIMESTAMP NOT NULL
+        updated_at          TIMESTAMP(6)         DEFAULT SYSTIMESTAMP NOT NULL,
+        is_read             CHAR(1 CHAR)         DEFAULT 'N' NOT NULL,
+        read_at             TIMESTAMP(6) WITH TIME ZONE,
+        read_by             VARCHAR2(100 CHAR)
       )
     ]';
   END IF;
@@ -188,10 +191,13 @@ BEGIN
   add_column_if_missing('request_params',      'request_params CLOB');
   add_column_if_missing('execution_status',    'execution_status VARCHAR2(20 CHAR)');
   add_column_if_missing('execution_response',  'execution_response CLOB');
-  add_column_if_missing('executed_at',         'executed_at TIMESTAMP(6)');
+  add_column_if_missing('executed_at',          'executed_at TIMESTAMP(6)');
   add_column_if_missing('expires_at',          'expires_at TIMESTAMP(6)');
-  add_column_if_missing('created_at',          'created_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP');
-  add_column_if_missing('updated_at',          'updated_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP');
+  add_column_if_missing('created_at',          'created_at TIMESTAMP(6)');
+  add_column_if_missing('updated_at',          'updated_at TIMESTAMP(6)');
+  add_column_if_missing('is_read',             q'[is_read CHAR(1 CHAR) DEFAULT 'N']');
+  add_column_if_missing('read_at',             'read_at TIMESTAMP(6) WITH TIME ZONE');
+  add_column_if_missing('read_by',             'read_by VARCHAR2(100 CHAR)');
 END;
 /
 

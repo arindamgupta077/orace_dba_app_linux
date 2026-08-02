@@ -9,8 +9,6 @@ import { requireAuthenticatedSession } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
-const MONITORING_ACTOR = "Monitoring Agent";
-
 /**
  * POST /api/monitoring/incidents/[incidentId]/acknowledge
  *

@@ -259,46 +259,6 @@ async function readOptionalSession() {
   }
 }
 
-function getResumeUrlForStatus(alert: Awaited<ReturnType<typeof getAlertNotification>>, status: AlertNotificationStatus) {
-  if (!alert) return "";
-  if (status === "approved") return alert.approval_url || "";
-  if (status === "rejected") return alert.reject_url || "";
-  return "";
-}
-
-function normalizeResumeUrl(
-  rawUrl: string,
-  decision: "approved" | "rejected",
-  alertId: string,
-  actor: string,
-  userId?: number
-) {
-  let nextUrl = rawUrl.trim();
-
-  if (nextUrl.startsWith("=")) {
-    nextUrl = nextUrl.slice(1);
-  }
-
-  nextUrl = nextUrl
-    .replace(/^http:\/(?!\/)/i, "http://")
-    .replace(/^https:\/(?!\/)/i, "https://");
-
-  const parsed = new URL(nextUrl);
-  const signature = parsed.searchParams.get("signature");
-  if (signature?.includes("?")) {
-    parsed.searchParams.set("signature", signature.split("?")[0]);
-  }
-
-  parsed.searchParams.set("decision", decision);
-  parsed.searchParams.set("alert_id", alertId);
-  parsed.searchParams.set("approved_by", actor);
-  if (userId != null) {
-    parsed.searchParams.set("user_id", String(userId));
-  }
-
-  return parsed.toString();
-}
-
 function normalizeCallbackUrl(rawUrl: string) {
   let nextUrl = rawUrl.trim();
 
@@ -311,24 +271,6 @@ function normalizeCallbackUrl(rawUrl: string) {
     .replace(/^https:\/(?!\/)/i, "https://");
 
   return new URL(nextUrl).toString();
-}
-
-async function resumeN8nWaitNode(
-  rawUrl: string,
-  decision: "approved" | "rejected",
-  alertId: string,
-  actor: string,
-  userId?: number
-) {
-  const resumeUrl = normalizeResumeUrl(rawUrl, decision, alertId, actor, userId);
-  const response = await fetch(resumeUrl, {
-    method: "GET",
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(`n8n wait resume failed (${response.status} ${response.statusText}).`);
-  }
 }
 
 async function notifyN8nAcknowledgement(input: {

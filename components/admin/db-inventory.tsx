@@ -341,12 +341,6 @@ export function DbInventory() {
     setEditOpen(true);
   };
 
-  const openOwner = (database: DatabaseInventoryItem) => {
-    setOwnerTarget(database);
-    setOwnerId(String(database.owner_id));
-    setOwnerOpen(true);
-  };
-
   const openDelete = (database: DatabaseInventoryItem) => {
     setDeleting(database);
     setDeleteOpen(true);

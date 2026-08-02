@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bot, CheckCircle2, Clock3, Download, FileUp, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Clock3, Download, FileUp, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -28,16 +28,6 @@ function ProcessingBadge() {
       </span>
       <Loader2 className="h-3 w-3 animate-spin text-cyan-400" />
       <span className="text-[10px] font-semibold tracking-wide text-cyan-300">AI Processing</span>
-    </span>
-  );
-}
-
-/** Compact inline badge shown when AI summary is ready. */
-function CompletedBadge() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5">
-      <Sparkles className="h-3 w-3 text-emerald-400" />
-      <span className="text-[10px] font-semibold tracking-wide text-emerald-300">AI Summary Ready</span>
     </span>
   );
 }

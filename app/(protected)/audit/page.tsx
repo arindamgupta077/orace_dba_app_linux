@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardList, Download, RotateCcw, Search, StickyNote, ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
+import { ClipboardList, Download, RotateCcw, Search, StickyNote, FileSpreadsheet, FileText } from "lucide-react";
 import { useAppStore } from "@/store/use-app-store";
 import { exportDataset, ExportColumn } from "@/lib/export";
 import {
@@ -26,6 +26,45 @@ import type { AuditLogItem } from "@/types/dba";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { downloadText, formatDateTime, toCsv, parseAppTimestamp, toIstDateString } from "@/lib/utils";
 
+const getSortOrder = (item: AuditLogItem) => {
+  const status = item.status.toLowerCase();
+  const detail = item.detail.toLowerCase();
+  if (status === "pending" || status === "pending_approval" || status === "open") return 0;
+  if (status === "acknowledged") return 1;
+  if (status === "approved") {
+    if (detail.includes("marked approved")) return 2;
+    if (detail.includes("sql approved")) return 3;
+    return 4;
+  }
+  if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
+    return 5;
+  }
+  if (status === "resolved") return 9;
+  return 7;
+};
+
+const processAndSortLogs = (items: AuditLogItem[]) => {
+  const mappedItems = items.map(item => ({
+    ...item,
+    actor: item.actor === "n8n" ? "Monitoring Agent" : item.actor
+  }));
+  return mappedItems.sort((a, b) => {
+    const dateA = formatDateTime(a.timestamp);
+    const dateB = formatDateTime(b.timestamp);
+    if (dateA === dateB) {
+      const orderA = getSortOrder(a);
+      const orderB = getSortOrder(b);
+      if (orderA !== orderB) {
+        return orderB - orderA;
+      }
+      const idA = parseInt(a.id.replace("AUD-", ""), 10) || 0;
+      const idB = parseInt(b.id.replace("AUD-", ""), 10) || 0;
+      return idB - idA;
+    }
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+};
+
 export default function AuditPage() {
   const user = useAppStore((state) => state.user);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
@@ -44,45 +83,6 @@ export default function AuditPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [hasMore, setHasMore] = useState(true);
-
-  const getSortOrder = (item: AuditLogItem) => {
-    const status = item.status.toLowerCase();
-    const detail = item.detail.toLowerCase();
-    if (status === "pending" || status === "pending_approval" || status === "open") return 0;
-    if (status === "acknowledged") return 1;
-    if (status === "approved") {
-      if (detail.includes("marked approved")) return 2;
-      if (detail.includes("sql approved")) return 3;
-      return 4;
-    }
-    if (status === "rejected" || status === "completed" || status === "failed" || status === "error") {
-      return 5;
-    }
-    if (status === "resolved") return 9;
-    return 7;
-  };
-
-  const processAndSortLogs = (items: AuditLogItem[]) => {
-    const mappedItems = items.map(item => ({
-      ...item,
-      actor: item.actor === "n8n" ? "Monitoring Agent" : item.actor
-    }));
-    return mappedItems.sort((a, b) => {
-      const dateA = formatDateTime(a.timestamp);
-      const dateB = formatDateTime(b.timestamp);
-      if (dateA === dateB) {
-        const orderA = getSortOrder(a);
-        const orderB = getSortOrder(b);
-        if (orderA !== orderB) {
-          return orderB - orderA;
-        }
-        const idA = parseInt(a.id.replace("AUD-", ""), 10) || 0;
-        const idB = parseInt(b.id.replace("AUD-", ""), 10) || 0;
-        return idB - idA;
-      }
-      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    });
-  };
 
   useEffect(() => {
     let active = true;

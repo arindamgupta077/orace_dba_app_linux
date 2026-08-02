@@ -8,7 +8,7 @@ import {
   findPendingAlertNotificationOccurrence,
   replacePendingAlertNotification
 } from "@/lib/server/repository";
-import type { AlertNotification, AlertNotificationSeverity, AlertNotificationStatus, DbaAlertLogSeverity } from "@/types/dba";
+import type { AlertNotification, AlertNotificationSeverity, AlertNotificationStatus } from "@/types/dba";
 
 export const dynamic = "force-dynamic";
 
@@ -75,10 +75,6 @@ function createAlertId(index: number) {
 
 function createBatchId() {
   return `FSBATCH-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-function fsSeverityToAlertLogSeverity(severity: AlertNotificationSeverity): DbaAlertLogSeverity {
-  return severity === "critical" || severity === "error" ? "P2" : "INFO";
 }
 
 function collectItems(body: BodyRecord) {

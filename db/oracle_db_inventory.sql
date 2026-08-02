@@ -44,7 +44,14 @@ BEGIN
         created_at        TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
         updated_at        TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
         created_by        VARCHAR2(128 CHAR),
-        updated_by        VARCHAR2(128 CHAR)
+        updated_by        VARCHAR2(128 CHAR),
+        server_type       VARCHAR2(10 CHAR) DEFAULT 'Physical' NOT NULL,
+        db_version        VARCHAR2(40 CHAR),
+        db_edition        VARCHAR2(40 CHAR),
+        database_instance VARCHAR2(512 CHAR),
+        enable_access     CHAR(1 CHAR) DEFAULT 'Y' NOT NULL,
+        db_port           NUMBER DEFAULT 1521 NOT NULL,
+        division          VARCHAR2(10 CHAR) DEFAULT 'PCPB' NOT NULL
       )
     ]';
   END IF;

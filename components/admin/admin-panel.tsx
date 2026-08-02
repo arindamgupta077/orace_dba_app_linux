@@ -19,7 +19,6 @@ import {
   ShieldCheck,
   Trash2,
   User,
-  UserCheck,
   UserPlus,
   Users,
   UserX
@@ -96,10 +95,6 @@ function formatDate(value?: string) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
-}
-
-function roleLabel(role: AppUserRole) {
-  return ROLE_OPTIONS.find((item) => item.value === role)?.label || role;
 }
 
 function getUserInitials(username: string): string {

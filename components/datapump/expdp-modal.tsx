@@ -313,7 +313,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
       setParams({ ...DEFAULT_PARAMS });
       setExtraParams([]);
       setDumpTransfer(false);
-      setTransferServer(serverIpOptions[0]?.ip || "");
+      setTransferServer("");
       setTab("form");
       setStatus("idle");
       setResponse(null);

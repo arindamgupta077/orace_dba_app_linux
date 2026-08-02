@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -76,7 +76,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
   const [pageSize, setPageSize] = useState(5);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -123,20 +123,19 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeDbName]);
+
+  useEffect(() => {
+    if (open) {
+      loadHistory();
+    }
+  }, [open, loadHistory]);
 
   useEffect(() => {
     if (open) {
       setDbFilter("selected");
-      loadHistory();
     }
   }, [open]);
-
-  useEffect(() => {
-    if (open) {
-      loadHistory();
-    }
-  }, [activeDbName]);
 
   // Reset page when filters change
   useEffect(() => {

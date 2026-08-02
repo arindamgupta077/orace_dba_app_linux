@@ -37,7 +37,11 @@ BEGIN
         is_active             CHAR(1) DEFAULT 'Y' NOT NULL,
         replaced_at           TIMESTAMP WITH TIME ZONE,
         created_at            TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
-        updated_at            TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL
+        updated_at            TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+        outdated_webhook_sent_at     TIMESTAMP WITH TIME ZONE,
+        outdated_webhook_claimed_at  TIMESTAMP WITH TIME ZONE,
+        outdated_webhook_send_count  NUMBER DEFAULT 0 NOT NULL,
+        outdated_webhook_next_send_at TIMESTAMP WITH TIME ZONE
       )
     ]';
   END IF;

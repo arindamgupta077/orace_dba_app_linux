@@ -49,30 +49,24 @@ sqlplus APP_DBA/Password123@localhost:1522/TEST @db/oracle_app_setup.sql
 ```
 
 The script is here:
-- `db/oracle_app_setup.sql`
+- `db/oracle_app_setup.sql` (Master setup script creating all 53 application tables, sequences, triggers, procedures, indexes, and bootstrap data)
+- `db/oracle_datapump.sql` (DataPump export/import templates & job execution history)
 - `db/oracle_check_data_tables.sql` (run this if you already created base auth/history tables earlier and only need separate per-check data tables)
 - `db/oracle_alert_notifications.sql` (run this against an existing schema to add only the inbound n8n alert table)
 - `db/oracle_dba_console.sql` (DBA Console module — shift management, daily checklist, shift report; run after `oracle_db_inventory.sql`)
 
 It creates:
-- `APP_USERS`
-- `APP_SESSIONS`
-- `APP_AUDIT_LOGS`
-- `APP_REQUEST_HISTORY`
-- `APP_ALERT_NOTIFICATIONS`
-- `APP_RUN_TABLESPACES`
-- `APP_RUN_SESSIONS`
-- `APP_RUN_SQL_METRICS`
-- `APP_RUN_LOCKS`
-- `APP_RUN_BACKUPS`
-- `APP_RUN_ALERTS`
-- `APP_RUN_TREND_POINTS` (AWR/dashboard trend points)
-- `APP_RUN_SECURITY_PRIVILEGES`
-- `APP_RUN_INVALID_OBJECTS`
-- `APP_RUN_FINDINGS`
-- `APP_RUN_RECOMMENDATIONS`
-- `APP_RUN_METRICS`
-- indexes + trigger + bootstrap admin user
+- `APP_USERS`, `APP_SESSIONS`, `APP_USER_PREFERENCES`, `APP_AUDIT_LOGS`, `APP_REQUEST_HISTORY`
+- `DATABASE_INVENTORY`, `DB_OWNER_MAPPING`, `APP_DATABASE_CATALOG`
+- `APP_ALERT_NOTIFICATIONS`, `APP_DB_MONITORING_INCIDENTS`, `APP_PROTECTED_ACTIONS`, `APP_APPROVAL_REQUESTS`, `APP_APPROVAL_HISTORY`
+- `APP_CHANGE_AUDIT_LOG`, `DASHBOARD_HISTORY`, `APP_DASHBOARD_SCHEDULES`, `DBA_ALERT_LOG`
+- `APP_SHIFT_SESSIONS`, `APP_HANDOVERS`, `APP_BACKUP_TEMPLATE`, `APP_DB_STATUS_CHECKS`, `APP_BACKUP_STATUS_CHECKS`, `APP_WEBHOOK_LOGS`
+- `APP_FILESYSTEM_DRIVE_UTILIZATION`, `APP_PASSWORD_RESET_ATTEMPTS`, `APP_PASSWORD_RESETS`
+- `APP_PERF_*` (Summary, Top SQL, CPU, Wait Events, Longops, Invalid Objects, Sessions, Locks, Long Queries)
+- `PERFORMANCE_RUN_ALL_HIST`, `APP_RMAN_JOB_HISTORY`, `APP_SECURITY_POSTURE_REPORTS`
+- `DATAPUMP_EXPDP_TEMPLATES`, `DATAPUMP_IMPDP_TEMPLATES`, `DATAPUMP_JOB_HISTORY`
+- `APP_RUN_*` (Metrics, Trend Points, Tablespaces, Sessions, SQL Metrics, Locks, Backups, Alerts, Invalid Objects, Security Privileges, Findings, Recommendations)
+- sequences + indexes + triggers + bootstrap admin user and seed data
 
 For local development without n8n, keep:
 
