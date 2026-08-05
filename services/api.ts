@@ -673,6 +673,13 @@ export async function shiftLogout(sessionId?: number, force = false): Promise<{ 
   });
 }
 
+export async function shiftCancel(sessionId?: number): Promise<{ message: string }> {
+  return requestJson<{ message: string }>("/api/shift/cancel", {
+    method: "POST",
+    body: JSON.stringify({ sessionId })
+  });
+}
+
 export async function submitHandover(handoverText: string, sessionId?: number): Promise<{ handover: Handover }> {
   return requestJson<{ handover: Handover }>("/api/shift/handover", {
     method: "POST",

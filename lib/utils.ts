@@ -102,9 +102,9 @@ export function toIstDateStringOffset(date: Date = new Date(), deltaDays: number
 /**
  * Auto-selects the daily-checklist shift number (1, 2 or 3) based on the
  * current IST time:
- *   - 07:00–15:29 IST  → Shift 1
- *   - 15:30–22:29 IST  → Shift 2
- *   - 22:30–06:59 IST  → Shift 3 (night shift, wraps midnight)
+ *   - 08:00–17:29 IST  → Shift 1
+ *   - 17:30–23:29 IST  → Shift 2
+ *   - 23:30–07:59 IST  → Shift 3 (night shift, wraps midnight)
  * Works on the client regardless of the browser's local timezone.
  */
 export function getDefaultShiftForTime(date: Date = new Date()): "1" | "2" | "3" {
@@ -112,23 +112,23 @@ export function getDefaultShiftForTime(date: Date = new Date()): "1" | "2" | "3"
   const ist = new Date(istMs);
   const minuteOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
 
-  if (minuteOfDay >= 7 * 60 && minuteOfDay < 15 * 60 + 30) return "1";
-  if (minuteOfDay >= 15 * 60 + 30 && minuteOfDay < 22 * 60 + 30) return "2";
+  if (minuteOfDay >= 8 * 60 && minuteOfDay < 17 * 60 + 30) return "1";
+  if (minuteOfDay >= 17 * 60 + 30 && minuteOfDay < 23 * 60 + 30) return "2";
   return "3";
 }
 
 /**
  * Auto-selects the daily-checklist shift date (YYYY-MM-DD in IST).
- * Shift 3 runs from 22:30 IST to 07:00 IST the next morning.
- * Between 00:00 IST and 06:59 IST, the shift date remains the previous calendar date
- * (the day Shift 3 started) and rolls over to today's date at 07:00 IST (Shift 1 start).
+ * Shift 3 runs from 23:30 IST to 08:00 IST the next morning.
+ * Between 00:00 IST and 07:59 IST, the shift date remains the previous calendar date
+ * (the day Shift 3 started) and rolls over to today's date at 08:00 IST (Shift 1 start).
  */
 export function getDefaultShiftDateForTime(date: Date = new Date()): string {
   const istMs = date.getTime() + 330 * 60 * 1000;
   const ist = new Date(istMs);
   const minuteOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
 
-  if (minuteOfDay < 7 * 60) {
+  if (minuteOfDay < 8 * 60) {
     return toIstDateStringOffset(date, -1);
   }
   return toIstDateString(date);

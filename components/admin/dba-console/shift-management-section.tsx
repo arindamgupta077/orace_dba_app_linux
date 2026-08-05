@@ -16,7 +16,8 @@ import {
   Send,
   ShieldAlert,
   UserCheck,
-  Users
+  Users,
+  XCircle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,6 +45,7 @@ import {
   fetchHandoverHistory,
   fetchShiftSessionLogs,
   overrideHandoverApi,
+  shiftCancel,
   shiftLogin,
   shiftLogout,
   submitHandover
@@ -168,6 +170,7 @@ export function ShiftManagementSection() {
   const [overrideTarget, setOverrideTarget] = useState<ShiftSession | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [cancelConfirmSession, setCancelConfirmSession] = useState<ShiftSession | null>(null);
   const [viewHandover, setViewHandover] = useState<ShiftSession | null>(null);
   const [viewedHandoverIds, setViewedHandoverIds] = useState<Set<number>>(new Set());
   const [handoverHistory, setHandoverHistory] = useState<Handover[]>([]);
@@ -350,6 +353,22 @@ export function ShiftManagementSection() {
       setLogoutConfirm(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Logout failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCancelShift = async () => {
+    if (!cancelConfirmSession) return;
+    setActionLoading(true);
+    try {
+      await shiftCancel(cancelConfirmSession.session_id);
+      toast.success(`Canceled shift for ${cancelConfirmSession.username}. Record deleted from database.`);
+      setCancelConfirmSession(null);
+      await load();
+      void loadSessionLogs(50);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to cancel shift.");
     } finally {
       setActionLoading(false);
     }
@@ -624,6 +643,18 @@ export function ShiftManagementSection() {
                               Acknowledge
                             </Button>
                           )}
+                        {(session.username === user?.username || isAdmin) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                            onClick={() => setCancelConfirmSession(session)}
+                            disabled={actionLoading}
+                            title={`Cancel shift for ${session.username} (Mistaken login)`}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -697,16 +728,28 @@ export function ShiftManagementSection() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center gap-3 rounded-lg border border-green-500/25 bg-green-500/5 px-4 py-3 text-sm text-green-300">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-green-500/30 bg-green-500/10">
-                    <CheckCircle2 className="h-5 w-5" />
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-green-500/25 bg-green-500/5 px-4 py-3 text-sm text-green-300">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-green-500/30 bg-green-500/10">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium">You are on shift</p>
+                      <p className="text-xs text-green-300/70">
+                        {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`} — logged in at {formatTime(mySession.login_at)}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">You are on shift</p>
-                    <p className="text-xs text-green-300/70">
-                      {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`} — logged in at {formatTime(mySession.login_at)}
-                    </p>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 shrink-0"
+                    onClick={() => setCancelConfirmSession(mySession)}
+                    disabled={actionLoading}
+                    title="Cancel Shift (Mistaken Login) — Delete record from database"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </Button>
                 </div>
 
                 {/* Existing handover display — not shown for General Shift */}
@@ -1131,6 +1174,39 @@ export function ShiftManagementSection() {
             <Button variant="destructive" onClick={() => void handleLogout()} disabled={actionLoading}>
               {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
               Logout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel shift confirmation dialog */}
+      <Dialog open={!!cancelConfirmSession} onOpenChange={(open) => !open && setCancelConfirmSession(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <XCircle className="h-5 w-5" />
+              Cancel Shift (Mistaken Login)
+            </DialogTitle>
+            <DialogDescription className="pt-1">
+              Are you sure you want to cancel the shift for{" "}
+              <strong className="text-foreground">{cancelConfirmSession?.username}</strong> (
+              {SHIFT_LABELS[cancelConfirmSession?.shift_number ?? 1] || `Shift ${cancelConfirmSession?.shift_number}`})?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-300 space-y-1">
+            <p className="font-semibold">Warning: Database Record Deletion</p>
+            <p>
+              This action will permanently delete this shift session record from the database and free up the shift.
+              Use this option if you logged into the wrong shift by mistake and cannot satisfy logout requirements.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelConfirmSession(null)} disabled={actionLoading}>
+              Keep Shift
+            </Button>
+            <Button variant="destructive" onClick={() => void handleCancelShift()} disabled={actionLoading}>
+              {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+              Yes, Cancel Shift
             </Button>
           </DialogFooter>
         </DialogContent>

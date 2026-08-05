@@ -5,13 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=dbaapp
-Group=dbaapp
-WorkingDirectory=/opt/oracle-dba-portal/oracle_dba_app-main
-EnvironmentFile=/opt/oracle-dba-portal/oracle_dba_app-main/.env.local
+User=root
+Group=root
+WorkingDirectory=/data1/oracle_dba_app/oracle_dba_app_v7.3
+EnvironmentFile=/data1/oracle_dba_app/oracle_dba_app_v7.3/.env.local
 Environment=NODE_ENV=production
 Environment=HOSTNAME=0.0.0.0
-Environment=PORT=3000
+Environment=PORT=3001
+Environment=NODE_OPTIONS=--max-old-space-size=1024
 ExecStart=/usr/bin/npm run start
 Restart=on-failure
 RestartSec=10

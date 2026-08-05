@@ -3890,6 +3890,56 @@ export async function closeShiftSession(input: {
   }).then(() => getShiftSessionById(input.sessionId)) as Promise<ShiftSession>;
 }
 
+export async function cancelShiftSession(input: {
+  sessionId: number;
+  actor: string;
+}): Promise<{ sessionId: number; shiftNumber: number; username: string }> {
+  return executeOne(async (connection) => {
+    try {
+      const fetchRes = await connection.execute<DbRow>(
+        `SELECT session_id, shift_number, username
+         FROM app_shift_sessions
+         WHERE session_id = :sessionId`,
+        { sessionId: input.sessionId }
+      );
+      const row = fetchRes.rows?.[0];
+      if (!row) {
+        throw new Error("Shift session not found.");
+      }
+      const shiftNumber = Number(row.SHIFT_NUMBER ?? row.shift_number);
+      const username = String(row.USERNAME ?? row.username);
+
+      // Delete associated handovers for this session
+      await connection.execute(
+        `DELETE FROM app_handovers WHERE session_id = :sessionId`,
+        { sessionId: input.sessionId }
+      );
+
+      // Delete the shift session record itself
+      const result = await connection.execute(
+        `DELETE FROM app_shift_sessions WHERE session_id = :sessionId`,
+        { sessionId: input.sessionId }
+      );
+
+      const affected = result.rowsAffected ?? 0;
+      if (affected === 0) {
+        throw new Error("Failed to delete shift session record.");
+      }
+
+      await connection.commit();
+
+      return {
+        sessionId: input.sessionId,
+        shiftNumber,
+        username
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
 export async function getCurrentShiftState(): Promise<CurrentShiftState> {
   const now = new Date();
   const activeShifts = getActiveShifts(now);

@@ -156,13 +156,13 @@ export interface SelectableShifts {
 }
 
 /** Buffer in minutes before a shift starts during which it becomes selectable. */
-const SHIFT_BUFFER_MINUTES = 6 * 60; // 6 hours
+const SHIFT_BUFFER_MINUTES = 2 * 60; // 2 hours
 
 /** Auto-select thresholds in minutes from midnight (IST). */
 const AUTO_SELECT_THRESHOLDS: Array<{ shift: number; fromMinute: number }> = [
-  { shift: 1, fromMinute: 6 * 60 },      // 06:00
-  { shift: 2, fromMinute: 12 * 60 },     // 12:00
-  { shift: 3, fromMinute: 21 * 60 }      // 21:00
+  { shift: 1, fromMinute: 5 * 60 },      // 05:00 (covers 05:00 - 12:29 IST)
+  { shift: 2, fromMinute: 12 * 60 + 30 }, // 12:30 (covers 12:30 - 20:59 IST)
+  { shift: 3, fromMinute: 21 * 60 }      // 21:00 (covers 21:00 - 04:59 IST)
 ];
 
 /** Shift start times in minutes from midnight (IST). */
@@ -183,7 +183,7 @@ const SHIFT_START_MINUTES: Record<number, number> = {
  * - General Shift (4) is always enabled.
  * - Once Shift 2 starts (14:30 IST), Shift 1 login is disabled for the day.
  * - Once Shift 3 starts (22:30 IST), Shift 2 login is disabled for the day.
- * - Auto-select: after 06:00 → Shift 1, after 12:00 → Shift 2, after 21:00 → Shift 3.
+ * - Auto-select: after 05:00 → Shift 1, after 12:30 → Shift 2, after 21:00 → Shift 3.
  * - If the preferred shift is disabled, fall back to General Shift.
  */
 export function getSelectableShifts(now: Date = new Date()): SelectableShifts {
