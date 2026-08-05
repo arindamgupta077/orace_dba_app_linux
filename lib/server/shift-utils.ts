@@ -173,6 +173,30 @@ const SHIFT_START_MINUTES: Record<number, number> = {
 };
 
 /**
+ * Evaluates whether logging in to the given shift at the specified time is considered late (> 60 minutes after shift start).
+ */
+export function isLateLogin(shiftNumber: number, now: Date = new Date()): { isLate: boolean; minutesLate: number } {
+  if (isGeneralShift(shiftNumber)) {
+    return { isLate: false, minutesLate: 0 };
+  }
+  const { minuteOfDay } = toIstParts(now);
+  const startMin = SHIFT_START_MINUTES[shiftNumber];
+  if (startMin === undefined) {
+    return { isLate: false, minutesLate: 0 };
+  }
+
+  let diff = minuteOfDay - startMin;
+  if (shiftNumber === 3 && minuteOfDay < 420) {
+    diff = (minuteOfDay + 1440) - startMin;
+  }
+
+  return {
+    isLate: diff > 60,
+    minutesLate: Math.max(0, diff)
+  };
+}
+
+/**
  * Returns which shifts are enabled/disabled in the login dropdown and which
  * one should be auto-selected as the default.
  *

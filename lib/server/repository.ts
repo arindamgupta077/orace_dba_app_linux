@@ -3705,6 +3705,7 @@ interface ShiftSessionRow extends DbRow {
   HANDOVER_STATUS?: string;
   ACK_USERNAME?: string;
   ACK_AT?: Date;
+  LATE_COMMENT?: string;
 }
 
 function mapShiftSession(row: ShiftSessionRow): ShiftSession {
@@ -3726,14 +3727,15 @@ function mapShiftSession(row: ShiftSessionRow): ShiftSession {
     handover_id: row.HANDOVER_ID ? Number(row.HANDOVER_ID) : undefined,
     handover_text: row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : undefined,
     ack_username: row.ACK_USERNAME ? String(row.ACK_USERNAME) : undefined,
-    ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined
+    ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined,
+    late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined
   };
 }
 
 const SHIFT_SESSION_COLUMNS = `
   s.session_id, s.user_id, s.username, s.email, u.role,
   s.shift_number, s.shift_date, s.login_at, s.logout_at,
-  s.status, s.is_active,
+  s.status, s.is_active, s.late_comment,
   h.handover_id, h.handover_text, h.status AS handover_status,
   h.ack_username, h.ack_at
 `;
@@ -3749,6 +3751,7 @@ export async function createShiftLogin(input: {
   username: string;
   shiftNumber: number;
   actor: string;
+  lateComment?: string;
 }): Promise<ShiftSession> {
   const now = new Date();
   const shiftDate = getShiftStartDate(now, input.shiftNumber);
@@ -3764,10 +3767,10 @@ export async function createShiftLogin(input: {
       await connection.execute(
         `INSERT INTO app_shift_sessions (
            user_id, username, email, shift_number, shift_date,
-           login_at, status, is_active, created_by, updated_by
+           login_at, status, is_active, created_by, updated_by, late_comment
          ) VALUES (
            :userId, :username, :email, :shiftNumber, TO_DATE(:shiftDate, 'YYYY-MM-DD'),
-           SYSTIMESTAMP, 'ACTIVE', 'Y', :actor, :actor
+           SYSTIMESTAMP, 'ACTIVE', 'Y', :actor, :actor, :lateComment
          )`,
         {
           userId: input.userId,
@@ -3775,7 +3778,8 @@ export async function createShiftLogin(input: {
           email,
           shiftNumber: input.shiftNumber,
           shiftDate: toOracleDateString(shiftDate),
-          actor: input.actor
+          actor: input.actor,
+          lateComment: input.lateComment || null
         }
       );
 
@@ -5169,7 +5173,7 @@ async function fetchLateLogins(connection: Connection, binds: BindParameters, wh
       ? whereClause + ` AND s.shift_number = :shiftNumber`
       : `WHERE s.shift_number = :shiftNumber`;
     const result = await connection.execute<DbRow>(
-      `SELECT s.session_id, s.username, s.shift_number, s.shift_date, s.login_at,
+      `SELECT s.session_id, s.username, s.shift_number, s.shift_date, s.login_at, s.late_comment,
               (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
                + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0))) - :startMinute) AS minutes_late
        FROM app_shift_sessions s
@@ -5187,7 +5191,8 @@ async function fetchLateLogins(connection: Connection, binds: BindParameters, wh
           shift_number: Number(row.SHIFT_NUMBER),
           shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
           login_at: toIstIsoString(row.LOGIN_AT),
-          minutes_late: minutesLate
+          minutes_late: minutesLate,
+          late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined
         });
       }
     }

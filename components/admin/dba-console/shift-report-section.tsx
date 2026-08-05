@@ -319,7 +319,8 @@ export function ShiftReportSection() {
           { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
           { header: "Shift Date", value: (r) => r.shift_date },
           { header: "Login At", value: (r) => r.login_at },
-          { header: "Minutes Late", value: (r) => r.minutes_late }
+          { header: "Minutes Late", value: (r) => r.minutes_late },
+          { header: "Reason / Comment", value: (r) => r.late_comment || "" }
         ];
         exportDataset(format, cols, report.lateLogins, baseMeta("Late Logins"));
         break;
@@ -948,6 +949,7 @@ export function ShiftReportSection() {
                     <TableHead>Date</TableHead>
                     <TableHead>Login Time</TableHead>
                     <TableHead>Minutes Late</TableHead>
+                    <TableHead>Reason / Comment</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -965,6 +967,9 @@ export function ShiftReportSection() {
                             ? `${Math.floor(l.minutes_late / 60)}h ${l.minutes_late % 60}m`
                             : `${l.minutes_late}m`}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[250px] truncate text-sm text-muted-foreground" title={l.late_comment}>
+                        {l.late_comment || "—"}
                       </TableCell>
                     </TableRow>
                   ))}

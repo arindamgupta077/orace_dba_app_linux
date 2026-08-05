@@ -4,7 +4,7 @@ import { createShiftLogin, getTakenShifts, insertAuditLog, listActiveShiftSessio
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
-import { getSelectableShifts, getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
+import { getSelectableShifts, getShiftLabel, isGeneralShift, isLateLogin } from "@/lib/server/shift-utils";
 import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
 
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if (auth.response) return auth.response;
     const session = auth.session!;
 
-    const body = (await request.json()) as { shiftNumber?: number };
+    const body = (await request.json()) as { shiftNumber?: number; lateComment?: string; comment?: string };
     const selectable = getSelectableShifts();
 
     // General Shift (4) can be logged in at any time.
@@ -63,12 +63,23 @@ export async function POST(request: Request) {
     }
 
     const shiftNumber = requestedShift;
+    const lateComment = (body.lateComment || body.comment || "").trim();
+
+    // Validate mandatory comment if login is > 1 hour late
+    const lateStatus = isLateLogin(shiftNumber);
+    if (lateStatus.isLate && !lateComment) {
+      return NextResponse.json(
+        { message: "A mandatory reason/comment is required when logging in more than 1 hour after shift start." },
+        { status: 400 }
+      );
+    }
 
     const created = await createShiftLogin({
       userId: session.userId,
       username: session.user.username,
       shiftNumber,
-      actor: session.user.username
+      actor: session.user.username,
+      lateComment: lateStatus.isLate ? lateComment : undefined
     });
 
     await insertAuditLog({

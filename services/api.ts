@@ -659,10 +659,10 @@ export async function fetchActiveDbas(): Promise<{
   }>("/api/shift-active");
 }
 
-export async function shiftLogin(shiftNumber?: number): Promise<{ session: ShiftSession }> {
+export async function shiftLogin(shiftNumber?: number, lateComment?: string): Promise<{ session: ShiftSession }> {
   return requestJson<{ session: ShiftSession }>("/api/shift/login", {
     method: "POST",
-    body: JSON.stringify({ shiftNumber })
+    body: JSON.stringify({ shiftNumber, lateComment })
   });
 }
 

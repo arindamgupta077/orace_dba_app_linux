@@ -81,6 +81,12 @@ export async function PATCH(request: Request) {
       { status: 400 }
     );
   }
+  if (decision === "rejected" && (!comment || !comment.trim())) {
+    return NextResponse.json(
+      { message: "A comment is mandatory when rejecting an approval request." },
+      { status: 400 }
+    );
+  }
 
   try {
     const result = await decideApprovalRequest({

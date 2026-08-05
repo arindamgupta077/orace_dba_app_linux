@@ -254,6 +254,12 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
 
   const handleDecide = async (decision: "approved" | "rejected") => {
     if (!request) return;
+    if (decision === "rejected" && (!comment || !comment.trim())) {
+      toast.error("Comment required", {
+        description: "Please enter a comment explaining why this approval request is being rejected."
+      });
+      return;
+    }
     setDecidingAction(decision);
     setExecutionResult(null);
     try {
@@ -418,13 +424,13 @@ function DetailDialog({ requestId, onClose, onDecision }: DetailDialogProps) {
                 <div className="space-y-1.5">
                   <Label htmlFor="approval-comment" className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <MessageSquareQuote className="h-3.5 w-3.5 text-slate-400" />
-                    Reviewer Comment <span className="text-slate-400 font-normal">(optional)</span>
+                    Reviewer Comment <span className="text-amber-600 dark:text-amber-400 font-normal">(required for rejection)</span>
                   </Label>
                   <Textarea
                     id="approval-comment"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Add an optional note explaining your decision…"
+                    placeholder="Enter a comment explaining your decision (required for rejection)…"
                     rows={2.5}
                     className="text-xs rounded-xl border-slate-200 focus-visible:ring-amber-500 dark:border-slate-800 dark:bg-slate-900/80"
                   />

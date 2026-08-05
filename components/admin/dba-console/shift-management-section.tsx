@@ -52,6 +52,7 @@ import {
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime } from "@/lib/utils";
+import { isLateLogin } from "@/lib/server/shift-utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
 
 function formatShiftDuration(loginAt: string, logoutAt?: string): string {
@@ -167,6 +168,7 @@ export function ShiftManagementSection() {
   const [actionLoading, setActionLoading] = useState(false);
   const [handoverText, setHandoverText] = useState("");
   const [shiftChoice, setShiftChoice] = useState<string>("");
+  const [lateComment, setLateComment] = useState<string>("");
   const [overrideTarget, setOverrideTarget] = useState<ShiftSession | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -330,10 +332,16 @@ export function ShiftManagementSection() {
 
   const handleLogin = async () => {
     const shiftNumber = Number(shiftChoice) || (state?.preferred_shift ?? GENERAL_SHIFT_NUMBER);
+    const lateCheck = isLateLogin(shiftNumber);
+    if (lateCheck.isLate && !lateComment.trim()) {
+      toast.error("Reason for late login is required as you are logging in more than 1 hour after shift start.");
+      return;
+    }
     setActionLoading(true);
     try {
-      await shiftLogin(shiftNumber);
+      await shiftLogin(shiftNumber, lateComment.trim() || undefined);
       toast.success(`Logged in to ${SHIFT_LABELS[shiftNumber] || `Shift ${shiftNumber}`}.`);
+      setLateComment("");
       await load();
       void loadSessionLogs(50);
     } catch (error) {
@@ -677,47 +685,81 @@ export function ShiftManagementSection() {
           <CardContent className="space-y-4">
             {!mySession ? (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border/60 bg-background/30 p-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Select Shift</Label>
-                    <Select value={shiftChoice} onValueChange={setShiftChoice}>
-                      <SelectTrigger className="w-72">
-                        <SelectValue placeholder="Choose shift" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, GENERAL_SHIFT_NUMBER].map((n) => {
-                          const isDisabledByBuffer = state.disabled_shifts?.includes(n);
-                          const isTaken = state.taken_shifts?.includes(n);
-                          const takenByDba = sessions.find((s) => s.shift_number === n && s.is_active);
-                          const isGeneral = n === GENERAL_SHIFT_NUMBER;
-                          const disabled = (!isGeneral && (isDisabledByBuffer || isTaken));
-                          let suffix = "";
-                          if (isTaken && takenByDba) suffix = ` (taken by ${takenByDba.username})`;
-                          else if (isDisabledByBuffer) suffix = " (not yet available)";
-                          return (
-                            <SelectItem
-                              key={n}
-                              value={String(n)}
-                              disabled={disabled}
-                            >
-                              {SHIFT_LABELS[n] || `Shift ${n}`}{suffix}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-background/30 p-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Select Shift</Label>
+                      <Select value={shiftChoice} onValueChange={setShiftChoice}>
+                        <SelectTrigger className="w-72">
+                          <SelectValue placeholder="Choose shift" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, GENERAL_SHIFT_NUMBER].map((n) => {
+                            const isDisabledByBuffer = state.disabled_shifts?.includes(n);
+                            const isTaken = state.taken_shifts?.includes(n);
+                            const takenByDba = sessions.find((s) => s.shift_number === n && s.is_active);
+                            const isGeneral = n === GENERAL_SHIFT_NUMBER;
+                            const disabled = (!isGeneral && (isDisabledByBuffer || isTaken));
+                            let suffix = "";
+                            if (isTaken && takenByDba) suffix = ` (taken by ${takenByDba.username})`;
+                            else if (isDisabledByBuffer) suffix = " (not yet available)";
+                            return (
+                              <SelectItem
+                                key={n}
+                                value={String(n)}
+                                disabled={disabled}
+                              >
+                                {SHIFT_LABELS[n] || `Shift ${n}`}{suffix}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      onClick={() => void handleLogin()}
+                      disabled={actionLoading || (() => {
+                        const chosen = Number(shiftChoice) || (state?.preferred_shift ?? GENERAL_SHIFT_NUMBER);
+                        if (chosen !== GENERAL_SHIFT_NUMBER && (state?.taken_shifts?.includes(chosen) || state?.disabled_shifts?.includes(chosen))) {
+                          return true;
+                        }
+                        const lateCheck = isLateLogin(chosen);
+                        if (lateCheck.isLate && !lateComment.trim()) {
+                          return true;
+                        }
+                        return false;
+                      })()}
+                    >
+                      {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+                      Login to Shift
+                    </Button>
                   </div>
-                  <Button
-                    onClick={() => void handleLogin()}
-                    disabled={actionLoading || (() => {
-                      const chosen = Number(shiftChoice);
-                      if (chosen === GENERAL_SHIFT_NUMBER) return false;
-                      return state.taken_shifts?.includes(chosen) || state.disabled_shifts?.includes(chosen);
-                    })()}
-                  >
-                    {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                    Login to Shift
-                  </Button>
+
+                  {(() => {
+                    const chosen = Number(shiftChoice) || (state?.preferred_shift ?? GENERAL_SHIFT_NUMBER);
+                    const lateCheck = isLateLogin(chosen);
+                    if (!lateCheck.isLate) return null;
+                    return (
+                      <div className="mt-2 space-y-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
+                        <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                          <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+                          Late Login Notice ({lateCheck.minutesLate} mins past shift start)
+                        </div>
+                        <p className="text-muted-foreground">
+                          You are logging in more than 1 hour after shift start. A reason/comment is mandatory.
+                        </p>
+                        <Label className="mt-2 block text-xs font-medium text-foreground">
+                          Reason / Comment for Late Login <span className="text-red-400">*</span>
+                        </Label>
+                        <Input
+                          placeholder="e.g. Traffic delay, system maintenance, shift handoff delay..."
+                          value={lateComment}
+                          onChange={(e) => setLateComment(e.target.value)}
+                          className="border-amber-500/40 bg-background/50 focus-visible:ring-amber-500/50"
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
                 {state.taken_shifts && state.taken_shifts.length > 0 && (
                   <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-sm text-amber-400">

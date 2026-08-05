@@ -310,6 +310,10 @@ export class ApprovalAlreadyProcessedError extends Error {
 export async function decideApprovalRequest(
   input: DecideApprovalInput
 ): Promise<{ request: ApprovalRequest; dbaResponse?: DbaResponse }> {
+  if (input.decision === "rejected" && (!input.comment || !input.comment.trim())) {
+    throw new Error("A comment is mandatory when rejecting an approval request.");
+  }
+
   // Persist the decision (atomic conditional-update — see rowsAffected guard).
   const updated = await updateApprovalDecision({
     requestId:        input.requestId,

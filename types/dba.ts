@@ -860,6 +860,7 @@ export interface ShiftSession {
   handover_text?: string;
   ack_username?: string;
   ack_at?: string;
+  late_comment?: string;
 }
 
 export interface ActiveDba {
@@ -1030,7 +1031,7 @@ export interface ShiftReportData {
   dailyAttendance: Array<{ attendance_date: string; unique_dbas: number; total_logins: number }>;
   monthlyAttendance: Array<{ month: string; unique_dbas: number; total_logins: number }>;
   avgLoginDurationMin: number;
-  lateLogins: Array<{ session_id: number; username: string; shift_number: number; shift_date: string; login_at: string; minutes_late: number }>;
+  lateLogins: Array<{ session_id: number; username: string; shift_number: number; shift_date: string; login_at: string; minutes_late: number; late_comment?: string }>;
   pendingHandovers: Handover[];
   unacknowledgedHandovers: Handover[];
   dbStatusCompletion: ChecklistCompletion;
