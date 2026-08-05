@@ -67,7 +67,9 @@ import type {
   RmanJobStatus,
   MonitoringIncident,
   MonitoringIncidentStatus,
-  AlertClearanceStatus
+  AlertClearanceStatus,
+  RebootHistoryItem,
+  RebootEventType
 } from "@/types/dba";
 
 type UserRole = UserSession["role"];
@@ -7792,5 +7794,108 @@ export async function markAllNotificationsReadInDb(category: "db" | "console" | 
         { autoCommit: true }
       );
     }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reboot History — audit compliance snapshots for DB start / stop events
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function insertRebootHistory(input: {
+  dbName: string;
+  environment: string;
+  eventType: RebootEventType;
+  requestedBy: string;
+  capturedAt: string;
+  spfileValue: string;
+  auditSysOps: string;
+  auditTrail: string;
+  dbNameParam: string;
+  isCompliant: boolean;
+  failureReasons?: string;
+  shutdownOption?: string;
+}): Promise<void> {
+  const dbName         = String(input.dbName      || "").slice(0, 100);
+  const environment    = String(input.environment  || "").slice(0, 20);
+  const eventType      = String(input.eventType    || "").slice(0, 30) as RebootEventType;
+  const requestedBy    = String(input.requestedBy  || "system").slice(0, 128);
+  const capturedAt     = String(input.capturedAt   || "").slice(0, 50);
+  const spfileValue    = String(input.spfileValue  || "").slice(0, 500);
+  const auditSysOps    = String(input.auditSysOps  || "").slice(0, 50);
+  const auditTrail     = String(input.auditTrail   || "").slice(0, 100);
+  const dbNameParam    = String(input.dbNameParam   || "").slice(0, 100);
+  const isCompliant    = input.isCompliant ? "Y" : "N";
+  const failureReasons = input.failureReasons ? String(input.failureReasons).slice(0, 2000) : null;
+  const shutdownOption = input.shutdownOption ? String(input.shutdownOption).slice(0, 30) : null;
+
+  await executeOne(async (connection) => {
+    await connection.execute(
+      `INSERT INTO db_reboot_history
+         (db_name, environment, event_type, requested_by,
+          captured_at, spfile_value, audit_sys_ops,
+          audit_trail, db_name_param, is_compliant,
+          failure_reasons, shutdown_option)
+       VALUES
+         (:dbName, :environment, :eventType, :requestedBy,
+          :capturedAt, :spfileValue, :auditSysOps,
+          :auditTrail, :dbNameParam, :isCompliant,
+          :failureReasons, :shutdownOption)`,
+      {
+        dbName,
+        environment,
+        eventType,
+        requestedBy,
+        capturedAt,
+        spfileValue,
+        auditSysOps,
+        auditTrail,
+        dbNameParam,
+        isCompliant,
+        failureReasons,
+        shutdownOption
+      },
+      { autoCommit: true }
+    );
+  });
+}
+
+export async function listRebootHistory(
+  db?: string,
+  limit: number = 100
+): Promise<RebootHistoryItem[]> {
+  return executeOne(async (connection) => {
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const hasDbFilter = !!db?.trim();
+    const binds: BindParameters = { limit: safeLimit };
+    if (hasDbFilter) binds.dbName = db!.trim().toUpperCase();
+
+    const result = await connection.execute<DbRow>(
+      `SELECT id, db_name, environment, event_type, requested_by,
+              captured_at, spfile_value, audit_sys_ops, audit_trail,
+              db_name_param, is_compliant, failure_reasons,
+              shutdown_option, created_at
+         FROM db_reboot_history
+        ${hasDbFilter ? "WHERE UPPER(db_name) = :dbName" : ""}
+        ORDER BY created_at DESC
+        FETCH FIRST :limit ROWS ONLY`,
+      binds
+    );
+
+    return (result.rows ?? []).map((row): RebootHistoryItem => ({
+      id:              Number(row.ID),
+      db_name:         String(row.DB_NAME || ""),
+      environment:     String(row.ENVIRONMENT || ""),
+      event_type:      String(row.EVENT_TYPE || "PRE_SHUTDOWN") as RebootEventType,
+      requested_by:    String(row.REQUESTED_BY || ""),
+      captured_at:     String(row.CAPTURED_AT || ""),
+      spfile_value:    String(row.SPFILE_VALUE ?? ""),
+      audit_sys_ops:   String(row.AUDIT_SYS_OPS || ""),
+      audit_trail:     String(row.AUDIT_TRAIL || ""),
+      db_name_param:   String(row.DB_NAME_PARAM || ""),
+      is_compliant:    String(row.IS_COMPLIANT || "N") === "Y",
+      failure_reasons: row.FAILURE_REASONS ? String(row.FAILURE_REASONS) : undefined,
+      shutdown_option: row.SHUTDOWN_OPTION ? String(row.SHUTDOWN_OPTION) : undefined,
+      created_at:      toIstIsoString(row.CREATED_AT)
+    }));
   });
 }

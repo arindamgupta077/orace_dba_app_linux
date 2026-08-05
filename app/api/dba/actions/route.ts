@@ -7,10 +7,10 @@ import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sq
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { notifyDataPumpJob, type DataPumpCallbackPayload } from "@/lib/server/datapump-events";
 import { getServerEnv } from "@/lib/server/env";
-import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRequestHistory, persistRunData, upsertDataPumpJobHistory, upsertRmanJobHistory } from "@/lib/server/repository";
+import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRebootHistory, insertRequestHistory, persistRunData, upsertDataPumpJobHistory, upsertRmanJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { createMockResponse } from "@/services/mock-data";
-import type { DbaAction, DbaRequestPayload, DbaResponse, RmanJobStatus } from "@/types/dba";
+import type { DbaAction, DbaRequestPayload, DbaResponse, RebootEventType, RmanJobStatus } from "@/types/dba";
 
 interface RequestBody {
   action?: string;
@@ -438,6 +438,75 @@ export async function POST(request: Request) {
       findings: result.findings,
       recommendations: result.recommendations
     });
+    // ── Reboot History: capture audit snapshot for PROD stop/start database
+    // n8n returns the raw V$PARAMETER values inside raw_data.audit_snapshot.
+    // We extract them here and insert one row into db_reboot_history.
+    // Failures are non-fatal — they must never block the DBA response.
+    if (
+      (action === "stop_database" || action === "start_database") &&
+      dbTarget.env_label === "PROD"
+    ) {
+      try {
+        const auditSnapshot = (
+          result.raw_data as Record<string, unknown>
+        )?.audit_snapshot as {
+          CAPTURED_AT?: string;
+          SPFILE_VALUE?: string;
+          AUDIT_SYS_OPS?: string;
+          AUDIT_TRAIL?: string;
+          DB_NAME?: string;
+        } | undefined;
+
+        if (auditSnapshot) {
+          const spfileValue = (auditSnapshot.SPFILE_VALUE ?? "").trim();
+          const auditSysOps = (auditSnapshot.AUDIT_SYS_OPS ?? "").trim().toUpperCase();
+          const auditTrail  = (auditSnapshot.AUDIT_TRAIL   ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+
+          const isCompliant =
+            spfileValue === "" &&
+            auditSysOps === "TRUE" &&
+            ["DB, EXTENDED", "DB_EXTENDED"].includes(auditTrail);
+
+          const failures: string[] = [];
+          if (spfileValue !== "")
+            failures.push(`spfile="${spfileValue}" — must be blank`);
+          if (auditSysOps !== "TRUE")
+            failures.push(`audit_sys_operations="${auditSysOps}" — expected TRUE`);
+          if (!["DB, EXTENDED", "DB_EXTENDED"].includes(auditTrail))
+            failures.push(`audit_trail="${auditTrail}" — expected "DB, EXTENDED"`);
+
+          let eventType: RebootEventType;
+          if (action === "stop_database") {
+            eventType = "PRE_SHUTDOWN";
+          } else {
+            eventType = result.status === "error" ? "POST_MOUNT_FAILED" : "POST_MOUNT_COMPLIANT";
+          }
+
+          await insertRebootHistory({
+            dbName:         db,
+            environment:    dbTarget.env_label,
+            eventType,
+            requestedBy:    session.user.username,
+            capturedAt:     auditSnapshot.CAPTURED_AT ?? new Date().toISOString(),
+            spfileValue:    spfileValue,
+            auditSysOps:    auditSysOps,
+            auditTrail:     auditTrail,
+            dbNameParam:    (auditSnapshot.DB_NAME ?? "").trim(),
+            isCompliant,
+            failureReasons: failures.length > 0 ? failures.join("; ") : undefined,
+            shutdownOption: action === "stop_database"
+              ? String(params.shutdown_option || "IMMEDIATE")
+              : undefined
+          });
+        }
+      } catch (rebootHistoryErr) {
+        console.error(
+          "[dba/actions] Failed to insert reboot history record:",
+          rebootHistoryErr instanceof Error ? rebootHistoryErr.message : rebootHistoryErr
+        );
+      }
+    }
+
     // Data Pump actions are audited through dedicated start + completion
     // audit-log entries (an "initiated" row is written before the webhook
     // dispatch above, and a success/error row is written inside the expdp/

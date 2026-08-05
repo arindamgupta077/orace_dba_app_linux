@@ -30,6 +30,7 @@ import type {
   RmanJob,
   Handover,
   MonitoringIncident,
+  RebootHistoryItem,
   ShiftReportData,
   ShiftReportFilters,
   ShiftSession,
@@ -992,3 +993,15 @@ export async function fetchMonitoringIncidentHistory(limit: number = 200, db?: s
   );
   return data.incidents;
 }
+
+export async function fetchRebootHistory(
+  db: string,
+  limit: number = 100
+): Promise<RebootHistoryItem[]> {
+  const query = new URLSearchParams({ db, limit: String(limit) });
+  const data = await requestJson<{ items: RebootHistoryItem[] }>(
+    `/api/dba/reboot-history?${query.toString()}`
+  );
+  return data.items;
+}
+

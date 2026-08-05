@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRightLeft,
+  History,
   Play,
   StopCircle
 } from "lucide-react";
@@ -18,6 +19,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { ConsoleOutput } from "@/components/general-admin/console-output";
+import { RebootHistoryModal } from "@/components/general-admin/reboot-history-modal";
 import { executeDBAAction } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
@@ -94,7 +96,14 @@ const SHUTDOWN_OPTIONS = [
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function DbControlPanel() {
-  const selectedDb = useAppStore((s) => s.selectedDb);
+  const selectedDb  = useAppStore((s) => s.selectedDb);
+  const databases   = useAppStore((s) => s.databases);
+
+  // Derive the env_label for the selected DB to gate PROD-only features
+  const selectedDbTarget = databases.find(
+    (d) => d.name.toUpperCase() === selectedDb?.toUpperCase()
+  );
+  const isProd = selectedDbTarget?.env_label === "PROD";
 
   const [runState, setRunState] = useState<RunState>({
     status: "idle",
@@ -114,6 +123,9 @@ export function DbControlPanel() {
 
   // Mount-Database confirmation
   const [mountConfirmOpen, setMountConfirmOpen] = useState(false);
+
+  // Reboot History modal
+  const [rebootHistoryOpen, setRebootHistoryOpen] = useState(false);
 
   // ── Generic execute helper ─────────────────────────────────────────────────
 
@@ -172,6 +184,42 @@ export function DbControlPanel() {
 
   return (
     <div>
+      {/* ── Section header with Reboot History button (PROD only) ────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
+            Instance Control Actions
+          </span>
+          {selectedDb && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 font-mono text-xs text-muted-foreground">
+              {selectedDb}
+              {selectedDbTarget?.env_label && (
+                <span className={cn(
+                  "rounded px-1.5 py-0.2 text-[10px] font-bold uppercase",
+                  isProd
+                    ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+                    : "bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-500/30"
+                )}>
+                  {selectedDbTarget.env_label}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+
+        {selectedDb && isProd && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRebootHistoryOpen(true)}
+            className="flex items-center gap-1.5 border-indigo-200 bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 dark:hover:border-indigo-500/50 text-xs font-semibold transition-all shadow-2xs"
+          >
+            <History className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Reboot History</span>
+          </Button>
+        )}
+      </div>
+
       {/* ── Action grid ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
@@ -399,6 +447,15 @@ export function DbControlPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Reboot History Modal (PROD only) ───────────────────────────────── */}
+      {selectedDb && isProd && (
+        <RebootHistoryModal
+          open={rebootHistoryOpen}
+          onOpenChange={setRebootHistoryOpen}
+          db={selectedDb}
+        />
+      )}
     </div>
   );
 }

@@ -1119,3 +1119,37 @@ export interface MonitoringIncident {
   is_read?: boolean;
   read?: boolean;
 }
+
+// ============================================================
+// Reboot History — Audit Compliance Snapshots
+// ============================================================
+
+export type RebootEventType =
+  | "PRE_SHUTDOWN"
+  | "POST_MOUNT_COMPLIANT"
+  | "POST_MOUNT_FAILED";
+
+/** One row from `db_reboot_history`. Written by the app after n8n returns
+ *  the audit parameter snapshot in the stop_database / start_database response. */
+export interface RebootHistoryItem {
+  id: number;
+  db_name: string;
+  environment: string;
+  event_type: RebootEventType;
+  requested_by: string;
+  /** ISO string: SYSDATE from the target Oracle DB, returned by n8n */
+  captured_at: string;
+  /** Value of V$PARAMETER 'spfile' — blank means compliant (no dynamic changes possible) */
+  spfile_value: string;
+  /** Value of V$PARAMETER 'audit_sys_operations' — must be TRUE */
+  audit_sys_ops: string;
+  /** Value of V$PARAMETER 'audit_trail' — must be DB, EXTENDED */
+  audit_trail: string;
+  /** Value of V$PARAMETER 'db_name' */
+  db_name_param: string;
+  is_compliant: boolean;
+  failure_reasons?: string;
+  shutdown_option?: string;
+  created_at: string;
+}
+

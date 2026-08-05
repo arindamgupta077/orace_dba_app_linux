@@ -2,6 +2,9 @@
 
 Complete n8n implementation guide for the **Change DB Mode** button in the Oracle DBA Portal (`General Admin → Database Control`).
 
+> **Related:** For PRODUCTION audit compliance checks on **Start Database** and **Stop Database**, see
+> [`db-start-stop-audit-compliance-n8n.md`](./db-start-stop-audit-compliance-n8n.md).
+
 ---
 
 ## Overview & Architecture
