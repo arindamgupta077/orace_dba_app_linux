@@ -29,7 +29,6 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -447,51 +446,49 @@ export function RebootHistoryModal({ open, onOpenChange, db }: RebootHistoryModa
         </div>
 
         {/* Content list */}
-        <ScrollArea className="flex-1 min-h-0 pr-1 mt-2">
-          <div className="space-y-2.5 py-1">
-            {loading && (
-              <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
-                <p className="text-sm font-medium">Loading reboot history…</p>
-              </div>
-            )}
+        <div className="flex-1 min-h-[280px] max-h-[55vh] overflow-y-auto pr-1 mt-2 space-y-2.5 py-1">
+          {loading && (
+            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+              <p className="text-sm font-medium">Loading reboot history…</p>
+            </div>
+          )}
 
-            {!loading && error && (
-              <div className="rounded-xl border border-red-300 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 p-6 text-center">
-                <AlertTriangle className="h-8 w-8 text-red-600 dark:text-red-400 mx-auto mb-2" />
-                <p className="text-sm font-medium text-red-800 dark:text-red-300">{error}</p>
-                <Button variant="outline" size="sm" onClick={() => void load()} className="mt-3 text-xs">
-                  Retry
-                </Button>
-              </div>
-            )}
+          {!loading && error && (
+            <div className="rounded-xl border border-red-300 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 p-6 text-center">
+              <AlertTriangle className="h-8 w-8 text-red-600 dark:text-red-400 mx-auto mb-2" />
+              <p className="text-sm font-medium text-red-800 dark:text-red-300">{error}</p>
+              <Button variant="outline" size="sm" onClick={() => void load()} className="mt-3 text-xs">
+                Retry
+              </Button>
+            </div>
+          )}
 
-            {!loading && !error && items.length === 0 && (
-              <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-                <History className="h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm font-medium">No reboot history found for <span className="font-mono text-cyan-600 dark:text-cyan-400">{db}</span></p>
-                <p className="text-xs text-muted-foreground/70">
-                  Records appear after the first start or stop operation on this PROD database.
-                </p>
-              </div>
-            )}
+          {!loading && !error && items.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+              <History className="h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm font-medium">No reboot history found for <span className="font-mono text-cyan-600 dark:text-cyan-400">{db}</span></p>
+              <p className="text-xs text-muted-foreground/70">
+                Records appear after the first start or stop operation on this PROD database.
+              </p>
+            </div>
+          )}
 
-            {!loading && !error && items.length > 0 && filteredItems.length === 0 && (
-              <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-                <FilterX className="h-8 w-8 text-muted-foreground/40" />
-                <p className="text-sm font-medium">No matching records found</p>
-                <p className="text-xs text-muted-foreground/70">Try adjusting your search query or filters.</p>
-                <Button variant="outline" size="sm" onClick={clearFilters} className="mt-2 text-xs">
-                  Clear Filters
-                </Button>
-              </div>
-            )}
+          {!loading && !error && items.length > 0 && filteredItems.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <FilterX className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm font-medium">No matching records found</p>
+              <p className="text-xs text-muted-foreground/70">Try adjusting your search query or filters.</p>
+              <Button variant="outline" size="sm" onClick={clearFilters} className="mt-2 text-xs">
+                Clear Filters
+              </Button>
+            </div>
+          )}
 
-            {!loading && !error && currentPageItems.map((item) => (
-              <RebootHistoryRow key={item.id} item={item} />
-            ))}
-          </div>
-        </ScrollArea>
+          {!loading && !error && currentPageItems.map((item) => (
+            <RebootHistoryRow key={item.id} item={item} />
+          ))}
+        </div>
 
         {/* Enhanced Pagination Controls */}
         {!loading && !error && filteredItems.length > 0 && (

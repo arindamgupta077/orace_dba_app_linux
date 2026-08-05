@@ -23,7 +23,7 @@ import { RebootHistoryModal } from "@/components/general-admin/reboot-history-mo
 import { executeDBAAction } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
-import type { DbaAction } from "@/types/dba";
+import type { DbaAction, DbaResponse } from "@/types/dba";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,7 @@ interface RunState {
   output: string | null;
   timestamp: string | null;
   action: DbaAction | null;
+  response?: DbaResponse | null;
 }
 
 // ─── Static action cards (all except mount_database) ─────────────────────────
@@ -132,14 +133,15 @@ export function DbControlPanel() {
   const execute = async (action: DbaAction, params: Record<string, unknown> = {}) => {
     if (!selectedDb) return;
     setLoading(action);
-    setRunState({ status: "loading", output: null, timestamp: null, action });
+    setRunState({ status: "loading", output: null, timestamp: null, action, response: null });
     try {
       const result = await executeDBAAction(action, selectedDb, params);
       setRunState({
         status: result.status === "error" ? "error" : "success",
         output: result.raw_output || result.ai_summary || "(no output)",
         timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
-        action
+        action,
+        response: result
       });
       return result;
     } catch (err) {
@@ -326,6 +328,7 @@ export function DbControlPanel() {
         output={runState.output}
         action={runState.action ?? undefined}
         timestamp={runState.timestamp ?? undefined}
+        response={runState.response}
       />
 
       {/* ── Generic destructive confirm dialog (Start / Stop) ─────────────── */}
