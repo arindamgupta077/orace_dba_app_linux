@@ -749,4 +749,89 @@ body::selection {
 :root:not(.dark) .keep-dark[class*="text-slate-200/"] { color: #e2e8f0; }
 :root:not(.dark) .keep-dark[class*="text-slate-300/"] { color: #cbd5e1; }
 
+/* ============================================================
+   PRINT STYLES FOR PDF EXPORT
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 8mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation, headers, sidebars, modals, action buttons */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .print\:hidden,
+  [role="dialog"],
+  .app-toast {
+    display: none !important;
+  }
+
+  /* Reset main page container */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Prevent interactive button borders, focus rings, shadows */
+  button {
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  /* Expand scrollable containers so lists print in full without clipping */
+  .overflow-y-auto,
+  .overflow-x-auto,
+  [class*="max-h-"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Avoid page breaks inside cards, tables, SVG charts, gauge elements */
+  .card,
+  [class*="rounded-xl"],
+  tr,
+  svg {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Clean card background and borders for print output */
+  .bg-card,
+  [class*="bg-secondary"],
+  [class*="bg-slate-"] {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  /* Ensure text colors are crisp dark slate for print readability */
+  p, span, h1, h2, h3, h4, th, td {
+    color: #0f172a !important;
+  }
+
+  .text-muted-foreground {
+    color: #475569 !important;
+  }
+
+  /* Keep status badge colors clear in print */
+  .text-emerald-300, .text-emerald-400 { color: #047857 !important; }
+  .text-cyan-300, .text-cyan-400 { color: #0369a1 !important; }
+  .text-amber-300, .text-amber-400 { color: #b45309 !important; }
+  .text-red-300, .text-red-400 { color: #b91c1c !important; }
+  .text-purple-300, .text-purple-400 { color: #7e22ce !important; }
+  .text-violet-300, .text-violet-400 { color: #6d28d9 !important; }
+}
+
+
 

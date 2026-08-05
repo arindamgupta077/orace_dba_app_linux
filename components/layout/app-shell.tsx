@@ -221,7 +221,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen overflow-x-hidden">
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-40 w-72 border-r border-border/70 bg-background/80 backdrop-blur-xl transition-all duration-300 ease-in-out hidden lg:block",
+        "fixed inset-y-0 left-0 z-40 w-72 border-r border-border/70 bg-background/80 backdrop-blur-xl transition-all duration-300 ease-in-out hidden lg:block print:hidden",
         isSidebarVisible ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0 pointer-events-none"
       )}>
         <SidebarContent />
@@ -230,7 +230,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         "min-w-0 transition-all duration-300 ease-in-out",
         isSidebarVisible ? "lg:pl-72" : "lg:pl-0"
       )}>
-        <header className="sticky top-0 z-30 border-b border-border/70 bg-background/75 backdrop-blur-xl">
+        <header className="sticky top-0 z-30 border-b border-border/70 bg-background/75 backdrop-blur-xl print:hidden">
           <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-2 lg:px-6">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {isNonDbRoute && (

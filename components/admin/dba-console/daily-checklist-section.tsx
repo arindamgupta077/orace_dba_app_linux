@@ -47,7 +47,7 @@ import {
 } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { getBackupResponsibleShift, parseScheduledFinishMinutes } from "@/lib/backup-shifts";
-import { cn, formatTime, getDefaultShiftDateForTime, getDefaultShiftForTime, toIstDateString } from "@/lib/utils";
+import { cn, formatTime, getDefaultShiftDateForTime, getDefaultShiftForTime } from "@/lib/utils";
 import type {
   BackupStatusCheck,
   BackupStatusValue,
@@ -80,10 +80,6 @@ function backupStatusBadge(status: BackupStatusValue) {
     UNKNOWN: "border-amber-500/30 bg-amber-500/10 text-amber-300"
   };
   return <Badge className={map[status]}>{status}</Badge>;
-}
-
-function todayStr(): string {
-  return toIstDateString();
 }
 
 export function DailyChecklistSection() {

@@ -62,8 +62,7 @@ const DB_ACTIONS: ActionCard[] = [
     description: "Execute STARTUP — bring the database to OPEN mode",
     icon: Play,
     colorClass: "from-emerald-500 to-teal-600",
-    glowClass: "shadow-[0_0_18px_rgba(16,185,129,0.35)]",
-    destructive: true
+    glowClass: "shadow-[0_0_18px_rgba(16,185,129,0.35)]"
   },
   {
     action: "stop_database",

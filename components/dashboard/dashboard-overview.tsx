@@ -345,7 +345,7 @@ function KpiTile({
         <p className={`text-2xl font-bold tabular-nums leading-tight ${s.text}`}>{value}</p>
         {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
       </div>
-      {onClick && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
+      {onClick && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 print:hidden" />}
     </>
   );
 
@@ -800,6 +800,42 @@ export function DashboardOverview() {
   return (
     <div className="min-w-0 max-w-full space-y-5">
 
+      {/* ── PRINT-ONLY REPORT HEADER ─────────────────────────────────────── */}
+      <div className="hidden print:block rounded-xl border border-slate-300 bg-slate-50 p-5 mb-6 text-slate-900 shadow-none">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-rose-600">ITSS DBA PORTAL</span>
+              <span className="text-slate-400">|</span>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">Oracle Database Monitoring Report</h1>
+            </div>
+            <p className="mt-1 text-xs text-slate-600">
+              Database Target: <span className="font-bold text-slate-900">{selectedDb}</span>
+              {dbTarget && (
+                <span> ({dbTarget.env_label} &bull; {dbTarget.os} &bull; {dbTarget.db_type})</span>
+              )}
+            </p>
+          </div>
+          <div className="text-right text-xs text-slate-600">
+            <p className="font-semibold text-slate-900">Report Generated: {new Date().toLocaleString("en-IN")}</p>
+            {user?.username && <p>Exported By: <span className="font-medium text-slate-800">{user.username.toUpperCase()}</span></p>}
+            {refreshedAt && <p>Snapshot Captured: <span className="font-medium text-slate-800">{formatAppDateTime(refreshedAt)}</span></p>}
+          </div>
+        </div>
+        {overallBadge && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-semibold text-slate-700">Overall System Health:</span>
+            <span className={`rounded-md px-2 py-0.5 font-bold border text-[11px] ${
+              overallBadge === "HEALTHY" ? "border-emerald-600/40 bg-emerald-50 text-emerald-800" :
+              overallBadge === "WARNING" ? "border-amber-600/40 bg-amber-50 text-amber-800" :
+              "border-red-600/40 bg-red-50 text-red-800"
+            }`}>
+              {overallBadge}
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* ── HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
@@ -838,7 +874,7 @@ export function DashboardOverview() {
           </p>
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 print:hidden">
           {/* Server-side schedule badge — hidden for client role */}
           {user?.role !== "client" && serverSchedule && (
             <button
@@ -930,7 +966,7 @@ export function DashboardOverview() {
             size="sm"
             variant="outline"
             onClick={handleReturnToLatest}
-            className="gap-1.5 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20 text-xs font-semibold"
+            className="gap-1.5 border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/20 text-xs font-semibold print:hidden"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Return to Latest Live View
@@ -1159,7 +1195,7 @@ export function DashboardOverview() {
                           {b.duration_min ? <> &middot; <span className="text-slate-400">{safeNum(b.duration_min).toFixed(1)} min</span></> : ""}
                         </p>
                       </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 print:hidden" />
                     </div>
                   )) : (
                     <p className="py-6 text-center text-sm text-muted-foreground">No backup history found.</p>
@@ -1281,7 +1317,7 @@ export function DashboardOverview() {
                           {" "}&middot; {job.operation || "-"} &middot; {job.job_mode || "-"}
                         </p>
                       </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 print:hidden" />
                     </div>
                   )) : (
                     <p className="py-6 text-center text-sm text-muted-foreground">No Data Pump export jobs found.</p>
