@@ -1555,8 +1555,8 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
     const duplicate = await connection.execute<DbRow>(
       `SELECT username, email
        FROM app_users
-       WHERE username = :username
-          OR LOWER(email) = :email
+       WHERE UPPER(TRIM(username)) = :username
+          OR LOWER(TRIM(email)) = :email
        FETCH FIRST 1 ROW ONLY`,
       { username: normalized.username, email: normalized.email }
     );
@@ -1644,15 +1644,18 @@ export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser>
     }
 
     const duplicate = await connection.execute<DbRow>(
-      `SELECT user_id
+      `SELECT user_id, username, email
        FROM app_users
        WHERE user_id <> :userId
-         AND (username = :username OR LOWER(email) = :email)
+         AND (UPPER(TRIM(username)) = :username OR LOWER(TRIM(email)) = :email)
        FETCH FIRST 1 ROW ONLY`,
       { userId: input.userId, username: normalized.username, email: normalized.email }
     );
     if (duplicate.rows?.length) {
-      throw new Error("Another user already has that username or email.");
+      const match = duplicate.rows[0];
+      const matchId = match.USER_ID ?? match.user_id;
+      const matchName = match.USERNAME ?? match.username;
+      throw new Error(`Another user (ID: ${matchId}, Name: ${matchName}) already has that username or email.`);
     }
 
     await connection.execute(
