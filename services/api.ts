@@ -952,11 +952,14 @@ export async function deleteImpdpTemplateApi(id: string): Promise<{ success: boo
 
 // ── Data Pump Job Tracking & History API ────────────────────────────
 
-export async function fetchDataPumpJobsApi(db?: string): Promise<{
+export async function fetchDataPumpJobsApi(db?: string, limit?: number): Promise<{
   active: DataPumpJob[];
   history: DataPumpJob[];
 }> {
-  const query = db ? `?db=${encodeURIComponent(db)}` : "";
+  const params = new URLSearchParams();
+  if (db) params.set("db", db);
+  if (limit) params.set("limit", limit.toString());
+  const query = params.toString() ? `?${params.toString()}` : "";
   return requestJson<{ active: DataPumpJob[]; history: DataPumpJob[] }>(`/api/datapump/jobs${query}`);
 }
 

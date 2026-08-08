@@ -667,7 +667,7 @@ export function DashboardOverview() {
     if (!db) return;
     setDatapumpLoading(true);
     try {
-      const res = await fetchDataPumpJobsApi(db);
+      const res = await fetchDataPumpJobsApi(db, 10);
       const jobsMap = new Map<string, DataPumpJob>();
       (res.active || []).forEach((j) => jobsMap.set(j.id, j));
       (res.history || []).forEach((j) => jobsMap.set(j.id, j));
@@ -1034,7 +1034,7 @@ export function DashboardOverview() {
           </p>
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 print:hidden">
+        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden">
           {/* Server-side schedule badge — hidden for client role */}
           {user?.role !== "client" && serverSchedule && (
             <button
@@ -1058,44 +1058,47 @@ export function DashboardOverview() {
             </button>
           )}
 
-          <Button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="gap-2 bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-60"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            {refreshing ? "Collecting…" : "Refresh"}
-          </Button>
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+            <Button
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="gap-2 bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-60"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Collecting…" : "Refresh"}
+            </Button>
 
-          {/* Schedule button — hidden for client role */}
-          {user?.role !== "client" && (
+            {/* Schedule button — hidden for client role */}
+            {user?.role !== "client" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setScheduleModalOpen(true)}
+                className="gap-1.5"
+                title="Configure server-side scheduled refresh"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                Schedule refresh
+              </Button>
+            )}
+
+            <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m} className="gap-1.5">
+              <FileDown className="h-3.5 w-3.5" />
+              PDF Export
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setScheduleModalOpen(true)}
-              className="gap-1.5"
-              title="Configure server-side scheduled refresh"
+              onClick={() => setHistoryModalOpen(true)}
+              className="gap-1.5 border-cyan-500/30 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10"
+              title="View historical snapshots for this database"
             >
-              <Calendar className="h-3.5 w-3.5" />
-              Schedule refresh
+              <History className="h-3.5 w-3.5" />
+              Historical Snapshots
             </Button>
-          )}
-
-          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m} className="gap-1.5">
-            <FileDown className="h-3.5 w-3.5" />
-            PDF Export
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setHistoryModalOpen(true)}
-            className="gap-1.5 border-cyan-500/30 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10"
-            title="View historical snapshots for this database"
-          >
-            <History className="h-3.5 w-3.5" />
-            Historical Snapshots
-          </Button>
+          </div>
         </div>
       </div>
 
@@ -1474,7 +1477,7 @@ export function DashboardOverview() {
                       <p className="text-xs">Loading Data Pump job history...</p>
                     </div>
                   ) : datapumpJobHistory.length > 0 ? (
-                    datapumpJobHistory.map((job, i) => {
+                    datapumpJobHistory.slice(0, 10).map((job, i) => {
                       const isRunning = job.status === "running";
                       const isError = job.status === "error";
                       const isExpdp = job.operation === "expdp";

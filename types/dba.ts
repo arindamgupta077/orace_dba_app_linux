@@ -1046,6 +1046,10 @@ export interface UserWorkHoursRow {
   shift2_hours: number;
   shift3_hours: number;
   shift4_hours: number;
+  shift1_completed: number;
+  shift2_completed: number;
+  shift3_completed: number;
+  shift4_completed: number;
   last_login_at?: string;
 }
 

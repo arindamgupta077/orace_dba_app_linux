@@ -5657,6 +5657,10 @@ async function fetchUserWorkHours(
             ROUND(SUM(CASE WHEN s.shift_number = 2 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift2_minutes,
             ROUND(SUM(CASE WHEN s.shift_number = 3 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift3_minutes,
             ROUND(SUM(CASE WHEN s.shift_number = 4 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift4_minutes,
+            SUM(CASE WHEN s.shift_number = 1 AND s.logout_at IS NOT NULL THEN 1 ELSE 0 END) AS shift1_completed,
+            SUM(CASE WHEN s.shift_number = 2 AND s.logout_at IS NOT NULL THEN 1 ELSE 0 END) AS shift2_completed,
+            SUM(CASE WHEN s.shift_number = 3 AND s.logout_at IS NOT NULL THEN 1 ELSE 0 END) AS shift3_completed,
+            SUM(CASE WHEN s.shift_number = 4 AND s.logout_at IS NOT NULL THEN 1 ELSE 0 END) AS shift4_completed,
             MAX(s.login_at) AS last_login_at
      FROM app_shift_sessions s
      ${whereClause}
@@ -5685,6 +5689,10 @@ async function fetchUserWorkHours(
       shift2_hours: Math.round((shift2Min / 60) * 10) / 10,
       shift3_hours: Math.round((shift3Min / 60) * 10) / 10,
       shift4_hours: Math.round((shift4Min / 60) * 10) / 10,
+      shift1_completed: Number(row.SHIFT1_COMPLETED || 0),
+      shift2_completed: Number(row.SHIFT2_COMPLETED || 0),
+      shift3_completed: Number(row.SHIFT3_COMPLETED || 0),
+      shift4_completed: Number(row.SHIFT4_COMPLETED || 0),
       last_login_at: row.LAST_LOGIN_AT ? toIstIsoString(row.LAST_LOGIN_AT) : undefined
     };
   });

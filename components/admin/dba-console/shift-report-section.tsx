@@ -151,20 +151,23 @@ function HandoverContent({ html, className }: { html: string; className?: string
 
 const SESSION_COLORS = [
   { rowBg: "bg-cyan-500/10 hover:bg-cyan-500/15 border-l-4 border-l-cyan-600 dark:bg-cyan-500/10 dark:hover:bg-cyan-500/15 dark:border-l-cyan-400", dot: "bg-cyan-500 dark:bg-cyan-400", badge: "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300" },
-  { rowBg: "bg-emerald-500/10 hover:bg-emerald-500/15 border-l-4 border-l-emerald-600 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15 dark:border-l-emerald-400", dot: "bg-emerald-500 dark:bg-emerald-400", badge: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" },
-  { rowBg: "bg-purple-500/10 hover:bg-purple-500/15 border-l-4 border-l-purple-600 dark:bg-purple-500/10 dark:hover:bg-purple-500/15 dark:border-l-purple-400", dot: "bg-purple-500 dark:bg-purple-400", badge: "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300" },
   { rowBg: "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-600 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 dark:border-l-amber-400", dot: "bg-amber-500 dark:bg-amber-400", badge: "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" },
+  { rowBg: "bg-purple-500/10 hover:bg-purple-500/15 border-l-4 border-l-purple-600 dark:bg-purple-500/10 dark:hover:bg-purple-500/15 dark:border-l-purple-400", dot: "bg-purple-500 dark:bg-purple-400", badge: "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300" },
+  { rowBg: "bg-emerald-500/10 hover:bg-emerald-500/15 border-l-4 border-l-emerald-600 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15 dark:border-l-emerald-400", dot: "bg-emerald-500 dark:bg-emerald-400", badge: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" },
   { rowBg: "bg-rose-500/10 hover:bg-rose-500/15 border-l-4 border-l-rose-600 dark:bg-rose-500/10 dark:hover:bg-rose-500/15 dark:border-l-rose-400", dot: "bg-rose-500 dark:bg-rose-400", badge: "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" },
   { rowBg: "bg-indigo-500/10 hover:bg-indigo-500/15 border-l-4 border-l-indigo-600 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15 dark:border-l-indigo-400", dot: "bg-indigo-500 dark:bg-indigo-400", badge: "border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" },
-  { rowBg: "bg-teal-500/10 hover:bg-teal-500/15 border-l-4 border-l-teal-600 dark:bg-teal-500/10 dark:hover:bg-teal-500/15 dark:border-l-teal-400", dot: "bg-teal-500 dark:bg-teal-400", badge: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-300" },
   { rowBg: "bg-orange-500/10 hover:bg-orange-500/15 border-l-4 border-l-orange-600 dark:bg-orange-500/10 dark:hover:bg-orange-500/15 dark:border-l-orange-400", dot: "bg-orange-500 dark:bg-orange-400", badge: "border-orange-300 bg-orange-100 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300" },
+  { rowBg: "bg-sky-500/10 hover:bg-sky-500/15 border-l-4 border-l-sky-600 dark:bg-sky-500/10 dark:hover:bg-sky-500/15 dark:border-l-sky-400", dot: "bg-sky-500 dark:bg-sky-400", badge: "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300" },
   { rowBg: "bg-pink-500/10 hover:bg-pink-500/15 border-l-4 border-l-pink-600 dark:bg-pink-500/10 dark:hover:bg-pink-500/15 dark:border-l-pink-400", dot: "bg-pink-500 dark:bg-pink-400", badge: "border-pink-300 bg-pink-100 text-pink-800 dark:border-pink-500/30 dark:bg-pink-500/10 dark:text-pink-300" },
-  { rowBg: "bg-sky-500/10 hover:bg-sky-500/15 border-l-4 border-l-sky-600 dark:bg-sky-500/10 dark:hover:bg-sky-500/15 dark:border-l-sky-400", dot: "bg-sky-500 dark:bg-sky-400", badge: "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300" }
+  { rowBg: "bg-teal-500/10 hover:bg-teal-500/15 border-l-4 border-l-teal-600 dark:bg-teal-500/10 dark:hover:bg-teal-500/15 dark:border-l-teal-400", dot: "bg-teal-500 dark:bg-teal-400", badge: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-300" }
 ];
 
-function getSessionColor(sessionId?: number) {
+function getSessionColor(sessionId?: number, customMap?: Map<number, (typeof SESSION_COLORS)[number]>) {
   if (!sessionId) return SESSION_COLORS[0];
-  const idx = Math.abs(sessionId) % SESSION_COLORS.length;
+  if (customMap && customMap.has(sessionId)) {
+    return customMap.get(sessionId)!;
+  }
+  const idx = Math.abs(sessionId * 7) % SESSION_COLORS.length;
   return SESSION_COLORS[idx];
 }
 
@@ -310,6 +313,67 @@ export function ShiftReportSection() {
       }, [] as Array<{ date: string; Shift1: number; Shift2: number; Shift3: number }>);
   }, [report]);
 
+  const userShiftCounts = useMemo(() => {
+    if (!report) return [];
+
+    const workHoursMap = new Map<string, (typeof report.userWorkHours)[number]>();
+    report.userWorkHours.forEach((row) => {
+      workHoursMap.set(row.username.toLowerCase(), row);
+      workHoursMap.set(String(row.user_id), row);
+    });
+
+    const userList =
+      users.length > 0
+        ? users
+        : report.userWorkHours.map((u) => ({ userId: u.user_id, username: u.username, role: "dba_admin" }));
+
+    let list = userList
+      .map((u) => {
+        const stats = workHoursMap.get(String(u.userId)) || workHoursMap.get(u.username.toLowerCase());
+        const s1 = stats?.shift1_completed ?? 0;
+        const s2 = stats?.shift2_completed ?? 0;
+        const s3 = stats?.shift3_completed ?? 0;
+        const s4 = stats?.shift4_completed ?? 0;
+        return {
+          userId: u.userId,
+          username: u.username,
+          role: u.role,
+          shift1_completed: s1,
+          shift2_completed: s2,
+          shift3_completed: s3,
+          shift4_completed: s4,
+          total_completed: s1 + s2 + s3 + s4
+        };
+      })
+      .filter((u) => u.total_completed > 0);
+
+    if (dbaUserId !== "all") {
+      list = list.filter((u) => String(u.userId) === dbaUserId);
+    }
+
+    return list.sort((a, b) => b.total_completed - a.total_completed || a.username.localeCompare(b.username));
+  }, [users, report, dbaUserId]);
+
+  const timelineSessionColorMap = useMemo(() => {
+    if (!report?.activityTimeline) return new Map<number, (typeof SESSION_COLORS)[number]>();
+
+    const colorMap = new Map<number, (typeof SESSION_COLORS)[number]>();
+    let prevIndex = -1;
+
+    report.activityTimeline.forEach((evt) => {
+      if (evt.session_id && !colorMap.has(evt.session_id)) {
+        let nextIndex = prevIndex === -1 ? Math.abs(evt.session_id * 7) % SESSION_COLORS.length : (prevIndex + 3) % SESSION_COLORS.length;
+        if (nextIndex === prevIndex) {
+          nextIndex = (nextIndex + 1) % SESSION_COLORS.length;
+        }
+        colorMap.set(evt.session_id, SESSION_COLORS[nextIndex]);
+        prevIndex = nextIndex;
+      }
+    });
+
+    return colorMap;
+  }, [report?.activityTimeline]);
+
   // ---------- Export definitions ----------
   const baseMeta = (title: string): ExportMeta => ({
     title,
@@ -319,7 +383,7 @@ export function ShiftReportSection() {
   });
 
   const handleExport = (
-    kind: "logins" | "attendance" | "timeline" | "dbChecks" | "backupChecks" | "handovers" | "sessions" | "lateLogins" | "coverage" | "workHours",
+    kind: "logins" | "attendance" | "timeline" | "dbChecks" | "backupChecks" | "handovers" | "sessions" | "lateLogins" | "coverage" | "workHours" | "shiftCounts",
     format: "pdf" | "excel"
   ) => {
     if (!report) return;
@@ -450,6 +514,19 @@ export function ShiftReportSection() {
         exportDataset(format, cols, report.userWorkHours, baseMeta("Total Worked Hours per User"));
         break;
       }
+      case "shiftCounts": {
+        const cols: ExportColumn<(typeof userShiftCounts)[number]>[] = [
+          { header: "User / DBA", value: (r) => r.username },
+          { header: "Role", value: (r) => r.role || "" },
+          { header: "Morning Shift Completed", value: (r) => r.shift1_completed },
+          { header: "Afternoon Shift Completed", value: (r) => r.shift2_completed },
+          { header: "Night Shift Completed", value: (r) => r.shift3_completed },
+          { header: "General Shift Completed", value: (r) => r.shift4_completed },
+          { header: "Total Completed Shifts", value: (r) => r.total_completed }
+        ];
+        exportDataset(format, cols, userShiftCounts, baseMeta("User Completed Shifts Breakdown"));
+        break;
+      }
     }
   };
 
@@ -563,58 +640,61 @@ export function ShiftReportSection() {
         </CardContent>
       </Card>
 
-      {/* Executive summary */}
-      <div className="space-y-1">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Executive Summary</h2>
-      </div>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <MetricCard
-          icon={Users}
-          label="Active DBAs Now"
-          value={report.activeDbas.length}
-          sublabel={`${report.dailyAttendance[0]?.unique_dbas ?? 0} unique today`}
-          accent="green"
-        />
-        <MetricCard
-          icon={Clock}
-          label="Avg Login Duration"
-          value={`${(report.avgLoginDurationMin / 60).toFixed(1)}h`}
-          sublabel="per closed session"
-          accent="cyan"
-        />
-        <MetricCard
-          icon={ShieldCheck}
-          label="Checklist Compliance"
-          value={`${overallCompliance}%`}
-          sublabel={`${report.checklistCompletion.completed}/${report.checklistCompletion.total} checks`}
-          accent={overallCompliance >= 90 ? "green" : "amber"}
-        />
-        <MetricCard
-          icon={AlertTriangle}
-          label="Exceptions"
-          value={report.lateLogins.length + report.pendingHandovers.length}
-          sublabel={`${report.lateLogins.length} late • ${report.pendingHandovers.length} pending HO`}
-          accent="red"
-        />
-      </div>
+      {/* Executive Summary & Operational Health — Combined in a single row */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-6">
+        {/* Executive summary — 4 columns */}
+        <div className="space-y-3 lg:col-span-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Executive Summary</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <MetricCard
+              icon={Users}
+              label="Active DBAs Now"
+              value={report.activeDbas.length}
+              sublabel={`${report.dailyAttendance[0]?.unique_dbas ?? 0} unique today`}
+              accent="green"
+            />
+            <MetricCard
+              icon={Clock}
+              label="Avg Login Duration"
+              value={`${(report.avgLoginDurationMin / 60).toFixed(1)}h`}
+              sublabel="per closed session"
+              accent="cyan"
+            />
+            <MetricCard
+              icon={ShieldCheck}
+              label="Checklist Compliance"
+              value={`${overallCompliance}%`}
+              sublabel={`${report.checklistCompletion.completed}/${report.checklistCompletion.total} checks`}
+              accent={overallCompliance >= 90 ? "green" : "amber"}
+            />
+            <MetricCard
+              icon={AlertTriangle}
+              label="Exceptions"
+              value={report.lateLogins.length + report.pendingHandovers.length}
+              sublabel={`${report.lateLogins.length} late • ${report.pendingHandovers.length} pending HO`}
+              accent="red"
+            />
+          </div>
+        </div>
 
-      {/* Operational health — completion progress */}
-      <div className="space-y-1">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Operational Health</h2>
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <CompletionCard
-          title="PROD Database Availability Completion"
-          data={report.dbStatusCompletion}
-        />
-        <CompletionCard
-          title="Backup Completion"
-          data={report.backupCompletion}
-        />
-        <CompletionCard
-          title="Overall Checklist Completion"
-          data={report.checklistCompletion}
-        />
+        {/* Operational health — 2 columns */}
+        <div className="space-y-3 lg:col-span-2">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Operational Health</h2>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <CompletionCard
+              title="PROD Database Availability Completion"
+              data={report.dbStatusCompletion}
+            />
+            <CompletionCard
+              title="Backup Completion"
+              data={report.backupCompletion}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Shift coverage + Login trend */}
@@ -914,6 +994,128 @@ export function ShiftReportSection() {
         </Card>
       )}
 
+      {/* User Completed Shifts Summary */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <UserCheck className="h-5 w-5 text-cyan-400" />
+              Completed Shifts per User (Morning, Afternoon, Night & General)
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Number of completed Morning, Afternoon, Night, and General shifts per user for period <span className="font-medium text-foreground">{periodLabel}</span>.
+            </p>
+          </div>
+          <ExportMenu label="Completed Shifts" onExport={(fmt) => handleExport("shiftCounts", fmt)} />
+        </CardHeader>
+        <CardContent>
+          {userShiftCounts.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No user shift data found.</p>
+          ) : (
+            <div className="max-h-[320px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User / DBA</TableHead>
+                    <TableHead className="text-center">Morning Shift</TableHead>
+                    <TableHead className="text-center">Afternoon Shift</TableHead>
+                    <TableHead className="text-center">Night Shift</TableHead>
+                    <TableHead className="text-center">General Shift</TableHead>
+                    <TableHead className="text-center">Total Completed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {userShiftCounts.map((u) => {
+                    const avatar = avatarFromName(u.username);
+                    return (
+                      <TableRow key={u.userId} className="hover:bg-muted/40">
+                        <TableCell className="font-semibold">
+                          <div className="flex items-center gap-2.5">
+                            <span className={cn("dba-avatar h-8 w-8 border text-xs shrink-0", avatar.color)}>
+                              {avatar.initials}
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium leading-none">{u.username}</p>
+                              {u.role && (
+                                <p className="text-[11px] text-muted-foreground capitalize mt-1">{u.role.replace("_", " ")}</p>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "font-semibold min-w-[32px] justify-center",
+                              u.shift1_completed > 0
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                                : "bg-muted/40 text-muted-foreground border border-border/40"
+                            )}
+                          >
+                            {u.shift1_completed}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "font-semibold min-w-[32px] justify-center",
+                              u.shift2_completed > 0
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                : "bg-muted/40 text-muted-foreground border border-border/40"
+                            )}
+                          >
+                            {u.shift2_completed}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "font-semibold min-w-[32px] justify-center",
+                              u.shift3_completed > 0
+                                ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30"
+                                : "bg-muted/40 text-muted-foreground border border-border/40"
+                            )}
+                          >
+                            {u.shift3_completed}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "font-semibold min-w-[32px] justify-center",
+                              u.shift4_completed > 0
+                                ? "bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                                : "bg-muted/40 text-muted-foreground border border-border/40"
+                            )}
+                          >
+                            {u.shift4_completed}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge
+                            className={cn(
+                              "px-2.5 py-0.5 text-xs font-bold min-w-[36px] justify-center",
+                              u.total_completed > 0
+                                ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-300"
+                                : "border-border bg-muted/30 text-muted-foreground"
+                            )}
+                          >
+                            {u.total_completed}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Total Worked Hours per User */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -1130,7 +1332,7 @@ export function ShiftReportSection() {
                   {report.activityTimeline.map((event, i) => {
                     const isHandover = event.event === "handover" || event.event === "handover_notes";
                     const hasHandoverNote = isHandover;
-                    const sessionStyle = getSessionColor(event.session_id);
+                    const sessionStyle = getSessionColor(event.session_id, timelineSessionColorMap);
 
                     return (
                       <TableRow

@@ -16,10 +16,12 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const db = searchParams.get("db") || undefined;
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 10, 1), 500) : 100;
 
     const [active, history] = await Promise.all([
       listActiveDataPumpJobs(db),
-      listDataPumpJobHistory(100, db)
+      listDataPumpJobHistory(limit, db)
     ]);
 
     return NextResponse.json({ active, history });
