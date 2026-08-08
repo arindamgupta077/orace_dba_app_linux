@@ -4473,18 +4473,23 @@ export async function overrideHandover(input: {
   });
 }
 
+async function listPendingHandoversWithConnection(connection: Connection): Promise<Handover[]> {
+  const result = await connection.execute<HandoverRow>(
+    `SELECT handover_id, session_id, author_user_id, author_username,
+            shift_number, shift_date, handover_text, status,
+            ack_user_id, ack_username, ack_at, override_reason, is_override,
+            created_at, updated_at
+     FROM app_handovers
+     WHERE status = 'PENDING'
+     ORDER BY created_at DESC
+     FETCH FIRST 300 ROWS ONLY`
+  );
+  return (result.rows || []).map((row) => mapHandover(row as HandoverRow));
+}
+
 export async function listPendingHandovers(): Promise<Handover[]> {
   return executeOne(async (connection) => {
-    const result = await connection.execute<HandoverRow>(
-      `SELECT handover_id, session_id, author_user_id, author_username,
-              shift_number, shift_date, handover_text, status,
-              ack_user_id, ack_username, ack_at, override_reason, is_override,
-              created_at, updated_at
-       FROM app_handovers
-       WHERE status = 'PENDING'
-       ORDER BY created_at DESC`
-    );
-    return (result.rows || []).map((row) => mapHandover(row as HandoverRow));
+    return listPendingHandoversWithConnection(connection);
   });
 }
 
@@ -4985,7 +4990,7 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       fetchDailyAttendance(connection, binds, whereClause),
       fetchMonthlyAttendance(connection, binds, whereClause),
       fetchLateLogins(connection, binds, whereClause),
-      listPendingHandovers(),
+      listPendingHandoversWithConnection(connection),
       fetchAvgLoginDuration(connection, binds, whereClause),
       fetchMostActiveDba(connection, binds, whereClause),
       fetchActivityTimeline(connection, binds, whereClause, filters),
@@ -6762,7 +6767,8 @@ export async function listActiveDataPumpJobs(db?: string): Promise<DataPumpJob[]
                 DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
            FROM datapump_job_history
           WHERE LOWER(status) = 'running' AND UPPER(database_name) = :dbFilter
-          ORDER BY started_at DESC`
+          ORDER BY started_at DESC
+          FETCH FIRST 200 ROWS ONLY`
         : `SELECT job_id, operation, database_name, status, started_at, completed_at,
                 DBMS_LOB.SUBSTR(dump_file, 500, 1) AS dump_file,
                 DBMS_LOB.SUBSTR(transfer_status, 500, 1) AS transfer_status,
@@ -6771,7 +6777,8 @@ export async function listActiveDataPumpJobs(db?: string): Promise<DataPumpJob[]
                 DBMS_LOB.SUBSTR(params_json, 4000, 1) AS params_json
            FROM datapump_job_history
           WHERE LOWER(status) = 'running'
-          ORDER BY started_at DESC`;
+          ORDER BY started_at DESC
+          FETCH FIRST 200 ROWS ONLY`;
       const binds = dbFilter ? { dbFilter } : {};
       const result = await connection.execute<DbRow>(sql, binds);
       return (result.rows ?? []).map((row) => {
@@ -6996,7 +7003,8 @@ export async function listActiveRmanJobs(db?: string): Promise<RmanJob[]> {
                 requested_by
            FROM app_rman_job_history
           WHERE LOWER(status) = 'running' AND UPPER(database_name) = :dbFilter
-          ORDER BY started_at DESC`
+          ORDER BY started_at DESC
+          FETCH FIRST 200 ROWS ONLY`
         : `SELECT job_id, database_name, backup_type, status, started_at, completed_at,
                 ai_summary,
                 raw_output,
@@ -7004,7 +7012,8 @@ export async function listActiveRmanJobs(db?: string): Promise<RmanJob[]> {
                 requested_by
            FROM app_rman_job_history
           WHERE LOWER(status) = 'running'
-          ORDER BY started_at DESC`;
+          ORDER BY started_at DESC
+          FETCH FIRST 200 ROWS ONLY`;
       const binds = dbFilter ? { dbFilter } : {};
       const result = await connection.execute<DbRow>(sql, binds);
       return (result.rows ?? []).map((row) => {
@@ -7252,7 +7261,11 @@ export async function bumpMonitoringIncidentReportCount(incidentId: string): Pro
  */
 export async function listActiveMonitoringIncidents(dbName?: string): Promise<MonitoringIncident[]> {
   return executeOne(async (connection) => {
-    let sql = `SELECT * FROM app_db_monitoring_incidents WHERE incident_status IN ('DOWN', 'ACKNOWLEDGED')`;
+    let sql = `SELECT incident_id, db_name, incident_status, first_reported, last_reported,
+                      report_count, acknowledged_by, acknowledged_at, resolved_at, created_at,
+                      updated_at, is_read
+               FROM app_db_monitoring_incidents
+               WHERE incident_status IN ('DOWN', 'ACKNOWLEDGED')`;
     const binds: BindParameters = {};
 
     if (dbName && dbName.trim()) {
@@ -7260,7 +7273,7 @@ export async function listActiveMonitoringIncidents(dbName?: string): Promise<Mo
       binds.dbName = dbName.trim();
     }
 
-    sql += ` ORDER BY last_reported DESC`;
+    sql += ` ORDER BY last_reported DESC FETCH FIRST 200 ROWS ONLY`;
     const result = await connection.execute<DbRow>(sql, binds);
     return (result.rows || []).map(mapMonitoringIncidentRow);
   });
@@ -7442,7 +7455,8 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
          read_by
        FROM app_alert_notifications
        ${alertWhereSql}
-       ORDER BY created_at DESC`,
+       ORDER BY created_at DESC
+       FETCH FIRST 2000 ROWS ONLY`,
       alertBinds
     );
 
@@ -7509,7 +7523,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
           `SELECT session_id, username, shift_number, login_at, logout_at, is_read, read_at, read_by
            FROM app_shift_sessions
            ORDER BY session_id DESC
-           FETCH FIRST 200 ROWS ONLY`
+           FETCH FIRST 500 ROWS ONLY`
         );
         for (const row of sessionRes.rows || []) {
           const username = String(row.USERNAME || "DBA");
@@ -7562,7 +7576,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
           `SELECT handover_id, author_username, shift_number, handover_text, status, created_at, is_read, read_at, read_by
            FROM app_handovers
            ORDER BY handover_id DESC
-           FETCH FIRST 200 ROWS ONLY`
+           FETCH FIRST 500 ROWS ONLY`
         );
         for (const row of handoverRes.rows || []) {
           const author = String(row.AUTHOR_USERNAME || "DBA");
