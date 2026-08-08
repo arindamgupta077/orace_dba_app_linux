@@ -407,7 +407,7 @@ export function DatabaseSelector() {
                           </div>
                         </div>
 
-                        {/* Subtitle Row: Division + OS + Security Posture */}
+                        {/* Subtitle Row: Division + OS + DB Version + Security Posture */}
                         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
                           <span className="flex items-center gap-1 font-semibold text-foreground/80">
                             <Building2 className="h-3 w-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
@@ -418,6 +418,12 @@ export function DatabaseSelector() {
                             <Cpu className="h-3 w-3 text-muted-foreground/80 shrink-0" />
                             <span>{db.os}</span>
                           </span>
+                          {db.db_version && (
+                            <>
+                              <span className="text-muted-foreground/40">•</span>
+                              <span className="font-mono text-foreground/80">{db.db_version}</span>
+                            </>
+                          )}
                           {db.security_posture_outdated && (
                             <>
                               <span className="text-muted-foreground/40">•</span>

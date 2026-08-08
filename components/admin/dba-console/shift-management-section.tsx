@@ -57,23 +57,6 @@ import { cn, formatDateTime, formatTime } from "@/lib/utils";
 import { isLateLogin } from "@/lib/server/shift-utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
 
-function formatShiftDuration(loginAt: string, logoutAt?: string): string {
-  if (!loginAt) return "—";
-  const start = new Date(loginAt).getTime();
-  const end = logoutAt ? new Date(logoutAt).getTime() : Date.now();
-  if (isNaN(start) || isNaN(end) || end < start) return "—";
-
-  const diffMs = end - start;
-  const totalMinutes = Math.floor(diffMs / (1000 * 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-
-  if (hours === 0) {
-    return `${mins}m`;
-  }
-  return `${hours}h ${mins}m`;
-}
-
 const GENERAL_SHIFT_NUMBER = 4;
 const SHIFT_LABELS: Record<number, string> = {
   1: "Shift 1 (07:00 - 15:30)",

@@ -351,7 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           {isDbSelectorVisible && (
-            <div className="grid min-w-0 grid-cols-1 items-center gap-3 border-t border-border/70 bg-background/40 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:px-6">
+            <div className="grid min-w-0 grid-cols-1 items-center gap-3 border-t border-border/70 bg-background/40 px-4 py-2.5 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:px-6">
               <DatabaseSelector />
               <SecurityPostureCard />
               {/* Active DBA on-shift indicator — shown in db selector row when database view is active */}
@@ -361,7 +361,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </header>
-        <main className="min-w-0 max-w-full px-4 py-5 lg:px-6">{children}</main>
+        <main className="min-w-0 max-w-full px-4 pt-3 pb-5 lg:px-6">{children}</main>
       </div>
 
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>

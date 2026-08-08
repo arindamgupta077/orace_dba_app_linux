@@ -23,7 +23,8 @@ import {
   Unplug,
   Users,
   XCircle,
-  Zap
+  Zap,
+  Loader2
 } from "lucide-react";
 import {
   Bar,
@@ -44,11 +45,13 @@ import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
 import { FailedJobsModal } from "@/components/dashboard/failed-jobs-modal";
 import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-modal";
 import { HistoricalSnapshotsModal } from "@/components/dashboard/historical-snapshots-modal";
+import { JobHistoryModal } from "@/components/datapump/job-history-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
-import { formatAppDateTime } from "@/lib/utils";
-import { fetchDashboardHistory } from "@/services/api";
+import { cn, formatAppDateTime } from "@/lib/utils";
+import { fetchDataPumpJobsApi, fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type {
+  DataPumpJob,
   DashboardArchiveLogMonthRow,
   DashboardHistoryRow,
   DashboardMetrics,
@@ -122,6 +125,75 @@ function fmtDateOnly(value: unknown): string {
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Distinct badge color styling for dashboard database info pills
+function getEnvBadgeColor(env?: string): string {
+  switch (env?.toUpperCase()) {
+    case "PROD":
+      return "border-rose-500/40 bg-rose-500/15 text-rose-700 dark:text-rose-300";
+    case "UAT":
+      return "border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300";
+    case "DEV":
+      return "border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300";
+    case "DR":
+      return "border-purple-500/40 bg-purple-500/15 text-purple-700 dark:text-purple-300";
+    default:
+      return "border-slate-500/40 bg-slate-500/15 text-slate-700 dark:text-slate-300";
+  }
+}
+
+function getOsBadgeColor(os?: string): string {
+  switch (os?.toLowerCase()) {
+    case "windows":
+      return "border-blue-500/40 bg-blue-500/15 text-blue-700 dark:text-blue-300";
+    case "linux":
+      return "border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300";
+    default:
+      return "border-indigo-500/40 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300";
+  }
+}
+
+function getDbTypeBadgeColor(dbType?: string): string {
+  switch (dbType) {
+    case "RAC & Datagaurd":
+    case "RAC & Dataguard":
+      return "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300";
+    case "RAC":
+      return "border-indigo-500/40 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300";
+    case "Dataguard":
+      return "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300";
+    case "Active Dataguard":
+      return "border-pink-500/40 bg-pink-500/15 text-pink-700 dark:text-pink-300";
+    case "Standalone":
+    default:
+      return "border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300";
+  }
+}
+
+function getDbVersionBadgeColor(): string {
+  return "border-purple-500/40 bg-purple-500/15 text-purple-800 dark:text-purple-300";
+}
+
+function getDivisionBadgeColor(division?: string): string {
+  switch (division?.toUpperCase()) {
+    case "PCPB":
+      return "border-emerald-500/40 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300";
+    case "ITD":
+      return "border-cyan-500/40 bg-cyan-500/15 text-cyan-800 dark:text-cyan-300";
+    case "FBD":
+      return "border-violet-500/40 bg-violet-500/15 text-violet-800 dark:text-violet-300";
+    case "HOTEL":
+      return "border-pink-500/40 bg-pink-500/15 text-pink-800 dark:text-pink-300";
+    case "ILTD":
+      return "border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300";
+    case "CORP":
+      return "border-blue-500/40 bg-blue-500/15 text-blue-800 dark:text-blue-300";
+    case "ITSS":
+      return "border-rose-500/40 bg-rose-500/15 text-rose-800 dark:text-rose-300";
+    default:
+      return "border-teal-500/40 bg-teal-500/15 text-teal-800 dark:text-teal-300";
+  }
 }
 
 // Normalise a raw metrics object from any source (n8n response or Oracle CLOB).
@@ -241,6 +313,7 @@ function normalizeMetrics(raw: unknown): DashboardMetrics | null {
       host_name:        safeStr(field(dbh, "host_name")),
       startup_time:     field(dbh, "startup_time") != null ? safeStr(field(dbh, "startup_time")) : null,
       uptime_hours:     safeNum(field(dbh, "uptime_hours")),
+      db_version:       field(dbh, "db_version") != null ? safeStr(field(dbh, "db_version")) : field(dbh, "version") != null ? safeStr(field(dbh, "version")) : undefined,
     },
     os_resources: (() => {
       const rawTotal = safeNum(field(osRes, "total_memory_gb"));
@@ -582,9 +655,35 @@ export function DashboardOverview() {
   const [invalidObjectsModalOpen, setInvalidObjectsModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen]             = useState(false);
   const [activeSnapshot, setActiveSnapshot]                 = useState<DashboardHistoryRow | null>(null);
+  const [datapumpJobHistory, setDatapumpJobHistory]         = useState<DataPumpJob[]>([]);
+  const [datapumpLoading, setDatapumpLoading]               = useState(false);
+  const [dpHistoryModalOpen, setDpHistoryModalOpen]         = useState(false);
 
   const dbTarget  = databases.find((db) => db.name === selectedDb);
   const prevDb    = useRef(selectedDb);
+
+  // Fetch datapump_job_history table data for each selected database_name
+  const loadDatapumpJobHistory = useCallback(async (db: string) => {
+    if (!db) return;
+    setDatapumpLoading(true);
+    try {
+      const res = await fetchDataPumpJobsApi(db);
+      const jobsMap = new Map<string, DataPumpJob>();
+      (res.active || []).forEach((j) => jobsMap.set(j.id, j));
+      (res.history || []).forEach((j) => jobsMap.set(j.id, j));
+      const allJobs = Array.from(jobsMap.values()).sort((a, b) => {
+        const tA = a.started_at ? new Date(a.started_at).getTime() : 0;
+        const tB = b.started_at ? new Date(b.started_at).getTime() : 0;
+        return tB - tA;
+      });
+      setDatapumpJobHistory(allJobs);
+    } catch (e) {
+      console.error("[dashboard-overview] Failed to fetch datapump_job_history:", e);
+      setDatapumpJobHistory([]);
+    } finally {
+      setDatapumpLoading(false);
+    }
+  }, []);
 
   // Load cached snapshot from Oracle on mount / DB change.
   // The JSON stored in the CLOB is normalised before being placed in state so
@@ -644,7 +743,8 @@ export function DashboardOverview() {
     }
     loadHistory(selectedDb);
     loadServerSchedule(selectedDb);
-  }, [selectedDb, loadHistory, loadServerSchedule, isClientWithNoDatabases]);
+    loadDatapumpJobHistory(selectedDb);
+  }, [selectedDb, loadHistory, loadServerSchedule, loadDatapumpJobHistory, isClientWithNoDatabases]);
 
   // Trigger n8n refresh_dashboard workflow.
   // After n8n responds, normalise its raw_data (same UPPERCASE key issue applies).
@@ -653,6 +753,7 @@ export function DashboardOverview() {
     setError(null);
     setActiveSnapshot(null);
     try {
+      loadDatapumpJobHistory(selectedDb);
       const response = await runAction("refresh_dashboard", {}, selectedDb);
       if (response) {
         const fresh = normalizeMetrics(response.raw_data);
@@ -670,7 +771,7 @@ export function DashboardOverview() {
     } finally {
       setRefreshing(false);
     }
-  }, [runAction, selectedDb, loadHistory]);
+  }, [runAction, selectedDb, loadHistory, loadDatapumpJobHistory]);
 
   const scrollToSection = useCallback((sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({
@@ -689,7 +790,6 @@ export function DashboardOverview() {
   const backups     = m?.rman_backups ?? [];
   const blocking    = m?.blocking_sessions ?? [];
   const archiveLogs = m?.archive_log_generation ?? [];
-  const datapumpExports = m?.datapump_exports ?? [];
   const passwordExpiringUsers = m?.password_expiring_users ?? [];
   const usersExpiringCount = safeNum(m?.users_expiring_in_15_days ?? passwordExpiringUsers.length);
   const tablespacesOver90 = safeNum(m?.tablespaces_over_90 ?? tablespaces.filter((t) => safeNum(t.pct_used) >= 90).length);
@@ -798,7 +898,7 @@ export function DashboardOverview() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-w-0 max-w-full space-y-5">
+    <div className="min-w-0 max-w-full space-y-3.5">
 
       {/* ── PRINT-ONLY REPORT HEADER ─────────────────────────────────────── */}
       <div className="hidden print:block rounded-xl border border-slate-300 bg-slate-50 p-5 mb-6 text-slate-900 shadow-none">
@@ -812,7 +912,7 @@ export function DashboardOverview() {
             <p className="mt-1 text-xs text-slate-600">
               Database Target: <span className="font-bold text-slate-900">{selectedDb}</span>
               {dbTarget && (
-                <span> ({dbTarget.env_label} &bull; {dbTarget.os} &bull; {dbTarget.db_type})</span>
+                <span> ({dbTarget.division ? `${dbTarget.division} \u2022 ` : ""}{dbTarget.env_label} &bull; {dbTarget.os} &bull; {dbTarget.db_type}{(dbTarget.db_version || dbHealth?.db_version) ? ` \u2022 ${dbTarget.db_version || dbHealth?.db_version}` : ""}{dbTarget.server_name ? ` \u2022 Server: ${dbTarget.server_name}` : ""}{dbTarget.zone ? ` \u2022 Zone: ${dbTarget.zone}` : ""}{(dbTarget.location || dbTarget.region) ? ` \u2022 Loc: ${dbTarget.location || dbTarget.region}` : ""}{dbTarget.db_port ? ` \u2022 Port: ${dbTarget.db_port}` : ""})</span>
               )}
             </p>
           </div>
@@ -838,28 +938,88 @@ export function DashboardOverview() {
 
       {/* ── HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Oracle Database Monitoring</h1>
-            <span className="rounded-md border border-border/50 bg-secondary/60 px-2 py-0.5 text-xs font-mono font-semibold text-cyan-300">
-              {selectedDb}
+        <div className="space-y-2">
+          <h1 className="text-xl sm:text-[25px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span>Oracle Database Monitoring Dashboard:</span>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 dark:bg-cyan-500/15 px-2.5 py-0.5 font-mono font-semibold text-cyan-700 dark:text-cyan-300 text-lg sm:text-[21px]">
+              <Database className="h-4.5 w-4.5 text-cyan-500 shrink-0" />
+              <span>{selectedDb}</span>
             </span>
+          </h1>
+          <div className="flex flex-wrap items-center gap-2">
             {dbTarget && (
               <>
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${dbTarget.env_label === "PROD" ? "border-red-400/30 bg-red-500/10 text-red-300" : "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"}`}>
+                {dbTarget.division && (
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getDivisionBadgeColor(dbTarget.division)} cursor-help`}
+                    title={`Division: ${dbTarget.division}`}
+                  >
+                    {dbTarget.division}
+                  </span>
+                )}
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEnvBadgeColor(dbTarget.env_label)} cursor-help`}
+                  title={`Environment: ${dbTarget.env_label}`}
+                >
                   {dbTarget.env_label}
                 </span>
-                <span className="rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-xs text-muted-foreground">
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getOsBadgeColor(dbTarget.os)} cursor-help`}
+                  title={`Operating System: ${dbTarget.os}`}
+                >
                   {dbTarget.os}
                 </span>
-                <span className="rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-xs text-muted-foreground">
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getDbTypeBadgeColor(dbTarget.db_type)} cursor-help`}
+                  title={`Database Architecture: ${dbTarget.db_type}`}
+                >
                   {dbTarget.db_type}
                 </span>
+                {(dbTarget.db_version || dbHealth?.db_version) && (
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-mono font-semibold ${getDbVersionBadgeColor()} cursor-help`}
+                    title={`DB Version: ${dbTarget.db_version || dbHealth?.db_version}`}
+                  >
+                    {dbTarget.db_version || dbHealth?.db_version}
+                  </span>
+                )}
+                {dbTarget.server_name && (
+                  <span
+                    className="rounded-full border border-sky-500/40 bg-sky-500/15 px-2.5 py-0.5 text-xs font-mono font-semibold text-sky-800 dark:text-sky-300 cursor-help"
+                    title={`Server Hostname: ${dbTarget.server_name}`}
+                  >
+                    {dbTarget.server_name}
+                  </span>
+                )}
+                {dbTarget.zone && (
+                  <span
+                    className="rounded-full border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-0.5 text-xs font-semibold text-indigo-800 dark:text-indigo-300 cursor-help"
+                    title={`Network Zone: ${dbTarget.zone}`}
+                  >
+                    {dbTarget.zone}
+                  </span>
+                )}
+                {(dbTarget.location || dbTarget.region) && (
+                  <span
+                    className="rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300 cursor-help"
+                    title={`Data Center Location: ${dbTarget.location || dbTarget.region}`}
+                  >
+                    {dbTarget.location || dbTarget.region}
+                  </span>
+                )}
+                {dbTarget.db_port && (
+                  <span
+                    className="rounded-full border border-lime-500/40 bg-lime-500/15 px-2.5 py-0.5 text-xs font-mono font-semibold text-lime-800 dark:text-lime-300 cursor-help"
+                    title={`Database Listener Port: ${dbTarget.db_port}`}
+                  >
+                    :{dbTarget.db_port}
+                  </span>
+                )}
               </>
             )}
             {overallBadge && (
               <span
-                className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-wide ${overallColor} cursor-help`}
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-wide ${overallColor} cursor-help print:hidden`}
                 title={getTooltipText()}
               >
                 {overallBadge}
@@ -917,13 +1077,13 @@ export function DashboardOverview() {
               title="Configure server-side scheduled refresh"
             >
               <Calendar className="h-3.5 w-3.5" />
-              Schedule
+              Schedule refresh
             </Button>
           )}
 
-          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m}>
+          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!m} className="gap-1.5">
             <FileDown className="h-3.5 w-3.5" />
-            PDF
+            PDF Export
           </Button>
 
           <Button
@@ -1292,35 +1452,83 @@ export function DashboardOverview() {
 
             <Card className="flex flex-col h-full xl:col-start-3">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm">
+                <CardTitle className="flex items-center gap-2 text-sm cursor-pointer" onClick={() => setDpHistoryModalOpen(true)}>
                   <ArchiveRestore className="h-4 w-4 text-emerald-300" />
-                  Data Pump Exports
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">
-                    {datapumpExports.length > 0 ? `${datapumpExports.length} job${datapumpExports.length !== 1 ? "s" : ""}` : "Latest 5"}
+                  Data Pump
+                  <span className="ml-auto text-xs font-normal text-muted-foreground hover:text-foreground transition-colors">
+                    {datapumpLoading ? (
+                      <Loader2 className="h-3 w-3 animate-spin inline" />
+                    ) : datapumpJobHistory.length > 0 ? (
+                      `${datapumpJobHistory.length} job${datapumpJobHistory.length !== 1 ? "s" : ""}`
+                    ) : (
+                      "0 jobs"
+                    )}
                   </span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex-1 min-h-0 flex flex-col">
                 <div className="max-h-[300px] xl:max-h-[295px] flex-1 overflow-y-auto pr-1 space-y-2">
-                  {datapumpExports.length > 0 ? datapumpExports.map((job, i) => (
-                    <div key={`${job.owner_name}-${job.job_name}-${i}`} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
-                        {i + 1}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-slate-200">{job.job_name || "Data Pump job"}</span>
-                          <BackupStatusBadge status={job.state} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          <span className="text-slate-400">{job.owner_name || "-"}</span>
-                          {" "}&middot; {job.operation || "-"} &middot; {job.job_mode || "-"}
-                        </p>
-                      </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 print:hidden" />
+                  {datapumpLoading ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin text-emerald-400" />
+                      <p className="text-xs">Loading Data Pump job history...</p>
                     </div>
-                  )) : (
-                    <p className="py-6 text-center text-sm text-muted-foreground">No Data Pump export jobs found.</p>
+                  ) : datapumpJobHistory.length > 0 ? (
+                    datapumpJobHistory.map((job, i) => {
+                      const isRunning = job.status === "running";
+                      const isError = job.status === "error";
+                      const isExpdp = job.operation === "expdp";
+                      return (
+                        <div
+                          key={`${job.id}-${i}`}
+                          onClick={() => setDpHistoryModalOpen(true)}
+                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3 hover:bg-secondary/30 transition-colors cursor-pointer"
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
+                            {i + 1}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="truncate text-sm font-semibold text-slate-200">
+                                {job.dump_file || job.id || "Data Pump job"}
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold border",
+                                  isRunning
+                                    ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
+                                    : isError
+                                    ? "border-red-400/30 bg-red-500/10 text-red-300"
+                                    : "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                                )}
+                              >
+                                {isRunning && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                {job.status.toUpperCase()}
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border",
+                                  isExpdp
+                                    ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                                    : "border-violet-500/40 bg-violet-500/10 text-violet-300"
+                                )}
+                              >
+                                {job.operation.toUpperCase()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                              <span className="text-slate-400">{job.requested_by || "system"}</span>
+                              {" "}&middot; {job.db || selectedDb} &middot; {job.started_at ? formatAppDateTime(job.started_at) : "-"}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 print:hidden" />
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      No Data Pump job history found for {selectedDb}.
+                    </p>
                   )}
                 </div>
               </CardContent>
@@ -1555,6 +1763,12 @@ export function DashboardOverview() {
         selectedDb={selectedDb}
         activeSnapshotId={activeSnapshot?.id ?? null}
         onSelectSnapshot={handleSelectSnapshot}
+      />
+
+      {/* ── Data Pump Job History Modal ──────────────────────────────── */}
+      <JobHistoryModal
+        open={dpHistoryModalOpen}
+        onOpenChange={setDpHistoryModalOpen}
       />
     </div>
   );

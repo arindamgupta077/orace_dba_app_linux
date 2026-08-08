@@ -437,6 +437,9 @@ export interface DatabaseTarget {
   server_ip?: string;
   zone?: string;
   division?: DbDivision | string;
+  db_version?: string;
+  location?: string;
+  db_port?: number;
 }
 
 export type SecurityPostureProcessingStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -559,6 +562,7 @@ export interface DbHealthMetrics {
   host_name: string;
   startup_time: string | null;
   uptime_hours: number;
+  db_version?: string;
 }
 
 export interface OsResourceMetrics {

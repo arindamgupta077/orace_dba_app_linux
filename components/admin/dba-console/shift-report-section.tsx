@@ -264,6 +264,7 @@ export function ShiftReportSection() {
   // Initial load or main filter changes (dates, dba, shift) -> load full report
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromDate, toDate, dbaUserId, shiftNumber]);
 
   // Timeline filter/pagination changes -> load timeline only (fast)
@@ -271,6 +272,7 @@ export function ShiftReportSection() {
     if (report) {
       void loadTimelineOnly();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timelinePage, timelineEvent, timelineSearch]);
 
   useEffect(() => {
