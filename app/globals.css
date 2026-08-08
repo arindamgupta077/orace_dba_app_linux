@@ -450,14 +450,14 @@ body::selection {
 
 .tiptap-content strong {
   font-weight: 700;
-  color: hsl(var(--foreground));
+  color: inherit;
 }
 
 .tiptap:focus {
   outline: none;
 }
 
-.tiptap-content .is-editor-empty:first-child::before {
+.tiptap-content p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: hsl(var(--muted-foreground));
   pointer-events: none;

@@ -84,13 +84,20 @@ const SHIFT_LABELS: Record<number, string> = {
 
 const REFRESH_INTERVAL_MS = 30_000;
 
+/** Checks if HTML content from rich text editor is empty (stripping tags & non-breaking spaces). */
+function isEditorContentEmpty(html: string): boolean {
+  if (!html || !html.trim()) return true;
+  const stripped = html.replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ").trim();
+  return stripped.length === 0;
+}
+
 /** Renders HTML handover content (from TipTap editor) safely. */
 function HandoverContent({ html, className }: { html: string; className?: string }) {
   const isHtml = html.trim().startsWith("<") || /<\/?[a-z][\s\S]*>/i.test(html);
   if (isHtml) {
     return (
       <div
-        className={cn("tiptap-content prose prose-sm prose-invert max-w-none text-sm", className)}
+        className={cn("tiptap-content prose prose-sm dark:prose-invert max-w-none text-sm", className)}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
@@ -804,7 +811,6 @@ export function ShiftManagementSection() {
                     <Label className="flex items-center gap-2">
                       <Send className="h-4 w-4" />
                       Handover Notes
-                      <span className="text-xs text-muted-foreground">(Rich text — bold, colors, lists, alignment)</span>
                     </Label>
                     <RichTextEditor
                       value={handoverText}
@@ -817,7 +823,7 @@ export function ShiftManagementSection() {
                       <Button
                         size="sm"
                         onClick={() => void handleSubmitHandover()}
-                        disabled={actionLoading || !handoverText.trim() || handoverText === "<p></p>"}
+                        disabled={actionLoading || isEditorContentEmpty(handoverText)}
                       >
                         <Send className="h-3.5 w-3.5" />
                         Submit Handover
@@ -881,10 +887,6 @@ export function ShiftManagementSection() {
                   <ShieldAlert className="h-4 w-4" />
                   Admin Override
                 </Label>
-                <p className="text-xs text-muted-foreground">
-                  Force-acknowledge a pending handover and close a session when a DBA needs to leave
-                  but no other DBA is available to acknowledge.
-                </p>
                 <div className="space-y-1.5">
                   {sessions
                     .filter((s) => s.username !== user?.username && s.handover_status === "PENDING")
