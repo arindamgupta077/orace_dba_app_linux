@@ -1,28 +1,35 @@
 [Unit]
-Description=Oracle DBA AI Operations Portal (Next.js)
-After=network.target oracle.service
+Description=ITSS_DBA Next.js Application
 Wants=network-online.target
+After=network-online.target oracle-xe-21c.service
 
 [Service]
 Type=simple
+
+# Run app as root only if you have no separate user yet.
+# Recommended later: create a non-root user like nextapp.
 User=root
 Group=root
-WorkingDirectory=/data1/oracle_dba_app/oracle_dba_app_v7.3
-EnvironmentFile=/data1/oracle_dba_app/oracle_dba_app_v7.3/.env.local
+
+# This must be the directory where package.json is present
+WorkingDirectory=/data1/oracle_dba_app/oracle_dba_app_v7.5
+
 Environment=NODE_ENV=production
-Environment=HOSTNAME=0.0.0.0
 Environment=PORT=3001
 Environment=NODE_OPTIONS=--max-old-space-size=1024
-ExecStart=/usr/bin/npm run start
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=oracle-dba-portal
 
-# Hardening (adjust if your Node/npm path differs)
-NoNewPrivileges=true
-PrivateTmp=true
+ExecStart=/usr/bin/npm run start
+
+Restart=on-failure
+RestartSec=5
+
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Resource limits
+CPUQuota=20%
+MemoryHigh=4200M
+MemoryMax=5000M
 
 [Install]
 WantedBy=multi-user.target

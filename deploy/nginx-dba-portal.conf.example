@@ -1,5 +1,4 @@
-# Example nginx reverse proxy for Oracle DBA AI Portal on RHEL 9.
-# Place in /etc/nginx/conf.d/dba-portal.conf and adjust server_name + TLS paths.
+# Nginx reverse proxy for Oracle DBA AI Portal on RHEL 9.
 
 upstream dba_portal {
     server 127.0.0.1:3001;
@@ -7,13 +6,15 @@ upstream dba_portal {
 }
 
 server {
-    listen 443 ssl http2;
-    server_name sdchdpdata3 _;
+    listen 443 ssl;
+    http2 on;
 
-    ssl_certificate     /etc/pki/tls/certs/dba-portal.crt;
+    server_name sdchdpdata3;
+
+    ssl_certificate     /etc/pki/tls/certs/sdchdpdata3.cer;
     ssl_certificate_key /etc/pki/tls/private/dba-portal.key;
 
-    # SSE streams (notifications, alerts, datapump) need long-lived connections
+    # SSE streams need long-lived connections
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
     proxy_buffering off;
@@ -21,10 +22,12 @@ server {
     location / {
         proxy_pass http://dba_portal;
         proxy_http_version 1.1;
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
@@ -32,6 +35,7 @@ server {
 
 server {
     listen 80;
-    server_name sdchdpdata3 _;
-    return 301 https://$host$request_uri;
+    server_name sdchdpdata3;
+
+    return 301 https://sdchdpdata3$request_uri;
 }

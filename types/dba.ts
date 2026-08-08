@@ -1002,6 +1002,9 @@ export interface ShiftReportTimelineEntry {
   shift_number: number;
   timestamp: string;
   detail?: string;
+  handover_id?: number;
+  handover_text?: string;
+  session_id?: number;
 }
 
 export interface ShiftReportSessionRow {
@@ -1026,6 +1029,22 @@ export interface ShiftReportCoverageRow {
   uncovered_shifts: number[];
 }
 
+export interface UserWorkHoursRow {
+  user_id: number;
+  username: string;
+  total_sessions: number;
+  completed_sessions: number;
+  active_sessions: number;
+  total_minutes: number;
+  total_hours: number;
+  avg_session_minutes: number;
+  shift1_hours: number;
+  shift2_hours: number;
+  shift3_hours: number;
+  shift4_hours: number;
+  last_login_at?: string;
+}
+
 export interface ShiftReportData {
   activeDbas: ActiveDba[];
   dailyAttendance: Array<{ attendance_date: string; unique_dbas: number; total_logins: number }>;
@@ -1046,6 +1065,7 @@ export interface ShiftReportData {
   handovers: Handover[];
   sessions: ShiftReportSessionRow[];
   coverage: ShiftReportCoverageRow[];
+  userWorkHours: UserWorkHoursRow[];
 }
 
 // ── Approval Workflow ────────────────────────────────────────

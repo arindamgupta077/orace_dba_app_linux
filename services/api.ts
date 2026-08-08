@@ -712,8 +712,17 @@ export async function fetchHandoverHistory(limit = 20): Promise<{ handovers: Han
   return requestJson<{ handovers: Handover[] }>(`/api/shift/handovers${qs}`);
 }
 
-export async function fetchShiftSessionLogs(limit = 50): Promise<{ sessions: ShiftSession[] }> {
-  const qs = `?limit=${limit}`;
+export async function fetchShiftSessionLogs(
+  limit = 50,
+  filters?: { fromDate?: string; toDate?: string; dbaUserId?: number; shiftNumber?: number }
+): Promise<{ sessions: ShiftSession[] }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (filters?.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters?.toDate) params.set("toDate", filters.toDate);
+  if (filters?.dbaUserId) params.set("dbaUserId", String(filters.dbaUserId));
+  if (filters?.shiftNumber) params.set("shiftNumber", String(filters.shiftNumber));
+  const qs = `?${params.toString()}`;
   return requestJson<{ sessions: ShiftSession[] }>(`/api/shift/sessions${qs}`);
 }
 
@@ -807,6 +816,22 @@ export async function fetchShiftReport(filters: ShiftReportFilters): Promise<{ r
   if (filters.timelineSearch) params.set("timelineSearch", filters.timelineSearch);
   const qs = params.toString() ? `?${params.toString()}` : "";
   return requestJson<{ report: ShiftReportData }>(`/api/reports${qs}`);
+}
+
+export async function fetchShiftReportTimeline(
+  filters: ShiftReportFilters
+): Promise<{ timeline: { rows: ShiftReportData["activityTimeline"]; total: number } }> {
+  const params = new URLSearchParams();
+  if (filters.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters.toDate) params.set("toDate", filters.toDate);
+  if (filters.dbaUserId) params.set("dbaUserId", String(filters.dbaUserId));
+  if (filters.shiftNumber) params.set("shiftNumber", String(filters.shiftNumber));
+  if (filters.timelinePage) params.set("timelinePage", String(filters.timelinePage));
+  if (filters.timelinePageSize) params.set("timelinePageSize", String(filters.timelinePageSize));
+  if (filters.timelineEvent) params.set("timelineEvent", filters.timelineEvent);
+  if (filters.timelineSearch) params.set("timelineSearch", filters.timelineSearch);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return requestJson<{ timeline: { rows: ShiftReportData["activityTimeline"]; total: number } }>(`/api/reports/timeline${qs}`);
 }
 
 // ============================================================

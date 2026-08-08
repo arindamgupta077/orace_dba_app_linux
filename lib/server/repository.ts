@@ -3826,14 +3826,41 @@ export async function listActiveShiftSessions(): Promise<ShiftSession[]> {
 /**
  * Returns historical shift sessions (both active and closed) ordered by most recent login_at first.
  */
-export async function listShiftSessionHistory(limit = 50): Promise<ShiftSession[]> {
-  const safeLimit = Math.min(Math.max(limit, 1), 200);
+export async function listShiftSessionHistory(
+  limit = 50,
+  filters?: { fromDate?: string; toDate?: string; dbaUserId?: number; shiftNumber?: number }
+): Promise<ShiftSession[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+
+  if (filters?.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters?.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(s.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters?.dbaUserId) {
+    binds.dbaUserId = filters.dbaUserId;
+    conditions.push("s.user_id = :dbaUserId");
+  }
+  if (filters?.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("s.shift_number = :shiftNumber");
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
   return executeOne(async (connection) => {
     const result = await connection.execute<ShiftSessionRow>(
       `SELECT ${SHIFT_SESSION_COLUMNS}
        ${SHIFT_SESSION_JOIN}
+       ${whereClause}
        ORDER BY s.login_at DESC
-       FETCH FIRST ${safeLimit} ROWS ONLY`
+       FETCH FIRST ${safeLimit} ROWS ONLY`,
+      binds
     );
     return (result.rows || []).map((row) => mapShiftSession(row as ShiftSessionRow));
   });
@@ -4953,7 +4980,7 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
   const coverageWhere = coverageConditions.length ? `WHERE ${coverageConditions.join(" AND ")}` : "";
 
   return executeOne(async (connection) => {
-    const [activeDbas, dailyAttendance, monthlyAttendance, lateLogins, pendingHandovers, avgResult, mostActiveResult, timelineResult, loginTrend, dbCompletion, backupCompletion, dbStatusChecks, backupStatusChecks, handovers, sessions, coverage] = await Promise.all([
+    const [activeDbas, dailyAttendance, monthlyAttendance, lateLogins, pendingHandovers, avgResult, mostActiveResult, timelineResult, loginTrend, dbCompletion, backupCompletion, dbStatusChecks, backupStatusChecks, handovers, sessions, coverage, userWorkHours] = await Promise.all([
       listActiveShiftSessionsForReport(connection),
       fetchDailyAttendance(connection, binds, whereClause),
       fetchMonthlyAttendance(connection, binds, whereClause),
@@ -4969,7 +4996,8 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       fetchBackupStatusChecksForReport(connection, filters),
       fetchHandoversForReport(connection, filters),
       fetchSessionsForReport(connection, binds, whereClause),
-      fetchShiftCoverage(connection, coverageBinds, coverageWhere, filters)
+      fetchShiftCoverage(connection, coverageBinds, coverageWhere, filters),
+      fetchUserWorkHours(connection, binds, whereClause)
     ]);
 
     const unacknowledgedHandovers = pendingHandovers;
@@ -4994,8 +5022,43 @@ export async function getShiftReport(filters: ShiftReportFilters): Promise<Shift
       backupStatusChecks,
       handovers,
       sessions,
-      coverage
+      coverage,
+      userWorkHours
     };
+  });
+}
+
+/**
+ * Lightweight endpoint: only fetches the activity timeline slice.
+ * Used when the user paginates / filters the timeline without changing core report filters.
+ */
+export async function getShiftReportTimeline(
+  filters: ShiftReportFilters
+): Promise<{ rows: ShiftReportData["activityTimeline"]; total: number }> {
+  const binds: BindParameters = {};
+  const conditions: string[] = [];
+
+  if (filters.fromDate) {
+    binds.fromDate = filters.fromDate;
+    conditions.push("TRUNC(s.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  }
+  if (filters.toDate) {
+    binds.toDate = filters.toDate;
+    conditions.push("TRUNC(s.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  }
+  if (filters.dbaUserId) {
+    binds.dbaUserId = filters.dbaUserId;
+    conditions.push("s.user_id = :dbaUserId");
+  }
+  if (filters.shiftNumber) {
+    binds.shiftNumber = filters.shiftNumber;
+    conditions.push("s.shift_number = :shiftNumber");
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  return executeOne(async (connection) => {
+    return fetchActivityTimeline(connection, binds, whereClause, filters);
   });
 }
 
@@ -5097,51 +5160,85 @@ async function fetchActivityTimeline(
       eventConditions.push("evt.event = 'logout'");
     } else if (evt === "acknowledge") {
       eventConditions.push("evt.event = 'acknowledge'");
+    } else if (evt === "handover" || evt === "handover_notes") {
+      eventConditions.push("(evt.event = 'handover' OR evt.event = 'handover_notes')");
     }
   }
   if (filters.timelineSearch && filters.timelineSearch.trim()) {
     timelineBinds.timelineSearch = `%${filters.timelineSearch.trim().toUpperCase()}%`;
-    eventConditions.push("UPPER(evt.username) LIKE :timelineSearch");
+    eventConditions.push("(UPPER(evt.username) LIKE :timelineSearch OR UPPER(NVL(evt.detail, ' ')) LIKE :timelineSearch OR UPPER(TO_CHAR(evt.session_id)) LIKE :timelineSearch)");
   }
 
   const eventWhere = eventConditions.length ? `WHERE ${eventConditions.join(" AND ")}` : "";
 
+  // Conditions for handovers (author submission)
+  const hConditions: string[] = [];
+  if (filters.fromDate) hConditions.push("TRUNC(h.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  if (filters.toDate) hConditions.push("TRUNC(h.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  if (filters.dbaUserId) hConditions.push("h.author_user_id = :dbaUserId");
+  if (filters.shiftNumber) hConditions.push("h.shift_number = :shiftNumber");
+  const hWhere = hConditions.length ? `WHERE ${hConditions.join(" AND ")}` : "";
+
+  // Conditions for handover acknowledgements
+  const hAckConditions: string[] = ["h.status = 'ACKNOWLEDGED'", "h.ack_at IS NOT NULL"];
+  if (filters.fromDate) hAckConditions.push("TRUNC(h.shift_date) >= TO_DATE(:fromDate, 'YYYY-MM-DD')");
+  if (filters.toDate) hAckConditions.push("TRUNC(h.shift_date) <= TO_DATE(:toDate, 'YYYY-MM-DD')");
+  if (filters.dbaUserId) hAckConditions.push("h.ack_user_id = :dbaUserId");
+  if (filters.shiftNumber) hAckConditions.push("h.shift_number = :shiftNumber");
+  const hAckWhere = `WHERE ${hAckConditions.join(" AND ")}`;
+
   const unionSql = `
-    SELECT 'login' AS event, s.username, s.shift_number, s.login_at AS ts, NULL AS detail
+    SELECT 'login' AS event, s.username, s.shift_number, s.login_at AS ts,
+           CAST('Shift ' || s.shift_number || ' Login' AS VARCHAR2(200)) AS detail,
+           CAST(NULL AS NUMBER) AS handover_id, CAST(NULL AS VARCHAR2(3500)) AS handover_text, s.session_id
     FROM app_shift_sessions s
     ${whereClause}
     UNION ALL
-    SELECT 'logout' AS event, s.username, s.shift_number, s.logout_at AS ts, NULL AS detail
+    SELECT 'logout' AS event, s.username, s.shift_number, s.logout_at AS ts,
+           CAST('Shift ' || s.shift_number || ' Logout' AS VARCHAR2(200)) AS detail,
+           CAST(NULL AS NUMBER) AS handover_id, CAST(NULL AS VARCHAR2(3500)) AS handover_text, s.session_id
     FROM app_shift_sessions s
     ${whereClause ? whereClause + " AND s.logout_at IS NOT NULL" : "WHERE s.logout_at IS NOT NULL"}
     UNION ALL
     SELECT 'acknowledge' AS event, h.ack_username AS username, h.shift_number, h.ack_at AS ts,
-           SUBSTR('Acknowledged ' || h.author_username || '''s handover', 1, 200) AS detail
+           CAST(SUBSTR('Acknowledged ' || h.author_username || '''s handover', 1, 200) AS VARCHAR2(200)) AS detail,
+           h.handover_id, DBMS_LOB.SUBSTR(h.handover_text, 3500, 1) AS handover_text, h.session_id
     FROM app_handovers h
-    WHERE h.status = 'ACKNOWLEDGED' AND h.ack_at IS NOT NULL
+    ${hAckWhere}
+    UNION ALL
+    SELECT 'handover' AS event, h.author_username AS username, h.shift_number, h.created_at AS ts,
+           CAST('Submitted shift handover notes' AS VARCHAR2(200)) AS detail,
+           h.handover_id, DBMS_LOB.SUBSTR(h.handover_text, 3500, 1) AS handover_text, h.session_id
+    FROM app_handovers h
+    ${hWhere}
   `;
 
-  const countResult = await connection.execute<DbRow>(
-    `SELECT COUNT(*) AS total FROM (${unionSql}) evt ${eventWhere}`,
-    timelineBinds as BindParameters
-  );
-  const total = Number(countResult.rows?.[0]?.TOTAL ?? 0);
-
+  // Single-pass: COUNT(*) OVER() computes total before OFFSET/FETCH pagination,
+  // eliminating the separate COUNT(*) query over the same UNION ALL.
   const page = Math.max(1, filters.timelinePage || 1);
   const pageSize = Math.min(100, Math.max(1, filters.timelinePageSize || 20));
   const offset = (page - 1) * pageSize;
 
   const pageResult = await connection.execute<DbRow>(
-    `SELECT * FROM (${unionSql}) evt ${eventWhere} ORDER BY evt.ts DESC OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`,
+    `SELECT evt.*, COUNT(*) OVER() AS total_count
+     FROM (${unionSql}) evt ${eventWhere}
+     ORDER BY evt.ts DESC
+     OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`,
     timelineBinds as BindParameters
   );
 
-  const rows: ShiftReportData["activityTimeline"] = (pageResult.rows || []).map((row) => ({
+  const resultRows = pageResult.rows || [];
+  const total = resultRows.length > 0 ? Number(resultRows[0].TOTAL_COUNT ?? 0) : 0;
+
+  const rows: ShiftReportData["activityTimeline"] = resultRows.map((row) => ({
     event: String(row.EVENT),
     username: String(row.USERNAME || ""),
     shift_number: Number(row.SHIFT_NUMBER || 0),
     timestamp: toIstIsoString(row.TS),
-    detail: row.DETAIL ? String(row.DETAIL) : undefined
+    detail: row.DETAIL ? String(row.DETAIL) : undefined,
+    handover_id: row.HANDOVER_ID != null ? Number(row.HANDOVER_ID) : undefined,
+    handover_text: row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : undefined,
+    session_id: row.SESSION_ID != null ? Number(row.SESSION_ID) : undefined
   }));
 
   return { rows, total };
@@ -5168,42 +5265,38 @@ async function fetchLoginTrend(connection: Connection, binds: BindParameters, wh
 }
 
 async function fetchLateLogins(connection: Connection, binds: BindParameters, whereClause: string): Promise<ShiftReportData["lateLogins"]> {
-  const shiftStartMinute: Record<number, number> = { 1: 420, 2: 870, 3: 1350 };
-  const allLate: ShiftReportData["lateLogins"] = [];
+  // Single query replaces 3 sequential per-shift queries.
+  // CASE maps each shift_number to its start minute; WHERE filters minutes_late > 60 in SQL.
+  const shiftCondition = whereClause
+    ? whereClause + ` AND s.shift_number IN (1, 2, 3)`
+    : `WHERE s.shift_number IN (1, 2, 3)`;
 
-  for (const shiftNumber of [1, 2, 3] as const) {
-    const startMinute = shiftStartMinute[shiftNumber];
-    const shiftBinds = { ...binds, shiftNumber };
-    const shiftCondition = whereClause
-      ? whereClause + ` AND s.shift_number = :shiftNumber`
-      : `WHERE s.shift_number = :shiftNumber`;
-    const result = await connection.execute<DbRow>(
-      `SELECT s.session_id, s.username, s.shift_number, s.shift_date, s.login_at, s.late_comment,
-              (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
-               + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0))) - :startMinute) AS minutes_late
-       FROM app_shift_sessions s
-       ${shiftCondition}
-       ORDER BY s.login_at DESC
-       FETCH FIRST 100 ROWS ONLY`,
-      { ...shiftBinds, startMinute }
-    );
-    for (const row of result.rows || []) {
-      const minutesLate = Number(row.MINUTES_LATE ?? 0);
-      if (minutesLate > 60) {
-        allLate.push({
-          session_id: Number(row.SESSION_ID),
-          username: String(row.USERNAME),
-          shift_number: Number(row.SHIFT_NUMBER),
-          shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
-          login_at: toIstIsoString(row.LOGIN_AT),
-          minutes_late: minutesLate,
-          late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined
-        });
-      }
-    }
-  }
+  const result = await connection.execute<DbRow>(
+    `SELECT s.session_id, s.username, s.shift_number, s.shift_date, s.login_at, s.late_comment,
+            (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
+             + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0)))
+             - CASE s.shift_number WHEN 1 THEN 420 WHEN 2 THEN 870 WHEN 3 THEN 1350 END
+            ) AS minutes_late
+     FROM app_shift_sessions s
+     ${shiftCondition}
+       AND (EXTRACT(HOUR FROM CAST(s.login_at AS TIMESTAMP(0))) * 60
+            + EXTRACT(MINUTE FROM CAST(s.login_at AS TIMESTAMP(0)))
+            - CASE s.shift_number WHEN 1 THEN 420 WHEN 2 THEN 870 WHEN 3 THEN 1350 END
+           ) > 60
+     ORDER BY s.login_at DESC
+     FETCH FIRST 50 ROWS ONLY`,
+    binds
+  );
 
-  return allLate.sort((a, b) => (a.login_at < b.login_at ? 1 : -1)).slice(0, 50);
+  return (result.rows || []).map((row) => ({
+    session_id: Number(row.SESSION_ID),
+    username: String(row.USERNAME),
+    shift_number: Number(row.SHIFT_NUMBER),
+    shift_date: toOracleDateString(asDate(row.SHIFT_DATE) || new Date()),
+    login_at: toIstIsoString(row.LOGIN_AT),
+    minutes_late: Number(row.MINUTES_LATE ?? 0),
+    late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined
+  }));
 }
 
 function scheduledFinishMinuteSql(alias: string): string {
@@ -5540,6 +5633,56 @@ async function fetchSessionsForReport(
     is_active: String(row.IS_ACTIVE || "N") === "Y",
     duration_min: row.DURATION_MIN != null ? Math.round(Number(row.DURATION_MIN)) : undefined
   }));
+}
+
+async function fetchUserWorkHours(
+  connection: Connection,
+  binds: BindParameters,
+  whereClause: string
+): Promise<ShiftReportData["userWorkHours"]> {
+  const result = await connection.execute<DbRow>(
+    `SELECT s.user_id,
+            s.username,
+            COUNT(*) AS total_sessions,
+            SUM(CASE WHEN s.logout_at IS NOT NULL THEN 1 ELSE 0 END) AS completed_sessions,
+            SUM(CASE WHEN s.logout_at IS NULL OR s.is_active = 'Y' THEN 1 ELSE 0 END) AS active_sessions,
+            ROUND(SUM(GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60))) AS total_minutes,
+            ROUND(AVG(GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60))) AS avg_session_minutes,
+            ROUND(SUM(CASE WHEN s.shift_number = 1 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift1_minutes,
+            ROUND(SUM(CASE WHEN s.shift_number = 2 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift2_minutes,
+            ROUND(SUM(CASE WHEN s.shift_number = 3 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift3_minutes,
+            ROUND(SUM(CASE WHEN s.shift_number = 4 THEN GREATEST(0, (CAST(NVL(s.logout_at, SYSTIMESTAMP) AS DATE) - CAST(s.login_at AS DATE)) * 24 * 60) ELSE 0 END)) AS shift4_minutes,
+            MAX(s.login_at) AS last_login_at
+     FROM app_shift_sessions s
+     ${whereClause}
+     GROUP BY s.user_id, s.username
+     ORDER BY total_minutes DESC`,
+    binds
+  );
+
+  return (result.rows || []).map((row) => {
+    const totalMin = Math.max(0, Number(row.TOTAL_MINUTES || 0));
+    const shift1Min = Math.max(0, Number(row.SHIFT1_MINUTES || 0));
+    const shift2Min = Math.max(0, Number(row.SHIFT2_MINUTES || 0));
+    const shift3Min = Math.max(0, Number(row.SHIFT3_MINUTES || 0));
+    const shift4Min = Math.max(0, Number(row.SHIFT4_MINUTES || 0));
+
+    return {
+      user_id: Number(row.USER_ID),
+      username: String(row.USERNAME || ""),
+      total_sessions: Number(row.TOTAL_SESSIONS || 0),
+      completed_sessions: Number(row.COMPLETED_SESSIONS || 0),
+      active_sessions: Number(row.ACTIVE_SESSIONS || 0),
+      total_minutes: totalMin,
+      total_hours: Math.round((totalMin / 60) * 10) / 10,
+      avg_session_minutes: Math.round(Number(row.AVG_SESSION_MINUTES || 0)),
+      shift1_hours: Math.round((shift1Min / 60) * 10) / 10,
+      shift2_hours: Math.round((shift2Min / 60) * 10) / 10,
+      shift3_hours: Math.round((shift3Min / 60) * 10) / 10,
+      shift4_hours: Math.round((shift4Min / 60) * 10) / 10,
+      last_login_at: row.LAST_LOGIN_AT ? toIstIsoString(row.LAST_LOGIN_AT) : undefined
+    };
+  });
 }
 
 async function fetchShiftCoverage(

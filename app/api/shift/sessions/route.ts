@@ -15,8 +15,12 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : 50;
+    const fromDate = searchParams.get("fromDate") || undefined;
+    const toDate = searchParams.get("toDate") || undefined;
+    const dbaUserId = searchParams.get("dbaUserId") ? Number(searchParams.get("dbaUserId")) : undefined;
+    const shiftNumber = searchParams.get("shiftNumber") ? Number(searchParams.get("shiftNumber")) : undefined;
 
-    const sessions = await listShiftSessionHistory(limit);
+    const sessions = await listShiftSessionHistory(limit, { fromDate, toDate, dbaUserId, shiftNumber });
     return NextResponse.json({ sessions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load shift session logs.";

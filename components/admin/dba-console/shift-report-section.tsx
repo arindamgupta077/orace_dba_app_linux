@@ -37,20 +37,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchAppUsers, fetchShiftReport } from "@/services/api";
+import { fetchAppUsers, fetchShiftReport, fetchShiftReportTimeline } from "@/services/api";
+import { ShiftLogHistorySection } from "@/components/admin/dba-console/shift-log-history-section";
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime, toIstDateString, toIstDateStringOffset } from "@/lib/utils";
 import { exportDataset, ExportColumn, ExportMeta } from "@/lib/export";
@@ -134,6 +135,39 @@ function MetricCard({
   );
 }
 
+/** Renders HTML handover content safely. */
+function HandoverContent({ html, className }: { html: string; className?: string }) {
+  const isHtml = html.trim().startsWith("<") || /<\/?[a-z][\s\S]*>/i.test(html);
+  if (isHtml) {
+    return (
+      <div
+        className={cn("tiptap-content prose prose-sm max-w-none text-sm text-slate-900 dark:text-foreground/90 dark:prose-invert", className)}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return <div className={cn("text-sm whitespace-pre-wrap text-slate-900 dark:text-foreground/90", className)}>{html}</div>;
+}
+
+const SESSION_COLORS = [
+  { rowBg: "bg-cyan-500/10 hover:bg-cyan-500/15 border-l-4 border-l-cyan-600 dark:bg-cyan-500/10 dark:hover:bg-cyan-500/15 dark:border-l-cyan-400", dot: "bg-cyan-500 dark:bg-cyan-400", badge: "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300" },
+  { rowBg: "bg-emerald-500/10 hover:bg-emerald-500/15 border-l-4 border-l-emerald-600 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15 dark:border-l-emerald-400", dot: "bg-emerald-500 dark:bg-emerald-400", badge: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" },
+  { rowBg: "bg-purple-500/10 hover:bg-purple-500/15 border-l-4 border-l-purple-600 dark:bg-purple-500/10 dark:hover:bg-purple-500/15 dark:border-l-purple-400", dot: "bg-purple-500 dark:bg-purple-400", badge: "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300" },
+  { rowBg: "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-600 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 dark:border-l-amber-400", dot: "bg-amber-500 dark:bg-amber-400", badge: "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" },
+  { rowBg: "bg-rose-500/10 hover:bg-rose-500/15 border-l-4 border-l-rose-600 dark:bg-rose-500/10 dark:hover:bg-rose-500/15 dark:border-l-rose-400", dot: "bg-rose-500 dark:bg-rose-400", badge: "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" },
+  { rowBg: "bg-indigo-500/10 hover:bg-indigo-500/15 border-l-4 border-l-indigo-600 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15 dark:border-l-indigo-400", dot: "bg-indigo-500 dark:bg-indigo-400", badge: "border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" },
+  { rowBg: "bg-teal-500/10 hover:bg-teal-500/15 border-l-4 border-l-teal-600 dark:bg-teal-500/10 dark:hover:bg-teal-500/15 dark:border-l-teal-400", dot: "bg-teal-500 dark:bg-teal-400", badge: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-300" },
+  { rowBg: "bg-orange-500/10 hover:bg-orange-500/15 border-l-4 border-l-orange-600 dark:bg-orange-500/10 dark:hover:bg-orange-500/15 dark:border-l-orange-400", dot: "bg-orange-500 dark:bg-orange-400", badge: "border-orange-300 bg-orange-100 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300" },
+  { rowBg: "bg-pink-500/10 hover:bg-pink-500/15 border-l-4 border-l-pink-600 dark:bg-pink-500/10 dark:hover:bg-pink-500/15 dark:border-l-pink-400", dot: "bg-pink-500 dark:bg-pink-400", badge: "border-pink-300 bg-pink-100 text-pink-800 dark:border-pink-500/30 dark:bg-pink-500/10 dark:text-pink-300" },
+  { rowBg: "bg-sky-500/10 hover:bg-sky-500/15 border-l-4 border-l-sky-600 dark:bg-sky-500/10 dark:hover:bg-sky-500/15 dark:border-l-sky-400", dot: "bg-sky-500 dark:bg-sky-400", badge: "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300" }
+];
+
+function getSessionColor(sessionId?: number) {
+  if (!sessionId) return SESSION_COLORS[0];
+  const idx = Math.abs(sessionId) % SESSION_COLORS.length;
+  return SESSION_COLORS[idx];
+}
+
 export function ShiftReportSection() {
   const user = useAppStore((s) => s.user);
   const exportedBy = user?.username || "app_admin";
@@ -151,6 +185,31 @@ export function ShiftReportSection() {
   const [timelineEvent, setTimelineEvent] = useState<string>("all");
   const [timelineSearch, setTimelineSearch] = useState("");
   const [timelineSearchInput, setTimelineSearchInput] = useState("");
+  const [selectedHandoverNote, setSelectedHandoverNote] = useState<ShiftReportTimelineEntry | null>(null);
+  const [showAllHandoversModal, setShowAllHandoversModal] = useState(false);
+  const [allHandoversPage, setAllHandoversPage] = useState(1);
+  const ALL_HANDOVERS_PAGE_SIZE = 5;
+
+  const allHandoversTotalPages = Math.max(1, Math.ceil((report?.handovers.length || 0) / ALL_HANDOVERS_PAGE_SIZE));
+
+  const pagedHandovers = useMemo(() => {
+    if (!report?.handovers) return [];
+    const start = (allHandoversPage - 1) * ALL_HANDOVERS_PAGE_SIZE;
+    return report.handovers.slice(start, start + ALL_HANDOVERS_PAGE_SIZE);
+  }, [report, allHandoversPage]);
+
+  const activeHandoverNote = useMemo(() => {
+    if (!selectedHandoverNote || !report) return null;
+    if (selectedHandoverNote.handover_id) {
+      const match = report.handovers.find((h) => h.handover_id === selectedHandoverNote.handover_id);
+      if (match) return match;
+    }
+    return report.handovers.find(
+      (h) => h.author_username === selectedHandoverNote.username && h.shift_number === selectedHandoverNote.shift_number
+    );
+  }, [selectedHandoverNote, report]);
+
+  const activeHandoverText = activeHandoverNote?.handover_text || selectedHandoverNote?.handover_text || selectedHandoverNote?.detail || "";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,9 +233,45 @@ export function ShiftReportSection() {
     }
   }, [fromDate, toDate, dbaUserId, shiftNumber, timelinePage, timelineEvent, timelineSearch]);
 
+  const loadTimelineOnly = useCallback(async () => {
+    if (!report) return;
+    try {
+      const filters: ShiftReportFilters = {
+        fromDate,
+        toDate,
+        dbaUserId: dbaUserId !== "all" ? Number(dbaUserId) : undefined,
+        shiftNumber: shiftNumber !== "all" ? Number(shiftNumber) : undefined,
+        timelinePage,
+        timelinePageSize: TIMELINE_PAGE_SIZE,
+        timelineEvent: timelineEvent !== "all" ? timelineEvent : undefined,
+        timelineSearch: timelineSearch.trim() || undefined
+      };
+      const result = await fetchShiftReportTimeline(filters);
+      setReport((prev) =>
+        prev
+          ? {
+              ...prev,
+              activityTimeline: result.timeline.rows,
+              timelineTotal: result.timeline.total
+            }
+          : prev
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update timeline.");
+    }
+  }, [fromDate, toDate, dbaUserId, shiftNumber, timelinePage, timelineEvent, timelineSearch, report]);
+
+  // Initial load or main filter changes (dates, dba, shift) -> load full report
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [fromDate, toDate, dbaUserId, shiftNumber]);
+
+  // Timeline filter/pagination changes -> load timeline only (fast)
+  useEffect(() => {
+    if (report) {
+      void loadTimelineOnly();
+    }
+  }, [timelinePage, timelineEvent, timelineSearch]);
 
   useEffect(() => {
     void fetchAppUsers()
@@ -222,7 +317,7 @@ export function ShiftReportSection() {
   });
 
   const handleExport = (
-    kind: "logins" | "attendance" | "timeline" | "dbChecks" | "backupChecks" | "handovers" | "sessions" | "lateLogins" | "coverage",
+    kind: "logins" | "attendance" | "timeline" | "dbChecks" | "backupChecks" | "handovers" | "sessions" | "lateLogins" | "coverage" | "workHours",
     format: "pdf" | "excel"
   ) => {
     if (!report) return;
@@ -334,6 +429,23 @@ export function ShiftReportSection() {
           { header: "Uncovered Shifts", value: (r) => r.uncovered_shifts.length > 0 ? r.uncovered_shifts.map((sn) => `Shift ${sn}`).join(", ") : "—" }
         ];
         exportDataset(format, cols, report.coverage, baseMeta("Shift Coverage"));
+        break;
+      }
+      case "workHours": {
+        const cols: ExportColumn<ShiftReportData["userWorkHours"][number]>[] = [
+          { header: "DBA (Username)", value: (r) => r.username },
+          { header: "Total Worked Hours", value: (r) => `${r.total_hours} hrs (${Math.floor(r.total_minutes / 60)}h ${r.total_minutes % 60}m)` },
+          { header: "Total Sessions", value: (r) => r.total_sessions },
+          { header: "Completed Sessions", value: (r) => r.completed_sessions },
+          { header: "Active Sessions", value: (r) => r.active_sessions },
+          { header: "Avg Session (min)", value: (r) => r.avg_session_minutes },
+          { header: "Shift 1 Hours", value: (r) => r.shift1_hours },
+          { header: "Shift 2 Hours", value: (r) => r.shift2_hours },
+          { header: "Shift 3 Hours", value: (r) => r.shift3_hours },
+          { header: "General Shift Hours", value: (r) => r.shift4_hours },
+          { header: "Last Login At", value: (r) => r.last_login_at ? formatDateTime(r.last_login_at) : "—" }
+        ];
+        exportDataset(format, cols, report.userWorkHours, baseMeta("Total Worked Hours per User"));
         break;
       }
     }
@@ -766,12 +878,6 @@ export function ShiftReportSection() {
               onExport={(fmt) => handleExport("backupChecks", fmt)}
             />
             <ExportTile
-              icon={ArrowLeftRight}
-              title="Handover (HO) Report"
-              count={report.handovers.length}
-              onExport={(fmt) => handleExport("handovers", fmt)}
-            />
-            <ExportTile
               icon={UserCheck}
               title="Login / Logout Sessions"
               count={report.sessions.length}
@@ -784,6 +890,12 @@ export function ShiftReportSection() {
               onExport={(fmt) => handleExport("lateLogins", fmt)}
             />
             <ExportTile
+              icon={Clock}
+              title="Total Worked Hours per User"
+              count={report.userWorkHours.length}
+              onExport={(fmt) => handleExport("workHours", fmt)}
+            />
+            <ExportTile
               icon={Activity}
               title="Activity Timeline"
               count={report.timelineTotal}
@@ -793,141 +905,15 @@ export function ShiftReportSection() {
         </CardContent>
       </Card>
 
-      {/* Activity timeline with pagination + filters */}
-      <Card>
-        <CardHeader className="flex flex-col gap-3 space-y-0">
-          <div className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Activity className="h-5 w-5 text-cyan-400" />
-              Activity Timeline
-            </CardTitle>
-            <ExportMenu label="Timeline" onExport={(fmt) => handleExport("timeline", fmt)} />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={timelineEvent}
-              onValueChange={(v) => {
-                setTimelineEvent(v);
-                setTimelinePage(1);
-              }}
-            >
-              <SelectTrigger className="h-9 w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Events</SelectItem>
-                <SelectItem value="login">Logins</SelectItem>
-                <SelectItem value="logout">Logouts</SelectItem>
-                <SelectItem value="acknowledge">Acknowledgements</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              value={timelineSearchInput}
-              onChange={(e) => setTimelineSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyTimelineSearch();
-              }}
-              placeholder="Search DBA username..."
-              className="h-9 w-48"
-            />
-            <Button size="sm" variant="outline" onClick={applyTimelineSearch}>
-              Search
-            </Button>
-            {timelineSearch && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setTimelineSearchInput("");
-                  setTimelineSearch("");
-                  setTimelinePage(1);
-                }}
-              >
-                Clear
-              </Button>
-            )}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {timelineStartIdx}-{timelineEndIdx} of {report.timelineTotal}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {report.activityTimeline.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
-                <Activity className="h-6 w-6 text-muted-foreground/50" />
-              </div>
-              <p className="text-sm text-muted-foreground">No activity recorded for the selected period.</p>
-            </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Event</TableHead>
-                    <TableHead>DBA</TableHead>
-                    <TableHead>Shift</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Detail</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {report.activityTimeline.map((event, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <Badge
-                          className={cn(
-                            event.event === "login" && "border-green-500/30 bg-green-500/10 text-green-300",
-                            event.event === "logout" && "border-red-500/30 bg-red-500/10 text-red-300",
-                            event.event === "acknowledge" && "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
-                            (event.event !== "login" && event.event !== "logout" && event.event !== "acknowledge") && "border-muted-foreground/30 bg-muted/20 text-muted-foreground"
-                          )}
-                        >
-                          {event.event === "login" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-green-400" />}
-                          {event.event === "logout" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-400" />}
-                          {event.event === "acknowledge" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-cyan-400" />}
-                          {event.event}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{event.username}</TableCell>
-                      <TableCell>Shift {event.shift_number}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDateTime(event.timestamp)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{event.detail || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="text-xs text-muted-foreground">
-                  Page {timelinePage} of {timelineTotalPages}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={timelinePage <= 1}
-                    onClick={() => setTimelinePage((p) => Math.max(1, p - 1))}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Prev
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={timelinePage >= timelineTotalPages}
-                    onClick={() => setTimelinePage((p) => Math.min(timelineTotalPages, p + 1))}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {/* Shift Login & Logout Log History */}
+      <ShiftLogHistorySection
+        fromDate={fromDate}
+        toDate={toDate}
+        dbaUserId={dbaUserId !== "all" ? Number(dbaUserId) : undefined}
+        shiftNumber={shiftNumber !== "all" ? Number(shiftNumber) : undefined}
+        hideViewFullHistoryButton={true}
+        pageSize={5}
+      />
 
       {/* Exceptions — late logins */}
       {report.lateLogins.length > 0 && (
@@ -979,6 +965,443 @@ export function ShiftReportSection() {
           </CardContent>
         </Card>
       )}
+
+      {/* Total Worked Hours per User */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Clock className="h-5 w-5 text-cyan-400" />
+              Total Worked Hours per User
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Calculated from user shift login and logout times for period <span className="font-medium text-foreground">{periodLabel}</span>.
+            </p>
+          </div>
+          <ExportMenu label="Work Hours" onExport={(fmt) => handleExport("workHours", fmt)} />
+        </CardHeader>
+        <CardContent>
+          {report.userWorkHours.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                <Clock className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm text-muted-foreground">No shift work sessions found for the selected period.</p>
+            </div>
+          ) : (
+            <div className="max-h-[380px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>DBA User</TableHead>
+                    <TableHead>Total Hours Worked</TableHead>
+                    <TableHead>Sessions (Active / Total)</TableHead>
+                    <TableHead>Avg Session</TableHead>
+                    <TableHead>Shift Breakdown</TableHead>
+                    <TableHead>Last Login</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(() => {
+                    const maxHours = Math.max(...report.userWorkHours.map((u) => u.total_hours), 1);
+                    return report.userWorkHours.map((u) => {
+                      const avatar = avatarFromName(u.username);
+                      const hoursInt = Math.floor(u.total_minutes / 60);
+                      const minsRem = u.total_minutes % 60;
+                      const pct = Math.min(100, Math.round((u.total_hours / maxHours) * 100));
+
+                      return (
+                        <TableRow key={u.user_id} className="hover:bg-muted/40">
+                          <TableCell className="font-semibold">
+                            <div className="flex items-center gap-2.5">
+                              <span className={cn("dba-avatar h-8 w-8 border text-xs shrink-0", avatar.color)}>
+                                {avatar.initials}
+                              </span>
+                              <span>{u.username}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="min-w-[180px]">
+                            <div className="space-y-1">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="font-bold text-cyan-400">
+                                  {hoursInt}h {minsRem}m
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({u.total_hours} hrs)
+                                </span>
+                              </div>
+                              <Progress value={pct} className="h-1.5 dba-progress-cyan" />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="outline" className="border-slate-300 dark:border-slate-700">
+                                {u.completed_sessions} completed
+                              </Badge>
+                              {u.active_sessions > 0 && (
+                                <Badge className="border-green-500/30 bg-green-500/10 text-green-300">
+                                  {u.active_sessions} active
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {Math.floor(u.avg_session_minutes / 60) > 0
+                              ? `${Math.floor(u.avg_session_minutes / 60)}h ${u.avg_session_minutes % 60}m`
+                              : `${u.avg_session_minutes}m`}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1 text-xs">
+                              {u.shift1_hours > 0 && (
+                                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  S1: {u.shift1_hours}h
+                                </Badge>
+                              )}
+                              {u.shift2_hours > 0 && (
+                                <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  S2: {u.shift2_hours}h
+                                </Badge>
+                              )}
+                              {u.shift3_hours > 0 && (
+                                <Badge variant="secondary" className="bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                  S3: {u.shift3_hours}h
+                                </Badge>
+                              )}
+                              {u.shift4_hours > 0 && (
+                                <Badge variant="secondary" className="bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                  Gen: {u.shift4_hours}h
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {u.last_login_at ? formatDateTime(u.last_login_at) : "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Activity timeline with pagination + filters */}
+      <Card>
+        <CardHeader className="flex flex-col gap-3 space-y-0">
+          <div className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Activity className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              Activity Timeline
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300 dark:hover:bg-purple-500/20 dark:hover:text-purple-200"
+                onClick={() => setShowAllHandoversModal(true)}
+              >
+                <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                View Handover Notes ({report.handovers.length})
+              </Button>
+              <ExportMenu label="Timeline" onExport={(fmt) => handleExport("timeline", fmt)} />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={timelineEvent}
+              onValueChange={(v) => {
+                setTimelineEvent(v);
+                setTimelinePage(1);
+              }}
+            >
+              <SelectTrigger className="h-9 w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Events</SelectItem>
+                <SelectItem value="login">Logins</SelectItem>
+                <SelectItem value="logout">Logouts</SelectItem>
+                <SelectItem value="handover">Handover Notes</SelectItem>
+                <SelectItem value="acknowledge">Acknowledgements</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={timelineSearchInput}
+              onChange={(e) => setTimelineSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyTimelineSearch();
+              }}
+              placeholder="Search DBA username or detail..."
+              className="h-9 w-52"
+            />
+            <Button size="sm" variant="outline" onClick={applyTimelineSearch}>
+              Search
+            </Button>
+            {timelineSearch && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setTimelineSearchInput("");
+                  setTimelineSearch("");
+                  setTimelinePage(1);
+                }}
+              >
+                Clear
+              </Button>
+            )}
+            <span className="ml-auto text-xs text-muted-foreground">
+              {timelineStartIdx}-{timelineEndIdx} of {report.timelineTotal}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {report.activityTimeline.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/60 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+                <Activity className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm text-muted-foreground">No activity recorded for the selected period.</p>
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Event</TableHead>
+                    <TableHead>DBA</TableHead>
+                    <TableHead>Shift</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Detail</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {report.activityTimeline.map((event, i) => {
+                    const isHandover = event.event === "handover" || event.event === "handover_notes";
+                    const hasHandoverNote = isHandover;
+                    const sessionStyle = getSessionColor(event.session_id);
+
+                    return (
+                      <TableRow
+                        key={i}
+                        className={cn(
+                          "transition-colors",
+                          event.session_id ? sessionStyle.rowBg : "hover:bg-muted/40"
+                        )}
+                      >
+                        <TableCell>
+                          <Badge
+                            className={cn(
+                              "font-medium shadow-xs",
+                              event.event === "login" && "border-green-300 bg-green-100 text-green-800 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300",
+                              event.event === "logout" && "border-red-300 bg-red-100 text-red-800 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
+                              isHandover && "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-300",
+                              event.event === "acknowledge" && "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-300",
+                              (!["login", "logout", "handover", "handover_notes", "acknowledge"].includes(event.event)) && "border-slate-300 bg-slate-100 text-slate-700 dark:border-muted-foreground/30 dark:bg-muted/20 dark:text-muted-foreground"
+                            )}
+                          >
+                            {event.event === "login" && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-green-500 dark:bg-green-400" />}
+                            {event.event === "logout" && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-red-500 dark:bg-red-400" />}
+                            {isHandover && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-purple-500 dark:bg-purple-400" />}
+                            {event.event === "acknowledge" && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-cyan-500 dark:bg-cyan-400" />}
+                            {isHandover ? "handover note" : event.event}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-semibold text-foreground">{event.username}</TableCell>
+                        <TableCell className="text-foreground/90 font-medium">Shift {event.shift_number}</TableCell>
+                        <TableCell className="text-sm text-foreground/80 dark:text-muted-foreground">
+                          {formatDateTime(event.timestamp)}
+                        </TableCell>
+                        <TableCell className="text-sm text-foreground/80 dark:text-muted-foreground">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate max-w-md">
+                              {event.detail || "—"}
+                            </span>
+                            {hasHandoverNote && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2.5 text-xs font-semibold text-purple-700 hover:text-purple-900 hover:bg-purple-100/80 border border-purple-200 dark:border-transparent dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-500/10 shrink-0"
+                                onClick={() => setSelectedHandoverNote(event)}
+                              >
+                                <FileText className="mr-1 h-3.5 w-3.5" />
+                                View Notes
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <div className="mt-3 flex items-center justify-between">
+                <div className="text-xs text-muted-foreground">
+                  Page {timelinePage} of {timelineTotalPages}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={timelinePage <= 1}
+                    onClick={() => setTimelinePage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Prev
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={timelinePage >= timelineTotalPages}
+                    onClick={() => setTimelinePage((p) => Math.min(timelineTotalPages, p + 1))}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dialog for viewing a single timeline entry's Handover Notes */}
+      <Dialog open={!!selectedHandoverNote} onOpenChange={(open) => !open && setSelectedHandoverNote(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              Handover Note Details
+            </DialogTitle>
+            <DialogDescription>
+              Recorded for <span className="font-semibold text-foreground">{selectedHandoverNote?.username}</span> (Shift {selectedHandoverNote?.shift_number})
+              {selectedHandoverNote?.timestamp && ` on ${formatDateTime(selectedHandoverNote.timestamp)}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-slate-50 dark:bg-muted/20 p-3 text-xs">
+              <div>
+                <span className="text-muted-foreground">DBA User: </span>
+                <span className="font-medium text-foreground">{selectedHandoverNote?.username}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Shift: </span>
+                <span className="font-medium text-foreground">Shift {selectedHandoverNote?.shift_number}</span>
+              </div>
+              {activeHandoverNote?.shift_date && (
+                <div>
+                  <span className="text-muted-foreground">Shift Date: </span>
+                  <span className="font-medium text-foreground">{activeHandoverNote.shift_date}</span>
+                </div>
+              )}
+              {activeHandoverNote?.status && (
+                <div>
+                  <span className="text-muted-foreground">Status: </span>
+                  <Badge variant="outline" className={cn(
+                    "font-medium shadow-xs",
+                    activeHandoverNote.status === "ACKNOWLEDGED" ? "border-green-300 bg-green-100 text-green-800 dark:border-green-500/30 dark:text-green-400 dark:bg-green-500/10" : "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:text-amber-400 dark:bg-amber-500/10"
+                  )}>
+                    {activeHandoverNote.status}
+                    {activeHandoverNote.ack_username && ` by ${activeHandoverNote.ack_username}`}
+                  </Badge>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border/80 bg-slate-50/50 dark:bg-muted/30 p-4 min-h-[120px]">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Handover Note Content</p>
+              <HandoverContent html={activeHandoverText || "No detailed handover note recorded."} />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for viewing all Handover Notes in report period */}
+      <Dialog
+        open={showAllHandoversModal}
+        onOpenChange={(open) => {
+          setShowAllHandoversModal(open);
+          if (open) setAllHandoversPage(1);
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <ArrowLeftRight className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              Shift Handover Notes ({report?.handovers.length || 0})
+            </DialogTitle>
+            <DialogDescription>
+              All recorded shift handover notes for period <span className="font-medium text-foreground">{periodLabel}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 space-y-4">
+            {!report?.handovers || report.handovers.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-sm border border-dashed border-border/60 rounded-lg">
+                No handover notes found for the selected filter period.
+              </div>
+            ) : (
+              <>
+                {pagedHandovers.map((h, i) => (
+                  <div key={h.handover_id || i} className="rounded-lg border border-border/80 bg-card p-4 space-y-3 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/30 font-medium">
+                          Shift {h.shift_number}
+                        </Badge>
+                        <span className="font-semibold text-sm">{h.author_username}</span>
+                        <span className="text-xs text-muted-foreground">• {h.shift_date}</span>
+                      </div>
+                      <Badge variant="outline" className={cn(
+                        "font-medium shadow-xs",
+                        h.status === "ACKNOWLEDGED" ? "border-green-300 bg-green-100 text-green-800 dark:border-green-500/30 dark:text-green-400 dark:bg-green-500/10" : "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:text-amber-400 dark:bg-amber-500/10"
+                      )}>
+                        {h.status}
+                        {h.ack_username && ` by ${h.ack_username}`}
+                      </Badge>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-muted/20 rounded-md p-3 border border-border/60">
+                      <HandoverContent html={h.handover_text} />
+                    </div>
+                  </div>
+                ))}
+
+                {allHandoversTotalPages > 1 && (
+                  <div className="mt-4 flex items-center justify-between border-t border-border/40 pt-3">
+                    <div className="text-xs text-muted-foreground">
+                      Page {allHandoversPage} of {allHandoversTotalPages} ({report.handovers.length} total handovers)
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={allHandoversPage <= 1}
+                        onClick={() => setAllHandoversPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Prev
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={allHandoversPage >= allHandoversTotalPages}
+                        onClick={() => setAllHandoversPage((p) => Math.min(allHandoversTotalPages, p + 1))}
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
