@@ -97,6 +97,8 @@ export async function POST(req: NextRequest) {
       // Ignore duplicate insert error
     }
 
+    const actionNormalized = (body.action || "expdp").toLowerCase() as "expdp" | "impdp";
+
     emitGlobalNotification({
       id: dpDoneNotifId,
       type: "generic",
@@ -105,7 +107,11 @@ export async function POST(req: NextRequest) {
       title: `${operationLabel} ${isSuccess ? "completed" : "failed"}`,
       message: dpMsg,
       timestamp: new Date().toISOString(),
-      targetPath: "/data-pump"
+      targetPath: "/data-pump",
+      dpJobId: body.job_id,
+      dpAction: actionNormalized,
+      dpStatus: body.status,
+      dpDumpFile: body.dump_file
     });
   }
 

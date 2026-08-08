@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { DatabaseTarget } from "@/types/dba";
 import { DatabaseZap, Building2, Cpu, ShieldAlert, Search, X, Loader2 } from "lucide-react";
@@ -142,6 +142,11 @@ export function DatabaseSelector() {
       // Retain existing selector data if background refresh fails.
     }
   };
+
+  useEffect(() => {
+    void refreshDatabaseStatuses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getEnvBadgeStyle = (env?: string) => {
     switch (env?.toUpperCase()) {

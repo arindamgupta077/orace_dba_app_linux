@@ -68,18 +68,43 @@ export function useNotificationStream() {
           }
           addNotificationRef.current(payloadToNotificationItem(data));
 
-          // Sync RMAN background jobs state if an RMAN notification arrives
-          const lowerTitle = (data.title || "").toLowerCase();
-          const lowerMsg = (data.message || "").toLowerCase();
-          if (lowerTitle.includes("rman") || lowerMsg.includes("rman")) {
-            const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
-            const isDone = lowerTitle.includes("completed") || lowerTitle.includes("finished") || lowerMsg.includes("completed") || lowerMsg.includes("finished") || data.severity === "info";
-            if (isFail || isDone) {
-              useAppStore.getState().completeRmanJobForDb(data.db, isFail ? "error" : "success", data.message);
-            }
-          }
-
           if (!data.replayed) {
+            // Sync RMAN background jobs state if a LIVE RMAN notification arrives
+            const lowerTitle = (data.title || "").toLowerCase();
+            const lowerMsg = (data.message || "").toLowerCase();
+            if (lowerTitle.includes("rman") || lowerMsg.includes("rman")) {
+              const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
+              const isDone = lowerTitle.includes("completed") || lowerTitle.includes("finished") || lowerMsg.includes("completed") || lowerMsg.includes("finished") || data.severity === "info";
+              if (isFail || isDone) {
+                useAppStore.getState().completeRmanJobForDb(data.db, isFail ? "error" : "success", data.message);
+              }
+            }
+
+            // Sync Data Pump (EXPDP & IMPDP) background jobs state if a LIVE Data Pump notification arrives
+            const isExpdp = lowerTitle.includes("expdp") || lowerMsg.includes("expdp") || data.dpAction === "expdp";
+            const isImpdp = lowerTitle.includes("impdp") || lowerMsg.includes("impdp") || data.dpAction === "impdp";
+            if (isExpdp || isImpdp) {
+              const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
+              const dpStatus = data.dpStatus || (isFail ? "error" : "success");
+              const rawJobId = data.dpJobId || (data.id ? data.id.replace(/-done$/, "") : "");
+              const operation = isExpdp ? "expdp" : "impdp";
+
+              if (rawJobId) {
+                useAppStore.getState().upsertDataPumpJob({
+                  id: rawJobId,
+                  operation,
+                  db: data.db,
+                  status: dpStatus,
+                  dump_file: data.dpDumpFile,
+                  message: data.message,
+                  started_at: new Date().toISOString(),
+                  completed_at: new Date().toISOString(),
+                  params: {}
+                });
+              }
+              useAppStore.getState().completeDataPumpJobForDb(data.db, operation, dpStatus, data.message);
+            }
+
             console.log("[useNotificationStream] New live notification received:", data);
             window.dispatchEvent(new CustomEvent("dba-notification", { detail: data }));
           }
@@ -103,6 +128,55 @@ export function useNotificationStream() {
       stopped = true;
       if (retryTimeout) clearTimeout(retryTimeout);
       es?.close();
+    };
+  }, [user]);
+
+  // Global listener for Data Pump SSE callback stream (wildcard job_id=*) to sync EXPDP/IMPDP completions instantly
+  useEffect(() => {
+    if (!user) return;
+    let dpEs: EventSource | null = null;
+    try {
+      dpEs = new EventSource("/api/datapump/sse?job_id=*");
+      dpEs.onmessage = (ev) => {
+        try {
+          const payload = JSON.parse(ev.data as string);
+          if (payload && payload.job_id) {
+            const action = (payload.action || "expdp").toLowerCase() as "expdp" | "impdp";
+            const status = payload.status || "success";
+            const isFinished = status !== "running";
+
+            useAppStore.getState().upsertDataPumpJob({
+              id: payload.job_id,
+              operation: action,
+              db: payload.db,
+              status: status,
+              started_at: new Date().toISOString(),
+              completed_at: isFinished ? new Date().toISOString() : undefined,
+              dump_file: payload.dump_file,
+              transfer_status: payload.transfer_status,
+              message: payload.message,
+              params: {}
+            });
+
+            if (isFinished) {
+              useAppStore.getState().completeDataPumpJobForDb(
+                payload.db,
+                action,
+                status,
+                payload.message
+              );
+            }
+          }
+        } catch {
+          // ignore bad frames
+        }
+      };
+    } catch {
+      // ignore connection errors
+    }
+
+    return () => {
+      dpEs?.close();
     };
   }, [user]);
 }

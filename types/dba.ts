@@ -301,6 +301,10 @@ export interface NotificationPayload {
   targetUserId?: number;
   targetUsername?: string;
   replayed?: boolean;
+  dpJobId?: string;
+  dpAction?: DataPumpOperation;
+  dpStatus?: DataPumpJobStatus;
+  dpDumpFile?: string;
 }
 
 /** A notification item stored in the client-side store (adds the `read` flag) */
@@ -730,13 +734,13 @@ export interface DataPumpJob {
   operation: DataPumpOperation;
   db: string;
   status: DataPumpJobStatus;
-  started_at: string;
+  started_at?: string;
   completed_at?: string;
   dump_file?: string;
   transfer_status?: string;
   message?: string;
   requested_by?: string;
-  params: Record<string, unknown>;
+  params?: Record<string, unknown>;
 }
 
 export interface ExpdpParams {

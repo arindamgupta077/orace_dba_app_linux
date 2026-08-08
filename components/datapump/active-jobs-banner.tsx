@@ -5,7 +5,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Server, XCircle } from "
 import { fetchDataPumpJobsApi } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { DataPumpJob } from "@/types/dba";
-import { cn } from "@/lib/utils";
+import { cn, parseAppTimestamp } from "@/lib/utils";
 
 interface ActiveJobsBannerProps {
   onJobClick?: (job: DataPumpJob) => void;
@@ -182,18 +182,18 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
                   <span className="text-[10px] text-muted-foreground tabular-nums font-mono shrink-0">
                     {(() => {
                       try {
-                        const d = new Date(job.started_at);
+                        if (!job.started_at) return "";
+                        const d = parseAppTimestamp(job.started_at);
                         if (isNaN(d.getTime())) return String(job.started_at);
-                        const istDate = new Date(d.getTime() + 330 * 60 * 1000);
                         return new Intl.DateTimeFormat("en-IN", {
                           hour: "2-digit",
                           minute: "2-digit",
                           second: "2-digit",
                           hour12: true,
                           timeZone: "Asia/Kolkata"
-                        }).format(istDate) + " IST";
+                        }).format(d) + " IST";
                       } catch {
-                        return String(job.started_at);
+                        return String(job.started_at || "");
                       }
                     })()}
                   </span>

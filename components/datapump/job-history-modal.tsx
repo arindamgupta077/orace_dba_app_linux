@@ -43,7 +43,7 @@ import {
 import { fetchDataPumpJobsApi } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { DataPumpJob } from "@/types/dba";
-import { cn } from "@/lib/utils";
+import { cn, parseAppTimestamp } from "@/lib/utils";
 
 interface JobHistoryModalProps {
   open: boolean;
@@ -204,18 +204,13 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
   };
 
   /**
-   * Converts and formats date timestamp into IST (Indian Standard Time).
-   * Adjusts for -5h 30m offset shift in stored timestamps.
+   * Formats date timestamp into IST (Indian Standard Time).
    */
   function formatJobTimeIST(dateVal: string | number | Date | undefined | null): string {
     if (!dateVal) return "—";
     try {
-      const dateObj = new Date(dateVal);
+      const dateObj = parseAppTimestamp(dateVal);
       if (isNaN(dateObj.getTime())) return String(dateVal);
-
-      // Add 5 hours 30 minutes (330 mins) to correct for (IST - 5h 30m) offset
-      const istMs = dateObj.getTime() + 330 * 60 * 1000;
-      const istDate = new Date(istMs);
 
       const formatted = new Intl.DateTimeFormat("en-IN", {
         day: "2-digit",
@@ -226,7 +221,7 @@ export function JobHistoryModal({ open, onOpenChange }: JobHistoryModalProps) {
         second: "2-digit",
         hour12: true,
         timeZone: "Asia/Kolkata"
-      }).format(istDate);
+      }).format(dateObj);
 
       return `${formatted} IST`;
     } catch {

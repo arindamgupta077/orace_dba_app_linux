@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
+import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, DataPumpJobStatus, DataPumpOperation, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
 import { markAllNotificationsReadApi, markNotificationReadApi } from "@/services/api";
 
 interface AppState {
@@ -33,6 +33,7 @@ interface AppState {
   markAllNotificationsRead: (category?: "db" | "console", skipApi?: boolean) => void;
   setDataPumpJobs: (jobs: DataPumpJob[]) => void;
   upsertDataPumpJob: (job: DataPumpJob) => void;
+  completeDataPumpJobForDb: (db?: string, operation?: DataPumpOperation, status?: DataPumpJobStatus, message?: string) => void;
   clearCompletedDataPumpJobs: (db?: string) => void;
   setExpdpTemplates: (templates: ExpdpTemplate[]) => void;
   addExpdpTemplate: (template: ExpdpTemplate) => void;
@@ -222,6 +223,27 @@ export const useAppStore = create<AppState>()(
             (j) => j.status === "running" || (db && j.db?.toUpperCase() !== db.toUpperCase())
           )
         })),
+      completeDataPumpJobForDb: (db, operation, status = "success", message) =>
+        set((state) => {
+          const nowIso = new Date().toISOString();
+          let updatedAny = false;
+          const updated = state.dataPumpJobs.map((j) => {
+            const dbMatch = !db || !j.db || j.db.trim().toUpperCase() === db.trim().toUpperCase();
+            const opMatch = !operation || j.operation.toLowerCase() === operation.toLowerCase();
+            if (j.status === "running" && dbMatch && opMatch) {
+              updatedAny = true;
+              return {
+                ...j,
+                status,
+                completed_at: j.completed_at || nowIso,
+                message: message || (status === "error" ? "Job failed" : "Completed successfully")
+              };
+            }
+            return j;
+          });
+          if (!updatedAny) return state;
+          return { dataPumpJobs: updated };
+        }),
       setExpdpTemplates: (expdpTemplates) => set({ expdpTemplates }),
       addExpdpTemplate: (template) =>
         set((state) => ({
