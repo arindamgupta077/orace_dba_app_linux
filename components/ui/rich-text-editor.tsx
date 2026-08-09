@@ -93,6 +93,8 @@ interface RichTextEditorProps {
   className?: string;
   minHeight?: number;
   disabled?: boolean;
+  /** When true, hides the Expand/Minimize toolbar button (useful when the editor is already inside a modal). */
+  hideExpand?: boolean;
 }
 
 const FONT_SIZES = [
@@ -444,7 +446,8 @@ export function RichTextEditor({
   placeholder = "Write your notes...",
   className,
   minHeight = 120,
-  disabled = false
+  disabled = false,
+  hideExpand = false
 }: RichTextEditorProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [, setTick] = useState(0);
@@ -673,12 +676,14 @@ export function RichTextEditor({
 
       <div className="mx-0.5 h-5 w-px bg-border/60" />
 
-      <ToolbarButton
-        icon={fullscreen ? Minimize2 : Expand}
-        onClick={() => setFullscreen((v) => !v)}
-        disabled={disabled}
-        title={fullscreen ? "Close expanded editor" : "Expand editor"}
-      />
+      {!hideExpand && (
+        <ToolbarButton
+          icon={fullscreen ? Minimize2 : Expand}
+          onClick={() => setFullscreen((v) => !v)}
+          disabled={disabled}
+          title={fullscreen ? "Close expanded editor" : "Expand editor"}
+        />
+      )}
     </div>
   );
 

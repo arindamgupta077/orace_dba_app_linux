@@ -140,24 +140,24 @@ export default function LoginPage() {
 
       {/* Top chrome bar */}
       <header className="relative z-20 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-2 sm:px-8">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-2.5 sm:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 via-rose-600 to-orange-500 text-white shadow-md shadow-red-500/25">
-              <DatabaseZap className="h-4 w-4 drop-shadow-sm" />
+            <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 via-rose-600 to-orange-500 text-white shadow-md shadow-red-500/25">
+              <DatabaseZap className="h-5 w-5 drop-shadow-sm" />
             </div>
             <div className="leading-tight">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-extrabold tracking-wide text-slate-900">
+                <p className="text-base font-extrabold tracking-wide text-slate-900">
                   ITSS DBA{" "}
                   <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
                     PORTAL
                   </span>
                 </p>
-                <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-bold text-slate-500 shadow-sm">
                   v3
                 </span>
               </div>
-              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 Database Management Portal
               </p>
             </div>
@@ -168,7 +168,7 @@ export default function LoginPage() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            All systems operational
+            Enterprise DBA Portal Online
           </span>
         </div>
       </header>
@@ -196,9 +196,8 @@ export default function LoginPage() {
             </h1>
 
             <p className="mt-3 max-w-xl text-base leading-normal text-slate-600">
-              Unify real-time monitoring, AI-driven diagnostics and automated execution of
-              end-to-end DBA operations — with the control and auditability your enterprise
-              demands.
+              AI-driven centralized Oracle database administration platform for real-time monitoring,
+              automation, and seamless execution of end-to-end DBA operations.
             </p>
 
             <div className="mt-6 divide-y divide-slate-200/80 border-y border-slate-200/80">
@@ -386,8 +385,7 @@ export default function LoginPage() {
             </Card>
 
             <p className="mt-4 text-center text-xs leading-relaxed text-slate-400">
-              Access is restricted to authorized personnel. All sign-in activity is monitored and
-              recorded.
+              Access is restricted to authorized personnel. All sign-in activity is recorded.
             </p>
           </motion.div>
         </div>

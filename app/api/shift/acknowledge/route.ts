@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { acknowledgeHandover, insertAuditLog } from "@/lib/server/repository";
+import {
+  acknowledgeHandover,
+  getActiveShiftSessionForUser,
+  insertAuditLog
+} from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
@@ -30,6 +34,16 @@ export async function POST(request: Request) {
     const handoverId = Number(body.handoverId);
     if (!handoverId) {
       return NextResponse.json({ message: "handoverId is required." }, { status: 400 });
+    }
+
+    // Require the acknowledging user to be currently logged into a shift (any shift).
+    try {
+      await getActiveShiftSessionForUser(session.userId);
+    } catch {
+      return NextResponse.json(
+        { message: "You must be logged into an active shift to acknowledge a handover." },
+        { status: 403 }
+      );
     }
 
     const handover = await acknowledgeHandover({
@@ -75,3 +89,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ message }, { status: 400 });
   }
 }
+

@@ -4473,6 +4473,51 @@ export async function overrideHandover(input: {
   });
 }
 
+/**
+ * Updates the text of an existing handover and resets it back to PENDING status,
+ * clearing any prior acknowledgement. Used when the author edits and resubmits
+ * their handover notes before logging out (supports both Case 1: was PENDING,
+ * and Case 2: was already ACKNOWLEDGED).
+ */
+export async function updateHandoverText(input: {
+  handoverId: number;
+  handoverText: string;
+  actor: string;
+}): Promise<Handover> {
+  return executeOne(async (connection) => {
+    try {
+      const existing = await getHandoverById(connection, input.handoverId);
+      if (!existing) throw new Error("Handover not found.");
+
+      await connection.execute(
+        `UPDATE app_handovers
+         SET handover_text  = :handoverText,
+             status         = 'PENDING',
+             ack_user_id    = NULL,
+             ack_username   = NULL,
+             ack_at         = NULL,
+             is_override    = 'N',
+             override_reason = NULL,
+             updated_by     = :actor
+         WHERE handover_id = :handoverId`,
+        {
+          handoverId: input.handoverId,
+          handoverText: input.handoverText,
+          actor: input.actor
+        }
+      );
+
+      await connection.commit();
+      const handover = await getHandoverById(connection, input.handoverId);
+      if (!handover) throw new Error("Handover was not updated.");
+      return handover;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
 async function listPendingHandoversWithConnection(connection: Connection): Promise<Handover[]> {
   const result = await connection.execute<HandoverRow>(
     `SELECT handover_id, session_id, author_user_id, author_username,

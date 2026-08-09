@@ -4,7 +4,8 @@ import {
   createHandover,
   getActiveShiftSessionForUser,
   getHandoverForSession,
-  insertAuditLog
+  insertAuditLog,
+  updateHandoverText
 } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
@@ -45,30 +46,43 @@ export async function POST(request: Request) {
       sessionId = active.session_id;
     }
 
-    // Prevent duplicate pending handover for the same session.
-    const existing = await getHandoverForSession(sessionId);
-    if (existing && existing.status === "PENDING") {
-      return NextResponse.json(
-        { message: "A pending handover already exists for this session. Please wait for acknowledgement." },
-        { status: 409 }
-      );
-    }
-
     const active = await getActiveShiftSessionForUser(session.userId);
-    const handover = await createHandover({
-      sessionId,
-      authorUserId: session.userId,
-      authorUsername: session.user.username,
-      shiftNumber: active.shift_number,
-      handoverText,
-      actor: session.user.username
-    });
+
+    // Check for an existing handover (PENDING or ACKNOWLEDGED) for this session.
+    // If found, update the text and reset to PENDING (author edit/resubmit flow).
+    //   - Case 1: existing is PENDING  → update text, stays PENDING (still needs ack).
+    //   - Case 2: existing is ACKNOWLEDGED → update text, reset to PENDING (needs re-ack).
+    // If not found, create a new handover as before.
+    const existing = await getHandoverForSession(sessionId);
+
+    let handover;
+    let isUpdate = false;
+
+    if (existing) {
+      handover = await updateHandoverText({
+        handoverId: existing.handover_id,
+        handoverText,
+        actor: session.user.username
+      });
+      isUpdate = true;
+    } else {
+      handover = await createHandover({
+        sessionId,
+        authorUserId: session.userId,
+        authorUsername: session.user.username,
+        shiftNumber: active.shift_number,
+        handoverText,
+        actor: session.user.username
+      });
+    }
 
     await insertAuditLog({
       actor: session.user.username,
       action: "handover_submit",
       status: "success",
-      detail: `Submitted handover for ${getShiftLabel(active.shift_number)}.`
+      detail: isUpdate
+        ? `Updated and resubmitted handover for ${getShiftLabel(active.shift_number)}.`
+        : `Submitted handover for ${getShiftLabel(active.shift_number)}.`
     });
 
     void dispatchShiftWebhook("handover_submitted", {
@@ -85,13 +99,13 @@ export async function POST(request: Request) {
       type: "dba_shift",
       severity: "warning",
       db: getShiftLabel(active.shift_number),
-      title: `Handover Submitted: ${handover.author_username}`,
-      message: `${handover.author_username} submitted a handover for ${getShiftLabel(active.shift_number)} at ${formatAppDateTime(handover.created_at)} IST. Pending acknowledgement.`,
+      title: `Handover ${isUpdate ? "Updated" : "Submitted"}: ${handover.author_username}`,
+      message: `${handover.author_username} ${isUpdate ? "updated" : "submitted"} a handover for ${getShiftLabel(active.shift_number)} at ${formatAppDateTime(handover.created_at)} IST. Pending acknowledgement.`,
       timestamp: handover.created_at || new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });
 
-    return NextResponse.json({ handover }, { status: 201 });
+    return NextResponse.json({ handover }, { status: isUpdate ? 200 : 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to submit handover.";
     return NextResponse.json({ message }, { status: 400 });

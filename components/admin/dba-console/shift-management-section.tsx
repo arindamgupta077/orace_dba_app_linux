@@ -14,6 +14,7 @@ import {
   History,
   LogIn,
   LogOut,
+  Pencil,
   RefreshCw,
   Send,
   ShieldAlert,
@@ -166,7 +167,10 @@ export function ShiftManagementSection() {
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [cancelConfirmSession, setCancelConfirmSession] = useState<ShiftSession | null>(null);
   const [viewHandover, setViewHandover] = useState<ShiftSession | null>(null);
-  const [viewedHandoverIds, setViewedHandoverIds] = useState<Set<number>>(new Set());
+  // Tracks handovers the current user has already viewed, mapped to the handover_text at the time
+  // of viewing. If the author edits the handover (same handover_id, updated text), the stored text
+  // won't match the live text, causing the "View Handover" button to re-appear immediately.
+  const [viewedHandoverIds, setViewedHandoverIds] = useState<Map<number, string>>(new Map());
   const [handoverHistory, setHandoverHistory] = useState<Handover[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -175,6 +179,8 @@ export function ShiftManagementSection() {
   const [historyPageSize] = useState(10);
   const [historyAuthorFilter, setHistoryAuthorFilter] = useState<string>("ALL");
   const [historyDateFilter, setHistoryDateFilter] = useState<string>("");
+  // Controls whether the author's handover edit panel is expanded (for PENDING / ACKNOWLEDGED states).
+  const [isEditingHandover, setIsEditingHandover] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -356,16 +362,21 @@ export function ShiftManagementSection() {
     }
   };
 
-  const handleSubmitHandover = async () => {
-    if (!handoverText.trim()) {
+  const handleSubmitHandover = async (isUpdate = false) => {
+    if (isEditorContentEmpty(handoverText)) {
       toast.error("Handover text cannot be empty.");
       return;
     }
     setActionLoading(true);
     try {
       await submitHandover(handoverText.trim());
-      toast.success("Handover submitted. Waiting for acknowledgement.");
+      if (isUpdate) {
+        toast.success("Handover updated. Pending acknowledgement.");
+      } else {
+        toast.success("Handover submitted. Waiting for acknowledgement.");
+      }
       setHandoverText("");
+      setIsEditingHandover(false);
       await load();
       await loadHistory(100);
     } catch (error) {
@@ -581,7 +592,8 @@ export function ShiftManagementSection() {
                           session.username !== user?.username &&
                           session.handover_status === "PENDING" &&
                           session.handover_id &&
-                          !viewedHandoverIds.has(session.handover_id) ? (
+                          // Show "View Handover" if: never viewed, OR author has updated the text since last view
+                          viewedHandoverIds.get(session.handover_id) !== session.handover_text ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -589,9 +601,9 @@ export function ShiftManagementSection() {
                               onClick={() => {
                                 setViewHandover(session);
                                 setViewedHandoverIds((prev) => {
-                                  if (prev.has(session.handover_id!)) return prev;
-                                  const next = new Set(prev);
-                                  next.add(session.handover_id!);
+                                  const next = new Map(prev);
+                                  // Store the current handover_text so edits are detected later
+                                  next.set(session.handover_id!, session.handover_text ?? "");
                                   return next;
                                 });
                               }}
@@ -614,7 +626,10 @@ export function ShiftManagementSection() {
                           session.username !== user?.username &&
                           session.handover_status === "PENDING" &&
                           session.handover_id &&
-                          viewedHandoverIds.has(session.handover_id) && (
+                          // Only show Acknowledge once the current handover text has been viewed
+                          viewedHandoverIds.get(session.handover_id) === session.handover_text &&
+                          // Must be on an active shift to acknowledge
+                          !!mySession && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -713,11 +728,16 @@ export function ShiftManagementSection() {
                     const chosen = Number(shiftChoice) || (state?.preferred_shift ?? GENERAL_SHIFT_NUMBER);
                     const lateCheck = isLateLogin(chosen);
                     if (!lateCheck.isLate) return null;
+                    const hrs = Math.floor(lateCheck.minutesLate / 60);
+                    const mins = lateCheck.minutesLate % 60;
+                    const timeLabel = hrs > 0
+                      ? `${hrs} ${hrs === 1 ? "hour" : "hours"}${mins > 0 ? ` ${mins} mins` : ""}`
+                      : `${mins} mins`;
                     return (
                       <div className="mt-2 space-y-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
                         <div className="flex items-center gap-1.5 font-semibold text-amber-300">
                           <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
-                          Late Login Notice ({lateCheck.minutesLate} mins past shift start)
+                          Late Login Notice ({timeLabel} past shift start)
                         </div>
                         <p className="text-muted-foreground">
                           You are logging in more than 1 hour after shift start. A reason/comment is mandatory.
@@ -726,7 +746,6 @@ export function ShiftManagementSection() {
                           Reason / Comment for Late Login <span className="text-red-400">*</span>
                         </Label>
                         <Input
-                          placeholder="e.g. Traffic delay, system maintenance, shift handoff delay..."
                           value={lateComment}
                           onChange={(e) => setLateComment(e.target.value)}
                           className="border-amber-500/40 bg-background/50 focus-visible:ring-amber-500/50"
@@ -744,27 +763,37 @@ export function ShiftManagementSection() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-green-500/25 bg-green-500/5 px-4 py-3 text-sm text-green-300">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-green-500/30 bg-green-500/10">
-                      <CheckCircle2 className="h-5 w-5" />
+                    <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      </span>
                     </div>
                     <div>
-                      <p className="font-medium">You are on shift</p>
-                      <p className="text-xs text-green-300/70">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-emerald-900 dark:text-emerald-100">You are on shift</p>
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                          Active
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
                         {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`} — logged in at {formatTime(mySession.login_at)}
                       </p>
                     </div>
                   </div>
                   <Button
                     variant="outline"
-                    size="icon"
-                    className="border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 shrink-0"
+                    size="sm"
+                    className="border-red-500/30 bg-red-500/10 text-red-600 hover:bg-red-500/20 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 gap-1.5 shrink-0 px-3 text-xs font-medium"
                     onClick={() => setCancelConfirmSession(mySession)}
                     disabled={actionLoading}
                     title="Cancel Shift (Mistaken Login) — Delete record from database"
                   >
-                    <XCircle className="h-4 w-4" />
+                    <XCircle className="h-3.5 w-3.5" />
+                    Cancel Shift
                   </Button>
                 </div>
 
@@ -776,7 +805,24 @@ export function ShiftManagementSection() {
                         <FileText className="h-3.5 w-3.5" />
                         Your handover
                       </span>
-                      {handoverBadge(mySession)}
+                      <div className="flex items-center gap-2">
+                        {handoverBadge(mySession)}
+                        {/* Edit button — opens modal for author to edit notes */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 px-2 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
+                          onClick={() => {
+                            setHandoverText(mySession.handover_text ?? "");
+                            setIsEditingHandover(true);
+                          }}
+                          disabled={actionLoading}
+                          title="Edit your handover notes"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </Button>
+                      </div>
                     </div>
                     <HandoverContent html={mySession.handover_text} />
                     {mySession.ack_username && (
@@ -788,7 +834,7 @@ export function ShiftManagementSection() {
                   </div>
                 )}
 
-                {/* Handover text area — only for time-based shifts with no handover yet */}
+                {/* Handover text area — only for time-based shifts with no handover yet (first submit) */}
                 {mySession.handover_status === "NONE" && !isMySessionGeneral && (
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
@@ -805,7 +851,7 @@ export function ShiftManagementSection() {
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        onClick={() => void handleSubmitHandover()}
+                        onClick={() => void handleSubmitHandover(false)}
                         disabled={actionLoading || isEditorContentEmpty(handoverText)}
                       >
                         <Send className="h-3.5 w-3.5" />
@@ -1004,6 +1050,88 @@ export function ShiftManagementSection() {
       {/* Shift Login & Logout Log History */}
       <ShiftLogHistorySection />
 
+      {/* Edit Handover Notes dialog — opens when author clicks Edit on an existing handover */}
+      <Dialog open={isEditingHandover && !!mySession} onOpenChange={(open) => {
+        if (!open) {
+          setIsEditingHandover(false);
+          setHandoverText("");
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-cyan-400" />
+              Edit Handover Notes
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div>
+                {mySession && (
+                  <>
+                    {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`}
+                    {" — "}
+                    {handoverBadge(mySession)}
+                  </>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Contextual banner based on current handover status */}
+          {mySession?.handover_status === "ACKNOWLEDGED" && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-300">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Re-submitting will <strong>reset the acknowledgement</strong>. Another DBA will need to acknowledge your handover again before you can logout.
+              </span>
+            </div>
+          )}
+          {mySession?.handover_status === "PENDING" && (
+            <div className="flex items-start gap-2 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-2.5 text-xs text-cyan-300">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Updating will keep this handover <strong>pending</strong> — another DBA still needs to acknowledge it.
+              </span>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Handover Notes</Label>
+            <RichTextEditor
+              value={handoverText}
+              onChange={setHandoverText}
+              placeholder="Write your handover notes for the next shift DBA..."
+              minHeight={200}
+              disabled={actionLoading}
+              hideExpand
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsEditingHandover(false);
+                setHandoverText("");
+              }}
+              disabled={actionLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleSubmitHandover(true)}
+              disabled={actionLoading || isEditorContentEmpty(handoverText)}
+            >
+              {actionLoading ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Pencil className="h-3.5 w-3.5" />
+              )}
+              {mySession?.handover_status === "ACKNOWLEDGED" ? "Edit & Resubmit" : "Update Handover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Logout confirmation dialog */}
       <Dialog open={logoutConfirm} onOpenChange={setLogoutConfirm}>
         <DialogContent>
@@ -1123,7 +1251,9 @@ export function ShiftManagementSection() {
               canManageShift &&
               viewHandover.username !== user?.username &&
               viewHandover.handover_status === "PENDING" &&
-              viewHandover.handover_id && (
+              viewHandover.handover_id &&
+              // Must be on an active shift to acknowledge
+              (mySession ? (
                 <Button
                   onClick={() => void handleAcknowledge(viewHandover)}
                   disabled={actionLoading}
@@ -1135,7 +1265,12 @@ export function ShiftManagementSection() {
                   )}
                   Acknowledge Handover
                 </Button>
-              )}
+              ) : (
+                <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  Login to a shift to acknowledge
+                </div>
+              ))}
           </DialogFooter>
         </DialogContent>
       </Dialog>
