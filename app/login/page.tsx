@@ -3,7 +3,22 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Activity, ArrowRight, DatabaseZap, Eye, EyeOff, LockKeyhole, Mail, Server, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  DatabaseZap,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Gauge,
+  History,
+  KeyRound,
+  Lock,
+  LockKeyhole,
+  Mail,
+  ScrollText,
+  ShieldCheck,
+  Sparkles
+} from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,25 +29,38 @@ import { useTheme } from "@/components/providers/theme-provider";
 import { fetchCurrentSession, loginWithPassword } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 
-const FEATURES = [
+const CAPABILITIES = [
   {
     icon: ShieldCheck,
     badgeColor: "bg-emerald-50 text-emerald-600 border-emerald-200/70",
-    title: "Enterprise Grade Security",
-    description: "Session-based authentication with account lockout protection and audit logs."
+    title: "Enterprise-grade security",
+    description: "Session-based auth, lockout protection and role-aware access control."
   },
   {
-    icon: Server,
+    icon: Gauge,
     badgeColor: "bg-cyan-50 text-cyan-600 border-cyan-200/70",
-    title: "Database Operations",
-    description: "Monitor health, backups, tablespaces, and alert logs from one unified panel."
+    title: "Real-time estate monitoring",
+    description: "Health, backups, tablespaces, sessions and alert logs in one panel."
   },
   {
-    icon: Activity,
-    badgeColor: "bg-rose-50 text-rose-600 border-rose-200/70",
-    title: "Operational Visibility",
-    description: "Track actions, shift handovers, approvals, and audit history across your estate."
+    icon: Sparkles,
+    badgeColor: "bg-violet-50 text-violet-600 border-violet-200/70",
+    title: "AI-assisted operations",
+    description: "Intelligent diagnostics and automated remediation workflows."
+  },
+  {
+    icon: ScrollText,
+    badgeColor: "bg-amber-50 text-amber-600 border-amber-200/70",
+    title: "Complete audit visibility",
+    description: "Approvals, shift handovers and privileged actions, fully traced."
   }
+] as const;
+
+const TRUST_MARKERS = [
+  { icon: Fingerprint, label: "Session-based auth" },
+  { icon: Lock, label: "Encrypted in transit" },
+  { icon: KeyRound, label: "Lockout protection" },
+  { icon: History, label: "Full audit trail" }
 ] as const;
 
 function postLoginPath(role: string) {
@@ -99,201 +127,271 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="enterprise-grid relative flex min-h-screen items-center justify-center overflow-hidden p-4 sm:p-6 lg:p-8 animate-grid-flow bg-slate-50/70">
-      {/* Background Animated Glows & Radial Gradients */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(239,68,68,0.07),transparent_40%),radial-gradient(circle_at_85%_85%,rgba(14,116,144,0.06),transparent_40%),radial-gradient(circle_at_50%_50%,rgba(249,115,22,0.03),transparent_50%)]" />
+    <main className="enterprise-grid relative flex min-h-screen flex-col overflow-hidden bg-slate-50/70 animate-grid-flow">
+      {/* Background ambient glows */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(239,68,68,0.06),transparent_42%),radial-gradient(circle_at_88%_82%,rgba(14,116,144,0.05),transparent_42%),radial-gradient(circle_at_50%_120%,rgba(249,115,22,0.05),transparent_55%)]" />
+
+      {/* Brand accent band */}
       <motion.div
-        className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-red-500/70 to-transparent"
-        animate={{ opacity: [0.3, 0.8, 0.3] }}
-        transition={{ duration: 3, repeat: Infinity }}
+        className="relative z-30 h-[3px] w-full shrink-0 bg-gradient-to-r from-red-600 via-rose-500 to-orange-500"
+        animate={{ opacity: [0.55, 1, 0.55] }}
+        transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      <div className="relative grid w-full max-w-6xl gap-8 lg:grid-cols-[1.1fr_420px] lg:items-center">
-        {/* Left Side: Branding & Features */}
-        <motion.section
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45 }}
-          className="hidden lg:block"
-        >
-          <div className="mb-8 flex items-center gap-4">
-            <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 via-rose-600 to-orange-500 text-white shadow-lg shadow-red-500/30">
-              <DatabaseZap className="h-8 w-8 drop-shadow-md" />
+      {/* Top chrome bar */}
+      <header className="relative z-20 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-5 py-2 sm:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-red-600 via-rose-600 to-orange-500 text-white shadow-md shadow-red-500/25">
+              <DatabaseZap className="h-4 w-4 drop-shadow-sm" />
             </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <span className="rounded-lg bg-red-100 px-3 py-1 text-sm font-bold uppercase tracking-widest text-red-700">
-                  ITSS
-                </span>
-                <span className="text-xs font-semibold text-slate-500">v3</span>
-              </div>
-              <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
-                Database management portal
-              </h1>
-            </div>
-          </div>
-
-          <p className="max-w-2xl text-base lg:text-lg leading-relaxed text-slate-600 font-normal">
-            AI-driven centralized Oracle database administration platform for real-time monitoring, automation, and seamless execution of end-to-end DBA operations.
-          </p>
-
-          <div className="mt-10 grid gap-4">
-            {FEATURES.map(({ icon: Icon, badgeColor, title, description }, index) => (
-              <motion.div
-                key={title}
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.12 + index * 0.08 }}
-                className="group relative flex items-start gap-4 rounded-2xl bg-white/80 p-4 border border-slate-200/90 shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white hover:shadow-md hover:border-slate-300"
-              >
-                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${badgeColor} transition-transform group-hover:scale-105`}>
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-900">{title}</p>
-                  <p className="mt-1 text-sm leading-relaxed text-slate-500">{description}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.section>
-
-        {/* Right Side: Login Card */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.08, duration: 0.4 }}
-          className="relative"
-        >
-          {/* Subtle Ambient Glow under the Card */}
-          <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-red-500/15 via-orange-500/10 to-cyan-500/15 blur-xl opacity-70" />
-
-          <Card className="relative bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl shadow-slate-300/40 rounded-3xl overflow-hidden">
-            <CardContent className="p-6 sm:p-8">
-              {/* Mobile Header */}
-              <div className="mb-8 flex items-center gap-3 lg:hidden">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 via-rose-600 to-orange-500 text-white shadow-md shadow-red-500/20">
-                  <DatabaseZap className="h-6 w-6" />
-                </div>
-                <div>
-                  <span className="rounded-md bg-red-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-widest text-red-700">
-                    ITSS
+            <div className="leading-tight">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-extrabold tracking-wide text-slate-900">
+                  ITSS DBA{" "}
+                  <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
+                    PORTAL
                   </span>
-                  <h2 className="mt-1 text-lg font-bold text-slate-900 leading-tight">Database management portal</h2>
-                </div>
+                </p>
+                <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                  v3
+                </span>
               </div>
+              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Database Management Portal
+              </p>
+            </div>
+          </div>
 
-              {/* Desktop Form Title Header */}
-              <div className="mb-8 hidden items-center gap-3.5 lg:flex">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600 border border-red-200/60 shadow-sm">
-                  <LockKeyhole className="h-6 w-6" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Sign in</h2>
-                  <p className="text-sm text-slate-500 font-normal">Use your email address to access your console</p>
-                </div>
-              </div>
+          <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 sm:inline-flex">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            All systems operational
+          </span>
+        </div>
+      </header>
 
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Email Field */}
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-semibold text-slate-700">
-                    Email address
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <Input
-                      id="email"
-                      type="email"
-                      autoComplete="email"
-                      value={form.email}
-                      onChange={(event) => setForm({ ...form, email: event.target.value })}
-                      placeholder="your.name@itc.in"
-                      disabled={loading}
-                      className="pl-10 h-11 bg-slate-50/60 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 rounded-xl transition-all"
-                    />
-                  </div>
-                </div>
+      {/* Main content */}
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 items-center px-5 py-6 sm:px-8">
+        <div className="grid w-full items-center gap-10 lg:grid-cols-[1.02fr_460px] xl:gap-16">
+          {/* Left: brand & capability narrative */}
+          <motion.section
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="hidden lg:block"
+          >
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-200/70 bg-white px-3.5 py-1 text-xs font-semibold text-red-700 shadow-sm shadow-red-500/5">
+              <Sparkles className="h-3.5 w-3.5" />
+              AI-Powered Oracle DBA Operations
+            </div>
 
-                {/* Password Field */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <Label htmlFor="password" className="text-sm font-semibold text-slate-700">
-                      Password
-                    </Label>
-                    <Link
-                      href="/forgot-password"
-                      className="text-xs font-semibold text-red-600 hover:text-red-700 transition-colors hover:underline"
-                    >
-                      Forgot password?
-                    </Link>
-                  </div>
-                  <div className="relative">
-                    <LockKeyhole className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      value={form.password}
-                      onChange={(event) => setForm({ ...form, password: event.target.value })}
-                      placeholder="Enter your password"
-                      disabled={loading}
-                      className="pl-10 pr-10 h-11 bg-slate-50/60 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-500/20 rounded-xl transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
-                      tabIndex={-1}
-                      title={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
+            <h1 className="mt-4 max-w-xl text-balance text-[1.9rem] font-bold leading-[1.1] tracking-tight text-slate-900 xl:text-[2.3rem]">
+              Enterprise command center for your{" "}
+              <span className="bg-gradient-to-r from-red-600 via-rose-600 to-orange-500 bg-clip-text text-transparent">
+                Oracle database estate
+              </span>
+            </h1>
 
-                {/* Checkbox */}
-                <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors select-none">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(event) => setRemember(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500 accent-red-600 cursor-pointer"
-                    disabled={loading}
-                  />
-                  Remember this device
-                </label>
+            <p className="mt-3 max-w-xl text-base leading-normal text-slate-600">
+              Unify real-time monitoring, AI-driven diagnostics and automated execution of
+              end-to-end DBA operations — with the control and auditability your enterprise
+              demands.
+            </p>
 
-                {/* Submit Button */}
-                <Button
-                  className="w-full h-11 bg-gradient-to-r from-red-600 via-rose-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white font-semibold rounded-xl shadow-lg shadow-red-600/25 hover:shadow-red-600/35 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100"
-                  type="submit"
-                  disabled={loading || !form.email || !form.password}
+            <div className="mt-6 divide-y divide-slate-200/80 border-y border-slate-200/80">
+              {CAPABILITIES.map(({ icon: Icon, badgeColor, title, description }, index) => (
+                <motion.div
+                  key={title}
+                  initial={{ opacity: 0, x: -14 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 + index * 0.08, duration: 0.4, ease: "easeOut" }}
+                  className="group flex items-start gap-3.5 py-2.5"
                 >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      Signing in...
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center gap-2">
-                      Sign in
-                      <ArrowRight className="h-4 w-4" />
-                    </span>
-                  )}
-                </Button>
-              </form>
+                  <div
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${badgeColor} transition-transform duration-300 group-hover:scale-105`}
+                  >
+                    <Icon className="h-[18px] w-[18px]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{title}</p>
+                    <p className="mt-0.5 max-w-md text-sm leading-normal text-slate-500">
+                      {description}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
 
-              {/* Bottom Security Footer */}
-              <div className="mt-8 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 pt-4 border-t border-slate-100">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                Secured with ITSS Enterprise Auth & End-to-End Encryption
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5, duration: 0.4 }}
+              className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2"
+            >
+              {TRUST_MARKERS.map(({ icon: Icon, label }) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500"
+                >
+                  <Icon className="h-3.5 w-3.5 text-slate-400" />
+                  {label}
+                </span>
+              ))}
+            </motion.div>
+          </motion.section>
+
+          {/* Right: sign-in card */}
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ delay: 0.12, duration: 0.45, ease: "easeOut" }}
+            className="relative mx-auto w-full max-w-md lg:max-w-none"
+          >
+            {/* Ambient glow behind the card */}
+            <div
+              aria-hidden="true"
+              className="absolute -inset-2 rounded-[2rem] bg-gradient-to-r from-red-500/10 via-orange-400/5 to-cyan-500/10 opacity-80 blur-2xl"
+            />
+
+            <Card className="relative overflow-hidden rounded-3xl border-slate-200/80 shadow-2xl shadow-slate-400/20">
+              {/* Card brand hairline */}
+              <div className="h-1 w-full bg-gradient-to-r from-red-600 via-rose-500 to-orange-500" />
+
+              <CardContent className="p-6 sm:p-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-red-200/60 bg-red-50 text-red-600 shadow-sm">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    <Lock className="h-3 w-3" />
+                    Secure sign-in
+                  </span>
+                </div>
+
+                <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
+                  Sign in to the console
+                </h2>
+                <p className="mt-1 text-sm leading-normal text-slate-500">
+                  Use your organizational credentials to continue.
+                </p>
+
+                <form onSubmit={handleSubmit} className="mt-5 space-y-3.5">
+                  {/* Email Field */}
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="email"
+                      className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500"
+                    >
+                      Email address
+                    </Label>
+                    <div className="relative">
+                      <Mail className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-slate-400" />
+                      <Input
+                        id="email"
+                        type="email"
+                        autoComplete="email"
+                        value={form.email}
+                        onChange={(event) => setForm({ ...form, email: event.target.value })}
+                        placeholder="your.name@itc.in"
+                        disabled={loading}
+                        className="h-11 rounded-xl border-slate-300 bg-slate-50/70 pl-11 text-[15px] text-slate-900 transition-all placeholder:text-slate-400 hover:border-slate-400 focus-visible:border-red-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-red-500/15"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password Field */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label
+                        htmlFor="password"
+                        className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500"
+                      >
+                        Password
+                      </Label>
+                      <Link
+                        href="/forgot-password"
+                        className="text-xs font-semibold text-red-600 transition-colors hover:text-red-700 hover:underline"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-slate-400" />
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={form.password}
+                        onChange={(event) => setForm({ ...form, password: event.target.value })}
+                        placeholder="Enter your password"
+                        disabled={loading}
+                        className="h-11 rounded-xl border-slate-300 bg-slate-50/70 pl-11 pr-12 text-[15px] text-slate-900 transition-all placeholder:text-slate-400 hover:border-slate-400 focus-visible:border-red-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-red-500/15"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                        tabIndex={-1}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Remember device */}
+                  <label className="flex cursor-pointer select-none items-center gap-2.5 pt-0.5 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={remember}
+                      onChange={(event) => setRemember(event.target.checked)}
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 text-red-600 accent-red-600 focus:ring-red-500"
+                      disabled={loading}
+                    />
+                    Remember this device
+                  </label>
+
+                  {/* Submit */}
+                  <Button
+                    type="submit"
+                    disabled={loading || !form.email || !form.password}
+                    className="!mt-5 h-11 w-full rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-orange-600 text-[15px] font-semibold text-white shadow-lg shadow-red-600/25 transition-all duration-200 hover:from-red-700 hover:via-rose-700 hover:to-orange-700 hover:shadow-xl hover:shadow-red-600/30 active:scale-[0.99] disabled:opacity-60 disabled:shadow-none"
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Signing in...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        Sign in
+                        <ArrowRight className="h-4 w-4" />
+                      </span>
+                    )}
+                  </Button>
+                </form>
+
+                {/* Card security footer */}
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <p className="flex items-center justify-center gap-2 text-xs font-medium text-slate-500">
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                    Secured with ITSS Enterprise Auth · End-to-end encrypted sessions
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <p className="mt-4 text-center text-xs leading-relaxed text-slate-400">
+              Access is restricted to authorized personnel. All sign-in activity is monitored and
+              recorded.
+            </p>
+          </motion.div>
+        </div>
       </div>
     </main>
   );
 }
-
