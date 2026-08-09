@@ -20,7 +20,7 @@ function ThemedToaster() {
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider defaultTheme="dark">
+    <ThemeProvider defaultTheme="light">
       <ErrorBoundary>
         <TooltipProvider delayDuration={250}>
           {children}

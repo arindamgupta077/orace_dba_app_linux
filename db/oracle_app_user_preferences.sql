@@ -52,14 +52,13 @@ PROMPT Dropped any previous app_user_preferences objects.
 -- 1) app_user_preferences table
 --
 --   user_id            FK -> app_users.user_id (also PK → one row per user)
---   theme_preference   'light' | 'dark'         (default 'dark' to preserve
---                                                 the app's pre-existing look)
+--   theme_preference   'light' | 'dark'         (default 'light')
 --   created_at         row creation timestamp
 --   updated_at         maintained by the BEFORE UPDATE trigger below
 --------------------------------------------------------------------------------
 CREATE TABLE app_user_preferences (
   user_id           NUMBER          NOT NULL,
-  theme_preference  VARCHAR2(10)    DEFAULT 'dark' NOT NULL,
+  theme_preference  VARCHAR2(10)    DEFAULT 'light' NOT NULL,
   db_inventory_columns CLOB,
   created_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,
   updated_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,

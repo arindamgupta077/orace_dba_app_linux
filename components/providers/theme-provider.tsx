@@ -26,14 +26,14 @@ function applyThemeClass(theme: Theme) {
 }
 
 function readLocalTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;
   } catch {
     // localStorage unavailable — fall through to default.
   }
-  return "dark";
+  return "light";
 }
 
 function writeLocalTheme(theme: Theme) {
@@ -58,7 +58,7 @@ interface ThemeProviderProps {
   defaultTheme?: Theme;
 }
 
-export function ThemeProvider({ children, defaultTheme = "dark" }: ThemeProviderProps) {
+export function ThemeProvider({ children, defaultTheme = "light" }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
   const [hydrated, setHydrated] = useState(false);
   // Tracks the most recent theme pushed to the remote API so we don't
@@ -66,13 +66,10 @@ export function ThemeProvider({ children, defaultTheme = "dark" }: ThemeProvider
   // echoes back the value we just stored locally).
   const lastRemoteRef = useRef<Theme | null>(null);
 
-  // Hydrate from localStorage on first client render.
-  // Auth pages (login, forgot-password, etc.) are always dark — skip
-  // the localStorage read so there's no flash when the login page
-  // effect forces dark mode.  This matches the no-flash inline script
-  // in layout.tsx which also forces dark on auth pages.
+  // Hydrate from stored preference on first client render.
+  // Auth pages (login, forgot-password, etc.) are always light mode.
   useEffect(() => {
-    const local = isAuthPage() ? "dark" : readLocalTheme();
+    const local = isAuthPage() ? "light" : readLocalTheme();
     setThemeState(local);
     applyThemeClass(local);
     setHydrated(true);

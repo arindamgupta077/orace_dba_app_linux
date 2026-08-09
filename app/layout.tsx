@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <Script id="strip-bis-skin-checked" strategy="beforeInteractive">
           {`(() => {
@@ -42,24 +42,21 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           No-flash theme bootstrap: apply the saved theme class to <html>
           before React hydrates so the very first paint matches the
           user's preference (stored in localStorage by ThemeProvider).
-          Defaults to "dark" when no preference exists yet.
+          Defaults to "light" when no preference exists yet.
         */}
         <Script id="apply-theme-pre-hydration" strategy="beforeInteractive">
           {`(function(){
   try {
     var p = window.location.pathname;
-    // Auth pages are always dark — never apply a stored light
-    // preference on login / forgot-password / reset-password /
-    // first-login-reset, and never overwrite the saved value.
     var isAuthPage = p === "/login" || p === "/forgot-password" || p === "/reset-password" || p === "/first-login-reset";
-    var t = isAuthPage ? "dark" : localStorage.getItem("dba-theme");
-    if (t !== "light" && t !== "dark") t = "dark";
+    var t = isAuthPage ? "light" : (localStorage.getItem("dba-theme") || "light");
+    if (t !== "light" && t !== "dark") t = "light";
     var root = document.documentElement;
     if (t === "dark") root.classList.add("dark"); else root.classList.remove("dark");
     root.style.colorScheme = t;
   } catch (e) {
-    document.documentElement.classList.add("dark");
-    document.documentElement.style.colorScheme = "dark";
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "light";
   }
 })();`}
         </Script>

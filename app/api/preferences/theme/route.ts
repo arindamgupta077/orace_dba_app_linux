@@ -13,7 +13,7 @@ function isValidTheme(value: unknown): value is ThemePreference {
 /**
  * GET /api/preferences/theme
  * Returns the authenticated user's persisted colour theme preference.
- * Falls back to "dark" when no row exists yet or the preferences table
+ * Falls back to "light" when no row exists yet or the preferences table
  * has not been migrated.
  */
 export async function GET() {

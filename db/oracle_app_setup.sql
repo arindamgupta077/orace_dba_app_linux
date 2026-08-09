@@ -218,7 +218,7 @@ CREATE INDEX app_sessions_exp_ix ON app_sessions (expires_at);
 -- APP_USER_PREFERENCES
 CREATE TABLE app_user_preferences (
   user_id           NUMBER          NOT NULL,
-  theme_preference  VARCHAR2(10 CHAR) DEFAULT 'dark' NOT NULL,
+  theme_preference  VARCHAR2(10 CHAR) DEFAULT 'light' NOT NULL,
   db_inventory_columns CLOB,
   created_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,
   updated_at        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP NOT NULL,

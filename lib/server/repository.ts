@@ -1950,7 +1950,7 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
         userId,
         role: mapUserRole(row.ROLE),
         authMode: mapAuthMode(),
-        themePreference: preferencesJoined ? mapThemePreference(row.THEME_PREFERENCE) : "dark"
+        themePreference: preferencesJoined ? mapThemePreference(row.THEME_PREFERENCE) : "light"
       }
     };
   });
@@ -5923,12 +5923,12 @@ export async function upsertUserDatabaseInventoryColumns(userId: number, columns
 }
 
 function mapThemePreference(value: unknown): ThemePreference {
-  const normalized = String(value || "dark").trim().toLowerCase();
-  if (normalized === "light") return "light";
-  return "dark";
+  const normalized = String(value || "light").trim().toLowerCase();
+  if (normalized === "dark") return "dark";
+  return "light";
 }
 
-/** Read a user's stored theme preference. Returns 'dark' when no row exists. */
+/** Read a user's stored theme preference. Returns 'light' when no row exists. */
 export async function getUserThemePreference(userId: number): Promise<ThemePreference> {
   return executeOne(async (connection) => {
     try {
@@ -5939,11 +5939,11 @@ export async function getUserThemePreference(userId: number): Promise<ThemePrefe
         { userId }
       );
       const row = result.rows?.[0];
-      if (!row) return "dark";
+      if (!row) return "light";
       return mapThemePreference(row.THEME_PREFERENCE);
     } catch (error) {
-      // Table missing (schema not migrated yet) â€” degrade gracefully.
-      if (isOracleMissingTableError(error)) return "dark";
+      // Table missing (schema not migrated yet) — degrade gracefully.
+      if (isOracleMissingTableError(error)) return "light";
       throw error;
     }
   });
