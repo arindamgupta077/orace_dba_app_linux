@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   UserCheck,
   Users,
+  Wallet,
   XCircle
 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +47,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import {
   acknowledgeHandover,
+  fetchAppUsers,
   fetchCurrentShift,
   fetchHandoverHistory,
   fetchShiftSessionLogs,
@@ -73,6 +75,18 @@ const SHIFT_LABELS: Record<number, string> = {
 };
 
 const REFRESH_INTERVAL_MS = 30_000;
+
+/** Computes default date range: 1st of current month to today's date (YYYY-MM-DD) */
+function getDefaultDateRange(): { fromDate: string; toDate: string } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return {
+    fromDate: `${year}-${month}-01`,
+    toDate: `${year}-${month}-${day}`
+  };
+}
 
 /** Checks if HTML content from rich text editor is empty (stripping tags & non-breaking spaces). */
 function isEditorContentEmpty(html: string): boolean {
@@ -188,9 +202,14 @@ export function ShiftManagementSection() {
   // Controls whether the author's handover edit panel is expanded (for PENDING / ACKNOWLEDGED states).
   const [isEditingHandover, setIsEditingHandover] = useState(false);
   // Shift Roster Download state
-  const [rosterFromDate, setRosterFromDate] = useState<string>("");
-  const [rosterToDate, setRosterToDate] = useState<string>("");
+  const [rosterFromDate, setRosterFromDate] = useState<string>(() => getDefaultDateRange().fromDate);
+  const [rosterToDate, setRosterToDate] = useState<string>(() => getDefaultDateRange().toDate);
   const [rosterLoading, setRosterLoading] = useState(false);
+
+  // Shift Allowance Download state
+  const [allowanceFromDate, setAllowanceFromDate] = useState<string>(() => getDefaultDateRange().fromDate);
+  const [allowanceToDate, setAllowanceToDate] = useState<string>(() => getDefaultDateRange().toDate);
+  const [allowanceLoading, setAllowanceLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -714,6 +733,262 @@ export function ShiftManagementSection() {
       toast.error(error instanceof Error ? error.message : "Failed to generate roster.");
     } finally {
       setRosterLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Shift Allowance Download
+  // ---------------------------------------------------------------------------
+  const handleDownloadAllowance = async () => {
+    if (!allowanceFromDate || !allowanceToDate) {
+      toast.error("Please select both From Date and To Date.");
+      return;
+    }
+    if (allowanceFromDate > allowanceToDate) {
+      toast.error("From Date must be before or equal to To Date.");
+      return;
+    }
+    const maxDays = 62;
+    const fromMs  = new Date(allowanceFromDate).getTime();
+    const toMs    = new Date(allowanceToDate).getTime();
+    const daysDiff = Math.round((toMs - fromMs) / 86_400_000) + 1;
+    if (daysDiff > maxDays) {
+      toast.error(`Date range is too large. Maximum ${maxDays} days per download.`);
+      return;
+    }
+    setAllowanceLoading(true);
+    try {
+      // Fetch shift sessions and user list in parallel
+      const [{ sessions: allSessions }, { users: appUsers }] = await Promise.all([
+        fetchShiftSessionLogs(2000, { fromDate: allowanceFromDate, toDate: allowanceToDate }),
+        fetchAppUsers()
+      ]);
+
+      // Only Shift 2 (Afternoon) and Shift 3 (Night) qualify for allowance
+      const qualifyingSessions = allSessions.filter(
+        (s) => s.shift_number === 2 || s.shift_number === 3
+      );
+
+      if (qualifyingSessions.length === 0) {
+        toast.error("No Afternoon or Night shift sessions found for the selected date range.");
+        return;
+      }
+
+      // Build username → AppUser map for PSID lookup
+      const userMap = new Map(appUsers.map((u) => [u.username, u]));
+
+      // Aggregate days per (username, shift_number) — count distinct shift_dates
+      const shiftDayMap: Record<string, Record<number, Set<string>>> = {};
+      for (const s of qualifyingSessions) {
+        const date = s.shift_date ?? s.login_at?.slice(0, 10) ?? "";
+        if (!date) continue;
+        if (!shiftDayMap[s.username]) shiftDayMap[s.username] = {};
+        if (!shiftDayMap[s.username][s.shift_number]) shiftDayMap[s.username][s.shift_number] = new Set();
+        shiftDayMap[s.username][s.shift_number].add(date);
+      }
+
+      // Helper: format date as DD-MM-YYYY
+      const fmtDate = (iso: string) => {
+        const [y, m, d] = iso.split("-");
+        return `${d}-${m}-${y}`;
+      };
+      const startFmt = fmtDate(allowanceFromDate);
+      const endFmt   = fmtDate(allowanceToDate);
+
+      // Title text
+      const MONTH_NAMES = ["January","February","March","April","May","June",
+        "July","August","September","October","November","December"];
+      const fromD = new Date(allowanceFromDate);
+      const toD   = new Date(allowanceToDate);
+      const titleMonths =
+        fromD.getMonth() === toD.getMonth() && fromD.getFullYear() === toD.getFullYear()
+          ? `${MONTH_NAMES[fromD.getMonth()]} ${fromD.getFullYear()}`
+          : `${MONTH_NAMES[fromD.getMonth()]} – ${MONTH_NAMES[toD.getMonth()]} ${toD.getFullYear()}`;
+      const sheetTitle = `Shift Allowance - ${titleMonths} - DBA Team`;
+
+      // Column headers
+      const HEADERS = [
+        "PSID",
+        "Name of employee",
+        "Project-Account",
+        "Department",
+        "Start Date",
+        "End Date",
+        "Shift Start Time",
+        "Shift End Time",
+        "Total no. of Days",
+        "Allowance Type",
+        "Total"
+      ];
+      const NUM_COLS = HEADERS.length;
+      const ALLOWANCE_PER_DAY = 350;
+
+      // Build data rows sorted by username
+      const usernames = Object.keys(shiftDayMap).sort();
+      const dataRows: (string | number)[][] = [];
+      for (const uname of usernames) {
+        const appUser  = userMap.get(uname);
+        const psid     = appUser?.psid ?? "";
+        const name     = uname; // use username as name (no separate full_name field)
+        const afternoonDays = shiftDayMap[uname]?.[2]?.size ?? 0;
+        const nightDays     = shiftDayMap[uname]?.[3]?.size ?? 0;
+        if (afternoonDays > 0) {
+          dataRows.push([
+            psid, name, "ITC", "ITCSMG",
+            startFmt, endFmt,
+            "2:30 PM", "11:00 PM",
+            afternoonDays,
+            "Shift Allowance",
+            afternoonDays * ALLOWANCE_PER_DAY
+          ]);
+        }
+        if (nightDays > 0) {
+          dataRows.push([
+            psid, name, "ITC", "ITCSMG",
+            startFmt, endFmt,
+            "10:30 PM", "7:00 AM",
+            nightDays,
+            "Shift Allowance",
+            nightDays * ALLOWANCE_PER_DAY
+          ]);
+        }
+      }
+
+      // Build AoA: [title, headers, ...dataRows]
+      const aoa: (string | number)[][] = [
+        [sheetTitle, ...Array(NUM_COLS - 1).fill("")],
+        HEADERS,
+        ...dataRows
+      ];
+
+      const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+
+      // Column widths
+      ws["!cols"] = [
+        { wch: 10 },  // PSID
+        { wch: 26 },  // Name
+        { wch: 16 },  // Project-Account
+        { wch: 12 },  // Department
+        { wch: 13 },  // Start Date
+        { wch: 13 },  // End Date
+        { wch: 16 },  // Shift Start Time
+        { wch: 14 },  // Shift End Time
+        { wch: 18 },  // Total no. of Days
+        { wch: 18 },  // Allowance Type
+        { wch: 10 },  // Total
+      ];
+
+      // Row heights
+      ws["!rows"] = [
+        { hpt: 24 }, // title
+        { hpt: 20 }, // headers
+        ...dataRows.map(() => ({ hpt: 18 }))
+      ];
+
+      // Merge title across all columns
+      ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: NUM_COLS - 1 } }
+      ];
+
+      // Helpers
+      const enc = (r: number, c: number) => XLSXStyle.utils.encode_cell({ r, c });
+      const applyStyle = (r: number, c: number, style: Record<string, unknown>) => {
+        const addr = enc(r, c);
+        if (!ws[addr]) ws[addr] = { t: "s", v: "" };
+        (ws[addr] as Record<string, unknown>).s = style;
+      };
+
+      // Shared thin border
+      const thinBorder = {
+        top:    { style: "thin", color: { rgb: "AAAAAA" } },
+        bottom: { style: "thin", color: { rgb: "AAAAAA" } },
+        left:   { style: "thin", color: { rgb: "AAAAAA" } },
+        right:  { style: "thin", color: { rgb: "AAAAAA" } }
+      };
+
+      // --- Row 0: Title ---
+      applyStyle(0, 0, {
+        font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
+        fill: { patternType: "solid", fgColor: { rgb: "1F3864" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      });
+      // Apply same style to remaining merged cells
+      for (let c = 1; c < NUM_COLS; c++) {
+        applyStyle(0, c, {
+          fill: { patternType: "solid", fgColor: { rgb: "1F3864" } },
+          border: thinBorder
+        });
+      }
+
+      // --- Row 1: Header row ---
+      const sHeader = {
+        font: { bold: true, sz: 10, color: { rgb: "1F3864" } },
+        fill: { patternType: "solid", fgColor: { rgb: "BDD7EE" } },
+        alignment: { horizontal: "center", vertical: "center", wrapText: true },
+        border: thinBorder
+      };
+      for (let c = 0; c < NUM_COLS; c++) applyStyle(1, c, sHeader);
+
+      // --- Data rows ---
+      // Afternoon rows: light yellow; Night rows: light purple
+      const sAfternoon = {
+        font: { sz: 10, color: { rgb: "000000" } },
+        fill: { patternType: "solid", fgColor: { rgb: "FFF2CC" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      };
+      const sAfternoonBold = {
+        ...sAfternoon,
+        font: { bold: true, sz: 10, color: { rgb: "7E4B00" } }
+      };
+      const sNight = {
+        font: { sz: 10, color: { rgb: "000000" } },
+        fill: { patternType: "solid", fgColor: { rgb: "EAD1DC" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      };
+      const sNightBold = {
+        ...sNight,
+        font: { bold: true, sz: 10, color: { rgb: "4B1265" } }
+      };
+      const sNameCell = (isNight: boolean) => ({
+        font: { sz: 10, color: { rgb: "000000" } },
+        fill: { patternType: "solid", fgColor: { rgb: isNight ? "EAD1DC" : "FFF2CC" } },
+        alignment: { horizontal: "left", vertical: "center" },
+        border: thinBorder
+      });
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const rowArr  = dataRows[i];
+        const rowIdx  = i + 2; // offset by title + header
+        // Detect if this row is Night shift by checking Shift Start Time column (index 6)
+        const isNight = rowArr[6] === "10:30 PM";
+        const baseStyle = isNight ? sNight : sAfternoon;
+        const boldStyle = isNight ? sNightBold : sAfternoonBold;
+        for (let c = 0; c < NUM_COLS; c++) {
+          // Bold: Days, Allowance Type, Total columns (8,9,10)
+          if (c === 1) {
+            applyStyle(rowIdx, c, sNameCell(isNight));
+          } else if (c >= 8) {
+            applyStyle(rowIdx, c, boldStyle);
+          } else {
+            applyStyle(rowIdx, c, baseStyle);
+          }
+        }
+      }
+
+      // Write workbook
+      const wb = XLSXStyle.utils.book_new();
+      XLSXStyle.utils.book_append_sheet(wb, ws, "Shift Allowance");
+      XLSXStyle.writeFile(wb, `Shift_Allowance_${allowanceFromDate}_to_${allowanceToDate}.xlsx`);
+
+      const totalAmt = dataRows.reduce((sum, r) => sum + (r[10] as number), 0);
+      toast.success(`Shift Allowance downloaded — ${dataRows.length} row(s), ₹${totalAmt.toLocaleString("en-IN")} total allowance.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate allowance sheet.");
+    } finally {
+      setAllowanceLoading(false);
     }
   };
 
@@ -1340,79 +1615,119 @@ export function ShiftManagementSection() {
       <ShiftLogHistorySection />
 
       {/* ----------------------------------------------------------------- */}
-      {/* Shift Roster Download                                             */}
+      {/* Shift Roster & Shift Allowance Downloads (Side-by-side)           */}
       {/* ----------------------------------------------------------------- */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
-            Shift Roster Download
-          </CardTitle>
-          <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span className="text-xs font-medium text-emerald-300">Excel</span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Description */}
-            <p className="text-xs text-muted-foreground">
-              Download a colour-coded Excel shift roster for any date range. Each shift
-              (Morning, Afternoon, Night &amp; General) is shown as a separate row with
-              the DBA name(s) logged in on each day.
-            </p>
-
-
-            {/* Date range inputs */}
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  From Date
-                </Label>
-                <Input
-                  type="date"
-                  value={rosterFromDate}
-                  onChange={(e) => setRosterFromDate(e.target.value)}
-                  className="h-9 w-44 text-xs"
-                  max={rosterToDate || undefined}
-                />
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Shift Roster Download */}
+        <Card className="h-full flex flex-col justify-between">
+          <div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                Shift Roster Download
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Date range inputs */}
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    From Date
+                  </Label>
+                  <Input
+                    type="date"
+                    value={rosterFromDate}
+                    onChange={(e) => setRosterFromDate(e.target.value)}
+                    className="h-9 w-44 text-xs"
+                    max={rosterToDate || undefined}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    To Date
+                  </Label>
+                  <Input
+                    type="date"
+                    value={rosterToDate}
+                    onChange={(e) => setRosterToDate(e.target.value)}
+                    className="h-9 w-44 text-xs"
+                    min={rosterFromDate || undefined}
+                  />
+                </div>
+                <Button
+                  onClick={() => void handleDownloadRoster()}
+                  disabled={rosterLoading || !rosterFromDate || !rosterToDate}
+                  className="h-9 gap-2 bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {rosterLoading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {rosterLoading ? "Generating…" : "Download Shift Roster"}
+                </Button>
               </div>
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  To Date
-                </Label>
-                <Input
-                  type="date"
-                  value={rosterToDate}
-                  onChange={(e) => setRosterToDate(e.target.value)}
-                  className="h-9 w-44 text-xs"
-                  min={rosterFromDate || undefined}
-                />
-              </div>
-              <Button
-                onClick={() => void handleDownloadRoster()}
-                disabled={rosterLoading || !rosterFromDate || !rosterToDate}
-                className="h-9 gap-2 bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
-              >
-                {rosterLoading ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                {rosterLoading ? "Generating…" : "Download Shift Roster"}
-              </Button>
-            </div>
-
-            {/* Hint */}
-            <p className="text-[11px] text-muted-foreground/70">
-              Maximum 62 days per download. Weekends are highlighted automatically.
-              Multiple DBAs on the same shift/day appear separated by &quot;/&quot;.
-            </p>
+            </CardContent>
           </div>
-        </CardContent>
-      </Card>
+        </Card>
+
+        {/* Shift Allowance Download */}
+        <Card className="h-full flex flex-col justify-between">
+          <div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Wallet className="h-5 w-5 text-amber-400" />
+                Shift Allowance Download
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Date range inputs */}
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    From Date
+                  </Label>
+                  <Input
+                    type="date"
+                    value={allowanceFromDate}
+                    onChange={(e) => setAllowanceFromDate(e.target.value)}
+                    className="h-9 w-44 text-xs"
+                    max={allowanceToDate || undefined}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    To Date
+                  </Label>
+                  <Input
+                    type="date"
+                    value={allowanceToDate}
+                    onChange={(e) => setAllowanceToDate(e.target.value)}
+                    className="h-9 w-44 text-xs"
+                    min={allowanceFromDate || undefined}
+                  />
+                </div>
+                <Button
+                  onClick={() => void handleDownloadAllowance()}
+                  disabled={allowanceLoading || !allowanceFromDate || !allowanceToDate}
+                  className="h-9 gap-2 bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {allowanceLoading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  {allowanceLoading ? "Generating…" : "Download Shift Allowance"}
+                </Button>
+              </div>
+            </CardContent>
+          </div>
+        </Card>
+      </div>
 
 
       {/* Edit Handover Notes dialog — opens when author clicks Edit on an existing handover */}

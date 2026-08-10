@@ -9,8 +9,6 @@ import type { NextConfig } from "next";
 process.env.TZ = "UTC";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  outputFileTracingRoot: process.cwd(),
   serverExternalPackages: ["oracledb"],
   reactStrictMode: true,
   poweredByHeader: false,

@@ -10,8 +10,8 @@
  *      fire even when no browser session is active.
  */
 export async function register() {
-  // Only run in the Node.js runtime, not the Edge runtime.
-  if (process.env.NEXT_RUNTIME === "nodejs") {
+  // Only run in the Node.js runtime, not the Edge runtime or build phase.
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
     // 1 – Oracle connection pool pre-warm
     try {
       const { preWarmPool } = await import("@/lib/server/oracle");

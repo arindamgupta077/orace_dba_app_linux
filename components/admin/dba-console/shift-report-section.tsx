@@ -54,7 +54,7 @@ import { fetchAppUsers, fetchShiftReport, fetchShiftReportTimeline } from "@/ser
 import { ShiftLogHistorySection } from "@/components/admin/dba-console/shift-log-history-section";
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime, toIstDateString, toIstDateStringOffset } from "@/lib/utils";
-import { exportDataset, ExportColumn, ExportMeta } from "@/lib/export";
+import { exportDataset, exportFullShiftReportPdf, stripHtml, ExportColumn, ExportMeta } from "@/lib/export";
 import type {
   AppUser,
   ShiftReportData,
@@ -171,6 +171,50 @@ function getSessionColor(sessionId?: number, customMap?: Map<number, (typeof SES
   return SESSION_COLORS[idx];
 }
 
+const MONTH_OPTIONS = [
+  { value: "1", label: "January" },
+  { value: "2", label: "February" },
+  { value: "3", label: "March" },
+  { value: "4", label: "April" },
+  { value: "5", label: "May" },
+  { value: "6", label: "June" },
+  { value: "7", label: "July" },
+  { value: "8", label: "August" },
+  { value: "9", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" }
+];
+
+function getYearOptions(): string[] {
+  const current = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = current - 5; y <= current + 2; y++) {
+    years.push(String(y));
+  }
+  return years;
+}
+
+function getMatchingMonthYear(fromStr: string, toStr: string): { month: string; year: string } {
+  if (!fromStr || !toStr) return { month: "all", year: "all" };
+  const fromParts = fromStr.split("-");
+  const toParts = toStr.split("-");
+  if (fromParts.length !== 3 || toParts.length !== 3) return { month: "all", year: "all" };
+
+  const [fromY, fromM, fromD] = fromParts;
+  const [toY, toM, toD] = toParts;
+
+  if (fromY === toY && fromM === toM && fromD === "01") {
+    const yNum = Number(fromY);
+    const mNum = Number(fromM);
+    const lastDay = new Date(yNum, mNum, 0).getDate();
+    if (Number(toD) === lastDay) {
+      return { month: String(mNum), year: String(yNum) };
+    }
+  }
+  return { month: "all", year: "all" };
+}
+
 export function ShiftReportSection() {
   const user = useAppStore((s) => s.user);
   const exportedBy = user?.username || "app_admin";
@@ -180,8 +224,52 @@ export function ShiftReportSection() {
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState(defaultFromDate());
   const [toDate, setToDate] = useState(todayStr());
+
+  const initialMatch = useMemo(() => getMatchingMonthYear(defaultFromDate(), todayStr()), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(initialMatch.month);
+  const [selectedYear, setSelectedYear] = useState<string>(initialMatch.year);
+
   const [dbaUserId, setDbaUserId] = useState<string>("all");
   const [shiftNumber, setShiftNumber] = useState<string>("all");
+
+  const yearOptions = useMemo(() => getYearOptions(), []);
+
+  const handleMonthYearChange = (mVal: string, yVal: string) => {
+    let targetYear = yVal;
+    const targetMonth = mVal;
+
+    if (targetMonth !== "all" && targetYear === "all") {
+      targetYear = String(new Date().getFullYear());
+    }
+
+    setSelectedMonth(targetMonth);
+    setSelectedYear(targetYear);
+
+    if (targetMonth !== "all" && targetYear !== "all") {
+      const m = Number(targetMonth);
+      const y = Number(targetYear);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const firstDate = `${y}-${pad(m)}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const lastDate = `${y}-${pad(m)}-${pad(lastDay)}`;
+      setFromDate(firstDate);
+      setToDate(lastDate);
+    } else if (targetMonth === "all" && targetYear !== "all") {
+      const y = Number(targetYear);
+      const firstDate = `${y}-01-01`;
+      const lastDate = `${y}-12-31`;
+      setFromDate(firstDate);
+      setToDate(lastDate);
+    }
+  };
+
+  const handleDateInputChange = (newFrom: string, newTo: string) => {
+    setFromDate(newFrom);
+    setToDate(newTo);
+    const match = getMatchingMonthYear(newFrom, newTo);
+    setSelectedMonth(match.month);
+    setSelectedYear(match.year);
+  };
 
   // Activity timeline — client-driven pagination + filters (server-side)
   const [timelinePage, setTimelinePage] = useState(1);
@@ -286,8 +374,8 @@ export function ShiftReportSection() {
 
   const dbaUsers = useMemo(() => users.filter((u) => u.role === "dba_admin" || u.role === "app_admin"), [users]);
 
-  const periodLabel = `${fromDate} → ${toDate}`;
-  const filterLabel = `DBA: ${dbaUserId === "all" ? "All" : dbaUsers.find((u) => String(u.userId) === dbaUserId)?.username || dbaUserId} • Shift: ${shiftNumber === "all" ? "All" : shiftLabel(Number(shiftNumber))}`;
+  const periodLabel = `${fromDate} to ${toDate}`;
+  const filterLabel = `DBA: ${dbaUserId === "all" ? "All" : dbaUsers.find((u) => String(u.userId) === dbaUserId)?.username || dbaUserId} | Shift: ${shiftNumber === "all" ? "All" : shiftLabel(Number(shiftNumber))}`;
 
   const loginTrendData = useMemo(() => {
     if (!report) return [];
@@ -390,139 +478,139 @@ export function ShiftReportSection() {
     switch (kind) {
       case "logins": {
         const cols: ExportColumn<ShiftReportData["loginTrend"][number]>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Logins", value: (r) => r.logins },
-          { header: "Login Hours", value: (r) => r.hours }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Logins", value: (r) => r.logins, align: "right" },
+          { header: "Login Hours", value: (r) => r.hours, align: "right" }
         ];
         exportDataset(format, cols, report.loginTrend, baseMeta("Shift Login Trend"));
         break;
       }
       case "attendance": {
         const cols: ExportColumn<ShiftReportData["dailyAttendance"][number]>[] = [
-          { header: "Date", value: (r) => r.attendance_date },
-          { header: "Unique DBAs", value: (r) => r.unique_dbas },
-          { header: "Total Logins", value: (r) => r.total_logins }
+          { header: "Date", value: (r) => r.attendance_date, align: "center" },
+          { header: "Unique DBAs", value: (r) => r.unique_dbas, align: "right" },
+          { header: "Total Logins", value: (r) => r.total_logins, align: "right" }
         ];
         exportDataset(format, cols, report.dailyAttendance, baseMeta("Daily Attendance"));
         break;
       }
       case "timeline": {
         const cols: ExportColumn<ShiftReportTimelineEntry>[] = [
-          { header: "Event", value: (r) => r.event },
-          { header: "DBA (Username)", value: (r) => r.username },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Timestamp", value: (r) => r.timestamp },
-          { header: "Detail", value: (r) => r.detail || "" }
+          { header: "Event", value: (r) => r.event, align: "left" },
+          { header: "DBA (Username)", value: (r) => r.username, align: "left" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Timestamp", value: (r) => r.timestamp, align: "center" },
+          { header: "Detail", value: (r) => r.detail || "", align: "left" }
         ];
         exportDataset(format, cols, report.activityTimeline, baseMeta("Activity Timeline"));
         break;
       }
       case "dbChecks": {
         const cols: ExportColumn<ShiftReportData["dbStatusChecks"][number]>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Database", value: (r) => r.database_name },
-          { header: "Status", value: (r) => r.status },
-          { header: "DBA (Username)", value: (r) => r.checked_username },
-          { header: "Checked At", value: (r) => r.checked_at },
-          { header: "Comment", value: (r) => r.comment_text || "" },
-          { header: "Realtime Check", value: (r) => r.is_realtime_check ? "Yes" : "No" }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Database", value: (r) => r.database_name, align: "left" },
+          { header: "Status", value: (r) => r.status, align: "center" },
+          { header: "DBA (Username)", value: (r) => r.checked_username, align: "left" },
+          { header: "Checked At", value: (r) => r.checked_at, align: "center" },
+          { header: "Comment", value: (r) => r.comment_text || "", align: "left" },
+          { header: "Realtime Check", value: (r) => (r.is_realtime_check ? "Yes" : "No"), align: "center" }
         ];
         exportDataset(format, cols, report.dbStatusChecks, baseMeta("PROD Database Availability Checklist"));
         break;
       }
       case "backupChecks": {
         const cols: ExportColumn<ShiftReportData["backupStatusChecks"][number]>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Database", value: (r) => r.database_name },
-          { header: "Backup", value: (r) => r.backup_name },
-          { header: "Status", value: (r) => r.status },
-          { header: "DBA (Username)", value: (r) => r.checked_username },
-          { header: "Checked At", value: (r) => r.checked_at },
-          { header: "Comment", value: (r) => r.comment_text || "" }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Database", value: (r) => r.database_name, align: "left" },
+          { header: "Backup", value: (r) => r.backup_name, align: "left" },
+          { header: "Status", value: (r) => r.status, align: "center" },
+          { header: "DBA (Username)", value: (r) => r.checked_username, align: "left" },
+          { header: "Checked At", value: (r) => r.checked_at, align: "center" },
+          { header: "Comment", value: (r) => r.comment_text || "", align: "left" }
         ];
         exportDataset(format, cols, report.backupStatusChecks, baseMeta("Backup Status Checklist"));
         break;
       }
       case "handovers": {
         const cols: ExportColumn<ShiftReportData["handovers"][number]>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Author (Username)", value: (r) => r.author_username },
-          { header: "Created At", value: (r) => r.created_at },
-          { header: "Status", value: (r) => r.status },
-          { header: "Acknowledged By", value: (r) => r.ack_username || "" },
-          { header: "Acknowledged At", value: (r) => r.ack_at || "" },
-          { header: "Handover Text", value: (r) => (r.handover_text || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Author (Username)", value: (r) => r.author_username, align: "left" },
+          { header: "Created At", value: (r) => r.created_at, align: "center" },
+          { header: "Status", value: (r) => r.status, align: "center" },
+          { header: "Acknowledged By", value: (r) => r.ack_username || "", align: "left" },
+          { header: "Acknowledged At", value: (r) => r.ack_at || "", align: "center" },
+          { header: "Handover Text", value: (r) => stripHtml(r.handover_text || ""), align: "left" }
         ];
         exportDataset(format, cols, report.handovers, baseMeta("Handover (HO) Report"));
         break;
       }
       case "sessions": {
         const cols: ExportColumn<ShiftReportSessionRow>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "DBA (Username)", value: (r) => r.username },
-          { header: "Login At", value: (r) => r.login_at },
-          { header: "Logout At", value: (r) => r.logout_at || "" },
-          { header: "Status", value: (r) => r.status },
-          { header: "Active", value: (r) => (r.is_active ? "Yes" : "No") },
-          { header: "Duration (min)", value: (r) => r.duration_min ?? "" }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "DBA (Username)", value: (r) => r.username, align: "left" },
+          { header: "Login At", value: (r) => r.login_at, align: "center" },
+          { header: "Logout At", value: (r) => r.logout_at || "", align: "center" },
+          { header: "Status", value: (r) => r.status, align: "center" },
+          { header: "Active", value: (r) => (r.is_active ? "Yes" : "No"), align: "center" },
+          { header: "Duration (min)", value: (r) => r.duration_min ?? "", align: "right" }
         ];
         exportDataset(format, cols, report.sessions, baseMeta("Login/Logout Sessions"));
         break;
       }
       case "lateLogins": {
         const cols: ExportColumn<ShiftReportData["lateLogins"][number]>[] = [
-          { header: "DBA (Username)", value: (r) => r.username },
-          { header: "Shift", value: (r) => shiftLabel(r.shift_number) },
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Login At", value: (r) => r.login_at },
-          { header: "Minutes Late", value: (r) => r.minutes_late },
-          { header: "Reason / Comment", value: (r) => r.late_comment || "" }
+          { header: "DBA (Username)", value: (r) => r.username, align: "left" },
+          { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Login At", value: (r) => r.login_at, align: "center" },
+          { header: "Minutes Late", value: (r) => r.minutes_late, align: "right" },
+          { header: "Reason / Comment", value: (r) => r.late_comment || "", align: "left" }
         ];
         exportDataset(format, cols, report.lateLogins, baseMeta("Late Logins"));
         break;
       }
       case "coverage": {
         const cols: ExportColumn<ShiftReportData["coverage"][number]>[] = [
-          { header: "Shift Date", value: (r) => r.shift_date },
-          { header: "Covered (min)", value: (r) => r.covered_minutes },
-          { header: "Gap (min)", value: (r) => r.gap_minutes },
-          { header: "Coverage %", value: (r) => r.coverage_pct },
-          { header: "Uncovered Shifts", value: (r) => r.uncovered_shifts.length > 0 ? r.uncovered_shifts.map((sn) => `Shift ${sn}`).join(", ") : "—" }
+          { header: "Shift Date", value: (r) => r.shift_date, align: "center" },
+          { header: "Covered (min)", value: (r) => r.covered_minutes, align: "right" },
+          { header: "Gap (min)", value: (r) => r.gap_minutes, align: "right" },
+          { header: "Coverage %", value: (r) => `${r.coverage_pct}%`, align: "center" },
+          { header: "Uncovered Shifts", value: (r) => (r.uncovered_shifts.length > 0 ? r.uncovered_shifts.map((sn) => `Shift ${sn}`).join(", ") : "—"), align: "left" }
         ];
         exportDataset(format, cols, report.coverage, baseMeta("Shift Coverage"));
         break;
       }
       case "workHours": {
         const cols: ExportColumn<ShiftReportData["userWorkHours"][number]>[] = [
-          { header: "DBA (Username)", value: (r) => r.username },
-          { header: "Total Worked Hours", value: (r) => `${r.total_hours} hrs (${Math.floor(r.total_minutes / 60)}h ${r.total_minutes % 60}m)` },
-          { header: "Total Sessions", value: (r) => r.total_sessions },
-          { header: "Completed Sessions", value: (r) => r.completed_sessions },
-          { header: "Active Sessions", value: (r) => r.active_sessions },
-          { header: "Avg Session (min)", value: (r) => r.avg_session_minutes },
-          { header: "Shift 1 Hours", value: (r) => r.shift1_hours },
-          { header: "Shift 2 Hours", value: (r) => r.shift2_hours },
-          { header: "Shift 3 Hours", value: (r) => r.shift3_hours },
-          { header: "General Shift Hours", value: (r) => r.shift4_hours },
-          { header: "Last Login At", value: (r) => r.last_login_at ? formatDateTime(r.last_login_at) : "—" }
+          { header: "DBA (Username)", value: (r) => r.username, align: "left" },
+          { header: "Total Worked Hours", value: (r) => `${r.total_hours} hrs (${Math.floor(r.total_minutes / 60)}h ${r.total_minutes % 60}m)`, align: "right" },
+          { header: "Total Sessions", value: (r) => r.total_sessions, align: "right" },
+          { header: "Completed Sessions", value: (r) => r.completed_sessions, align: "right" },
+          { header: "Active Sessions", value: (r) => r.active_sessions, align: "right" },
+          { header: "Avg Session (min)", value: (r) => r.avg_session_minutes, align: "right" },
+          { header: "Shift 1 Hours", value: (r) => r.shift1_hours, align: "right" },
+          { header: "Shift 2 Hours", value: (r) => r.shift2_hours, align: "right" },
+          { header: "Shift 3 Hours", value: (r) => r.shift3_hours, align: "right" },
+          { header: "General Shift Hours", value: (r) => r.shift4_hours, align: "right" },
+          { header: "Last Login At", value: (r) => (r.last_login_at ? formatDateTime(r.last_login_at) : "—"), align: "center" }
         ];
         exportDataset(format, cols, report.userWorkHours, baseMeta("Total Worked Hours per User"));
         break;
       }
       case "shiftCounts": {
         const cols: ExportColumn<(typeof userShiftCounts)[number]>[] = [
-          { header: "User / DBA", value: (r) => r.username },
-          { header: "Role", value: (r) => r.role || "" },
-          { header: "Morning Shift Completed", value: (r) => r.shift1_completed },
-          { header: "Afternoon Shift Completed", value: (r) => r.shift2_completed },
-          { header: "Night Shift Completed", value: (r) => r.shift3_completed },
-          { header: "General Shift Completed", value: (r) => r.shift4_completed },
-          { header: "Total Completed Shifts", value: (r) => r.total_completed }
+          { header: "User / DBA", value: (r) => r.username, align: "left" },
+          { header: "Role", value: (r) => r.role || "", align: "left" },
+          { header: "Morning Shift Completed", value: (r) => r.shift1_completed, align: "center" },
+          { header: "Afternoon Shift Completed", value: (r) => r.shift2_completed, align: "center" },
+          { header: "Night Shift Completed", value: (r) => r.shift3_completed, align: "center" },
+          { header: "General Shift Completed", value: (r) => r.shift4_completed, align: "center" },
+          { header: "Total Completed Shifts", value: (r) => r.total_completed, align: "center" }
         ];
         exportDataset(format, cols, userShiftCounts, baseMeta("User Completed Shifts Breakdown"));
         break;
@@ -546,10 +634,12 @@ export function ShiftReportSection() {
         <Card>
           <CardContent className="py-4">
             <div className="flex flex-wrap items-end gap-3">
+              <Skeleton className="h-10 w-36 rounded-md" />
+              <Skeleton className="h-10 w-32 rounded-md" />
               <Skeleton className="h-10 w-40 rounded-md" />
               <Skeleton className="h-10 w-40 rounded-md" />
               <Skeleton className="h-10 w-44 rounded-md" />
-              <Skeleton className="h-10 w-32 rounded-md" />
+              <Skeleton className="h-10 w-40 rounded-md" />
               <Skeleton className="h-10 w-24 rounded-md" />
             </div>
           </CardContent>
@@ -594,12 +684,44 @@ export function ShiftReportSection() {
         <CardContent className="py-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Month</Label>
+              <Select value={selectedMonth} onValueChange={(val) => handleMonthYearChange(val, selectedYear)}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Select Month" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Select Month</SelectItem>
+                  {MONTH_OPTIONS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Year</Label>
+              <Select value={selectedYear} onValueChange={(val) => handleMonthYearChange(selectedMonth, val)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Select Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Select Year</SelectItem>
+                  {yearOptions.map((y) => (
+                    <SelectItem key={y} value={y}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">From</Label>
-              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-40" />
+              <Input type="date" value={fromDate} onChange={(e) => handleDateInputChange(e.target.value, toDate)} className="w-40" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">To</Label>
-              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-40" />
+              <Input type="date" value={toDate} onChange={(e) => handleDateInputChange(fromDate, e.target.value)} className="w-40" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">DBA</Label>
@@ -635,6 +757,19 @@ export function ShiftReportSection() {
             <Button onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Apply
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (report) {
+                  exportFullShiftReportPdf(report, userShiftCounts, baseMeta("Full Executive Shift Report"));
+                }
+              }}
+              disabled={loading || !report}
+              className="ml-auto gap-1.5 border-red-500/30 bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-300"
+            >
+              <FileText className="h-4 w-4 text-red-500" />
+              Export Full PDF Report
             </Button>
           </div>
         </CardContent>

@@ -154,7 +154,7 @@ export default function LoginPage() {
                   </span>
                 </p>
                 <span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-bold text-slate-500 shadow-sm">
-                  v3
+                  v3.6
                 </span>
               </div>
               <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
