@@ -16,7 +16,7 @@ import {
   FileText,
   Loader2,
   RefreshCw,
-  ShieldCheck,
+  RotateCcw,
   TrendingUp,
   UserCheck,
   Users
@@ -269,6 +269,22 @@ export function ShiftReportSection() {
     const match = getMatchingMonthYear(newFrom, newTo);
     setSelectedMonth(match.month);
     setSelectedYear(match.year);
+  };
+
+  const handleResetFilters = () => {
+    const defaultFrom = defaultFromDate();
+    const defaultTo = todayStr();
+    setFromDate(defaultFrom);
+    setToDate(defaultTo);
+    const match = getMatchingMonthYear(defaultFrom, defaultTo);
+    setSelectedMonth(match.month);
+    setSelectedYear(match.year);
+    setDbaUserId("all");
+    setShiftNumber("all");
+    setTimelineEvent("all");
+    setTimelineSearch("");
+    setTimelineSearchInput("");
+    setTimelinePage(1);
   };
 
   // Activity timeline — client-driven pagination + filters (server-side)
@@ -675,8 +691,6 @@ export function ShiftReportSection() {
     );
   }
 
-  const overallCompliance = report.checklistCompletion.completion_pct;
-
   return (
     <div className="dba-fade-in space-y-6">
       {/* Filters */}
@@ -758,6 +772,10 @@ export function ShiftReportSection() {
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Apply
             </Button>
+            <Button variant="outline" onClick={handleResetFilters} disabled={loading} className="gap-1.5">
+              <RotateCcw className="h-4 w-4 text-muted-foreground" />
+              Reset
+            </Button>
             <Button
               variant="outline"
               onClick={() => {
@@ -776,13 +794,13 @@ export function ShiftReportSection() {
       </Card>
 
       {/* Executive Summary & Operational Health — Combined in a single row */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-6">
-        {/* Executive summary — 4 columns */}
-        <div className="space-y-3 lg:col-span-4">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Executive summary — 3 columns */}
+        <div className="space-y-3">
           <div className="space-y-1">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Executive Summary</h2>
           </div>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <MetricCard
               icon={Users}
               label="Active DBAs Now"
@@ -798,13 +816,6 @@ export function ShiftReportSection() {
               accent="cyan"
             />
             <MetricCard
-              icon={ShieldCheck}
-              label="Checklist Compliance"
-              value={`${overallCompliance}%`}
-              sublabel={`${report.checklistCompletion.completed}/${report.checklistCompletion.total} checks`}
-              accent={overallCompliance >= 90 ? "green" : "amber"}
-            />
-            <MetricCard
               icon={AlertTriangle}
               label="Exceptions"
               value={report.lateLogins.length + report.pendingHandovers.length}
@@ -814,12 +825,16 @@ export function ShiftReportSection() {
           </div>
         </div>
 
-        {/* Operational health — 2 columns */}
-        <div className="space-y-3 lg:col-span-2">
+        {/* Operational health — 3 columns */}
+        <div className="space-y-3">
           <div className="space-y-1">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Operational Health</h2>
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <CompletionCard
+              title="Checklist Compliance"
+              data={report.checklistCompletion}
+            />
             <CompletionCard
               title="DB Availability Checks"
               data={report.dbStatusCompletion}
@@ -966,10 +981,13 @@ export function ShiftReportSection() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Calendar className="h-4 w-4 text-cyan-400" />
-              Daily Attendance
-            </CardTitle>
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar className="h-4 w-4 text-cyan-400" />
+                Daily Attendance
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Range: {periodLabel}</p>
+            </div>
             <ExportMenu label="Attendance" onExport={(fmt) => handleExport("attendance", fmt)} />
           </CardHeader>
           <CardContent>
@@ -1001,10 +1019,13 @@ export function ShiftReportSection() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TrendingUp className="h-4 w-4 text-cyan-400" />
-              Monthly Attendance
-            </CardTitle>
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="h-4 w-4 text-cyan-400" />
+                Monthly Attendance
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Range: {periodLabel}</p>
+            </div>
           </CardHeader>
           <CardContent>
             {report.monthlyAttendance.length === 0 ? (

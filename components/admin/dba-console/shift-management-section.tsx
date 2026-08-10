@@ -1312,6 +1312,7 @@ export function ShiftManagementSection() {
                         <Input
                           value={lateComment}
                           onChange={(e) => setLateComment(e.target.value)}
+                          placeholder="Enter reason for late login..."
                           className="border-amber-500/40 bg-background/50 focus-visible:ring-amber-500/50"
                         />
                       </div>

@@ -28,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetchShiftSessionLogs } from "@/services/api";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime, toIstDateString, toIstDateStringOffset } from "@/lib/utils";
 import type { NotificationPayload, ShiftSession } from "@/types/dba";
 
 function formatShiftDuration(loginAt: string, logoutAt?: string): string {
@@ -106,16 +106,21 @@ export function ShiftLogHistorySection({
   const [showLogsHistory, setShowLogsHistory] = useState(false);
   const [logsPage, setLogsPage] = useState(0);
   const logsPageSize = hideViewFullHistoryButton ? pageSize : 10;
-  const [logsDateFrom, setLogsDateFrom] = useState<string>("");
-  const [logsDateTo, setLogsDateTo] = useState<string>("");
+  const defaultFromDate = useMemo(() => toIstDateStringOffset(new Date(), -30), []);
+  const defaultToDate = useMemo(() => toIstDateString(), []);
+
+  const [logsDateFrom, setLogsDateFrom] = useState<string>(() => defaultFromDate);
+  const [logsDateTo, setLogsDateTo] = useState<string>(() => defaultToDate);
 
   const loadSessionLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
-      const limit = hideViewFullHistoryButton ? 500 : 50;
+      const effectiveFromDate = fromDate || logsDateFrom;
+      const effectiveToDate = toDate || logsDateTo;
+      const limit = 500;
       const result = await fetchShiftSessionLogs(limit, {
-        fromDate,
-        toDate,
+        fromDate: effectiveFromDate || undefined,
+        toDate: effectiveToDate || undefined,
         dbaUserId,
         shiftNumber
       });
@@ -125,7 +130,7 @@ export function ShiftLogHistorySection({
     } finally {
       setLogsLoading(false);
     }
-  }, [fromDate, toDate, dbaUserId, shiftNumber, hideViewFullHistoryButton]);
+  }, [fromDate, toDate, logsDateFrom, logsDateTo, dbaUserId, shiftNumber]);
 
   useEffect(() => {
     setLogsPage(0);
@@ -207,8 +212,8 @@ export function ShiftLogHistorySection({
                 size="sm"
                 onClick={() => {
                   setLogsPage(0);
-                  setLogsDateFrom("");
-                  setLogsDateTo("");
+                  setLogsDateFrom(toIstDateStringOffset(new Date(), -30));
+                  setLogsDateTo(toIstDateString());
                   setShowLogsHistory(true);
                 }}
               >
@@ -480,7 +485,7 @@ export function ShiftLogHistorySection({
               </div>
 
               {/* Clear Filters */}
-              {(logsSearch || logsStatusFilter !== "ALL" || logsDateFrom || logsDateTo) && (
+              {(logsSearch || logsStatusFilter !== "ALL" || logsDateFrom !== defaultFromDate || logsDateTo !== defaultToDate) && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -488,8 +493,8 @@ export function ShiftLogHistorySection({
                   onClick={() => {
                     setLogsSearch("");
                     setLogsStatusFilter("ALL");
-                    setLogsDateFrom("");
-                    setLogsDateTo("");
+                    setLogsDateFrom(toIstDateStringOffset(new Date(), -30));
+                    setLogsDateTo(toIstDateString());
                     setLogsPage(0);
                   }}
                 >
