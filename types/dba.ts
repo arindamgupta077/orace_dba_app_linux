@@ -543,6 +543,7 @@ export interface AppUser {
   userId: number;
   username: string;
   email: string;
+  psid?: string | null;
   role: AppUserRole;
   isActive: boolean;
   mustChangePassword: boolean;

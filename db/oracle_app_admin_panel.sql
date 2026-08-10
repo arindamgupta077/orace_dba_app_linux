@@ -57,6 +57,21 @@ END;
 ALTER TABLE app_users ADD CONSTRAINT app_users_must_change_pw_ck
   CHECK (must_change_password IN ('Y', 'N'));
 
+DECLARE
+  v_psid_column_count NUMBER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_psid_column_count
+  FROM user_tab_columns
+  WHERE table_name = 'APP_USERS'
+    AND column_name = 'PSID';
+
+  IF v_psid_column_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE app_users ADD (psid VARCHAR2(64 CHAR))';
+  END IF;
+END;
+/
+
 --------------------------------------------------------------------------------
 -- Bootstrap requested admin user.
 -- Replace the value prompted for INITIAL_PASSWORD when SQL*Plus asks for it.

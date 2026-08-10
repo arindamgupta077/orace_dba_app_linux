@@ -686,7 +686,7 @@ export function ShiftReportSection() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <CompletionCard
-              title="PROD Database Availability Completion"
+              title="DB Availability Checks"
               data={report.dbStatusCompletion}
             />
             <CompletionCard
@@ -1012,7 +1012,7 @@ export function ShiftReportSection() {
           {userShiftCounts.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No user shift data found.</p>
           ) : (
-            <div className="max-h-[320px] overflow-y-auto">
+            <div className="max-h-[450px] overflow-y-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

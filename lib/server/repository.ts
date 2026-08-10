@@ -222,6 +222,7 @@ function mapAppUserRow(row: DbRow): AppUser {
     userId: Number(row.USER_ID),
     username: String(row.USERNAME),
     email: String(row.EMAIL || ""),
+    psid: row.PSID ? String(row.PSID) : null,
     role: mapUserRole(row.ROLE),
     isActive: String(row.IS_ACTIVE || "N") === "Y",
     mustChangePassword: String(row.MUST_CHANGE_PASSWORD || "N") === "Y",
@@ -962,6 +963,7 @@ export async function clearLoginLockout(userId: number) {
 export interface CreateAppUserInput {
   username: string;
   email: string;
+  psid: string;
   role: AppUserRole;
   initialPassword: string;
   isActive?: boolean;
@@ -971,14 +973,19 @@ export interface UpdateAppUserInput {
   userId: number;
   username: string;
   email: string;
+  psid?: string | null;
   role: AppUserRole;
   isActive: boolean;
 }
 
-function normalizeAppUserInput(input: { username: string; email: string; role: string }) {
+function normalizeAppUserInput(
+  input: { username: string; email: string; role: string; psid?: string | null },
+  isCreate = false
+) {
   const username = normalizeUsername(input.username);
   const email = input.email.trim().toLowerCase();
   const role = input.role.trim().toLowerCase();
+  const psid = input.psid !== undefined && input.psid !== null ? input.psid.trim() : "";
 
   if (!username || username.length > 128) {
     throw new Error("Username is required and must be 128 characters or fewer.");
@@ -986,11 +993,17 @@ function normalizeAppUserInput(input: { username: string; email: string; role: s
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
     throw new Error("Enter a valid email address.");
   }
+  if (isCreate && !psid) {
+    throw new Error("PSID is a mandatory field for creating a new user.");
+  }
+  if (psid && psid.length > 64) {
+    throw new Error("PSID must be 64 characters or fewer.");
+  }
   if (!isAppUserRole(role)) {
     throw new Error("Invalid role.");
   }
 
-  return { username, email, role };
+  return { username, email, role, psid: psid || null };
 }
 
 async function countActiveAdmins(connection: Connection) {
@@ -1010,6 +1023,7 @@ export async function listAppUsers(): Promise<AppUser[]> {
          user_id,
          username,
          email,
+         psid,
          role,
          is_active,
          must_change_password,
@@ -1545,7 +1559,7 @@ export async function deleteDatabaseInventory(id: number): Promise<void> {
 }
 
 export async function createAppUser(input: CreateAppUserInput): Promise<AppUser> {
-  const normalized = normalizeAppUserInput(input);
+  const normalized = normalizeAppUserInput(input, true);
   if (input.initialPassword.length < 8 || input.initialPassword.length > 128) {
     throw new Error("Initial password must be between 8 and 128 characters.");
   }
@@ -1570,6 +1584,7 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
       `INSERT INTO app_users (
          username,
          email,
+         psid,
          password_salt,
          password_hash,
          role,
@@ -1579,6 +1594,7 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
        ) VALUES (
          :username,
          :email,
+         :psid,
          :passwordSalt,
          :passwordHash,
          :role,
@@ -1589,6 +1605,7 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
       {
         username: normalized.username,
         email: normalized.email,
+        psid: normalized.psid,
         passwordSalt,
         passwordHash,
         role: normalized.role,
@@ -1602,6 +1619,7 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
          user_id,
          username,
          email,
+         psid,
          role,
          is_active,
          must_change_password,
@@ -1621,7 +1639,7 @@ export async function createAppUser(input: CreateAppUserInput): Promise<AppUser>
 }
 
 export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser> {
-  const normalized = normalizeAppUserInput(input);
+  const normalized = normalizeAppUserInput(input, false);
 
   return executeOne(async (connection) => {
     const existingResult = await connection.execute<DbRow>(
@@ -1664,6 +1682,7 @@ export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser>
       `UPDATE app_users
        SET username = :username,
            email = :email,
+           psid = :psid,
            role = :role,
            is_active = :isActive,
            locked_until = CASE WHEN :isActive = 'Y' THEN locked_until ELSE NULL END,
@@ -1672,6 +1691,7 @@ export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser>
       {
         username: normalized.username,
         email: normalized.email,
+        psid: normalized.psid,
         role: normalized.role,
         isActive: nextActive ? "Y" : "N",
         userId: input.userId
@@ -1684,6 +1704,7 @@ export async function updateAppUser(input: UpdateAppUserInput): Promise<AppUser>
          user_id,
          username,
          email,
+         psid,
          role,
          is_active,
          must_change_password,
@@ -2298,7 +2319,7 @@ export async function getAppUserById(userId: number): Promise<AppUser | null> {
   return executeOne(async (connection) => {
     const result = await connection.execute<DbRow>(
       `SELECT
-         user_id, username, email, role, is_active,
+         user_id, username, email, psid, role, is_active,
          must_change_password, failed_login_count, locked_until,
          last_login_at, created_at, updated_at
        FROM app_users

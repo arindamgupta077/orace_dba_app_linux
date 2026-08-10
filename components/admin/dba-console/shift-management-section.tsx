@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Download,
+  FileSpreadsheet,
   FileText,
   Filter,
   History,
@@ -46,6 +48,7 @@ import {
   acknowledgeHandover,
   fetchCurrentShift,
   fetchHandoverHistory,
+  fetchShiftSessionLogs,
   overrideHandoverApi,
   shiftCancel,
   shiftLogin,
@@ -57,6 +60,9 @@ import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime } from "@/lib/utils";
 import { isLateLogin } from "@/lib/server/shift-utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
+// xlsx-js-style: drop-in xlsx replacement with full cell-style support
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSXStyle = require("xlsx-js-style") as typeof import("xlsx-js-style");
 
 const GENERAL_SHIFT_NUMBER = 4;
 const SHIFT_LABELS: Record<number, string> = {
@@ -181,6 +187,10 @@ export function ShiftManagementSection() {
   const [historyDateFilter, setHistoryDateFilter] = useState<string>("");
   // Controls whether the author's handover edit panel is expanded (for PENDING / ACKNOWLEDGED states).
   const [isEditingHandover, setIsEditingHandover] = useState(false);
+  // Shift Roster Download state
+  const [rosterFromDate, setRosterFromDate] = useState<string>("");
+  const [rosterToDate, setRosterToDate] = useState<string>("");
+  const [rosterLoading, setRosterLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -425,6 +435,285 @@ export function ShiftManagementSection() {
       toast.error(error instanceof Error ? error.message : "Override failed.");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Shift Roster Download
+  // ---------------------------------------------------------------------------
+  const handleDownloadRoster = async () => {
+    if (!rosterFromDate || !rosterToDate) {
+      toast.error("Please select both From Date and To Date.");
+      return;
+    }
+    if (rosterFromDate > rosterToDate) {
+      toast.error("From Date must be before or equal to To Date.");
+      return;
+    }
+    const maxDays = 62;
+    const fromMs  = new Date(rosterFromDate).getTime();
+    const toMs    = new Date(rosterToDate).getTime();
+    const daysDiff = Math.round((toMs - fromMs) / 86_400_000) + 1;
+    if (daysDiff > maxDays) {
+      toast.error(`Date range is too large. Maximum ${maxDays} days per download.`);
+      return;
+    }
+    setRosterLoading(true);
+    try {
+      const { sessions } = await fetchShiftSessionLogs(1000, {
+        fromDate: rosterFromDate,
+        toDate: rosterToDate
+      });
+
+      // -----------------------------------------------------------------------
+      // 1.  Build date → shift → usernames[] map
+      // -----------------------------------------------------------------------
+      const dateShiftMap: Record<string, Record<number, string[]>> = {};
+      for (const s of sessions) {
+        const date = s.shift_date ?? s.login_at?.slice(0, 10);
+        if (!date) continue;
+        if (!dateShiftMap[date]) dateShiftMap[date] = {};
+        if (!dateShiftMap[date][s.shift_number]) dateShiftMap[date][s.shift_number] = [];
+        if (!dateShiftMap[date][s.shift_number].includes(s.username))
+          dateShiftMap[date][s.shift_number].push(s.username);
+      }
+
+      // -----------------------------------------------------------------------
+      // 2.  Assign a distinct pastel colour to every unique DBA username
+      // -----------------------------------------------------------------------
+      const USER_PALETTE = [
+        "C9DAF8", // cornflower blue
+        "D9EAD3", // sage green
+        "FFF2CC", // pale yellow
+        "F4CCCC", // rose
+        "EAD1DC", // mauve
+        "D9D2E9", // lavender
+        "B7D7A8", // mint
+        "9FC5E8", // sky blue
+        "EA9999", // salmon
+        "FFE5CC", // peach
+        "A9C4D4", // steel blue
+        "B4A7D6", // purple
+        "F9CB9C", // apricot
+        "FFE599", // lemon
+        "CDEAE3", // aqua
+        "F6B26B", // orange
+        "76A5AF", // teal
+        "E6B8A2", // tan
+      ];
+      const uniqueUsers = Array.from(
+        new Set(sessions.map(s => s.username))
+      ).sort();
+      const userColorMap: Record<string, string> = {};
+      uniqueUsers.forEach((u, i) => {
+        userColorMap[u] = USER_PALETTE[i % USER_PALETTE.length];
+      });
+
+      // -----------------------------------------------------------------------
+      // 3.  Calendar dates list
+      // -----------------------------------------------------------------------
+      const dates: string[] = [];
+      const cur = new Date(rosterFromDate);
+      const end = new Date(rosterToDate);
+      while (cur <= end) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      const DAY_ABBR    = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const MONTH_NAMES = ["January","February","March","April","May","June",
+        "July","August","September","October","November","December"];
+
+      const fromD = new Date(rosterFromDate);
+      const toD   = new Date(rosterToDate);
+      const titleMonths =
+        fromD.getMonth() === toD.getMonth() && fromD.getFullYear() === toD.getFullYear()
+          ? `${MONTH_NAMES[fromD.getMonth()]} ${fromD.getFullYear()}`
+          : `${MONTH_NAMES[fromD.getMonth()]} – ${MONTH_NAMES[toD.getMonth()]} ${toD.getFullYear()}`;
+      const title = `${titleMonths} Roaster - DBA Team`;
+
+      // -----------------------------------------------------------------------
+      // 4.  Build rows (AoA)  — simplified shift labels
+      // -----------------------------------------------------------------------
+      const SHIFT_ROW_LABELS: Record<number, string> = {
+        1: "Morning Shift",
+        2: "Afternoon Shift",
+        3: "Night Shift",
+        4: "General Shift",
+      };
+      // Label column background per shift (keeps row identity readable)
+      const SHIFT_LABEL_BG: Record<number, string> = {
+        1: "C6EFCE", // green
+        2: "FFEB9C", // yellow
+        3: "E2CFEE", // purple
+        4: "DCE6F1", // blue
+      };
+      const SHIFT_LABEL_FG: Record<number, string> = {
+        1: "006100",
+        2: "9C5700",
+        3: "5C3C7A",
+        4: "1F3864",
+      };
+
+      const LABEL_COL = "";
+      const titleRow   = [title,    ...dates.map(() => "")];
+      const dayNumRow  = [LABEL_COL,...dates.map(d => new Date(d).getDate())];
+      const weekdayRow = [LABEL_COL,...dates.map(d => DAY_ABBR[new Date(d).getDay()])];
+
+      const shiftDataRow = (shiftNum: number) => [
+        SHIFT_ROW_LABELS[shiftNum],
+        ...dates.map(d => {
+          const names = dateShiftMap[d]?.[shiftNum];
+          return names && names.length > 0 ? names.join(" / ") : "";
+        })
+      ];
+
+      // Only 4 shift rows — footer rows (Off, Leave, etc.) removed
+      const aoa = [
+        titleRow,
+        dayNumRow,
+        weekdayRow,
+        shiftDataRow(1),   // row 3
+        shiftDataRow(2),   // row 4
+        shiftDataRow(3),   // row 5
+        shiftDataRow(4),   // row 6
+      ];
+
+      const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+
+      // -----------------------------------------------------------------------
+      // 5.  Column widths & row heights
+      // -----------------------------------------------------------------------
+      ws["!cols"] = [
+        { wch: 18 },
+        ...dates.map(() => ({ wch: 13 }))
+      ];
+      ws["!rows"] = [
+        { hpt: 22 }, // title
+        { hpt: 20 }, // day numbers / Shift Name label
+        { hpt: 16 }, // weekday abbr
+        { hpt: 28 }, // Morning
+        { hpt: 28 }, // Afternoon
+        { hpt: 28 }, // Night
+        { hpt: 28 }, // General
+      ];
+
+      // -----------------------------------------------------------------------
+      // 6.  Merge title across all columns  +  merge "Shift Name" label (rows 1-2, col 0)
+      // -----------------------------------------------------------------------
+      ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: dates.length } }, // title row
+        { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }            // "Shift Name" label
+      ];
+
+      // -----------------------------------------------------------------------
+      // 7.  Helper: ensure cell exists, then apply style
+      // -----------------------------------------------------------------------
+      const enc = (r: number, c: number) => XLSXStyle.utils.encode_cell({ r, c });
+      const applyStyle = (r: number, c: number, style: Record<string, unknown>) => {
+        const addr = enc(r, c);
+        if (!ws[addr]) ws[addr] = { t: "s", v: "" };
+        (ws[addr] as Record<string, unknown>).s = style;
+      };
+      // Write "Shift Name" text into the merged label cell (col 0, rows 1-2)
+      ws[enc(1, 0)] = { t: "s", v: "Shift Name" };
+
+      // -----------------------------------------------------------------------
+      // 8.  Style: Title row
+      // -----------------------------------------------------------------------
+      const sTitle = {
+        font: { bold: true, sz: 13, color: { rgb: "1F3864" } },
+        fill: { patternType: "solid", fgColor: { rgb: "BDD7EE" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: { bottom: { style: "thin", color: { rgb: "AAAAAA" } } }
+      };
+      for (let c = 0; c <= dates.length; c++) applyStyle(0, c, sTitle);
+
+      // -----------------------------------------------------------------------
+      // 9.  Style: Day-number row (row 1) & Weekday row (row 2)
+      // -----------------------------------------------------------------------
+      // Shared thin border used by every cell in the table
+      const thinBorder = {
+        top:    { style: "thin", color: { rgb: "AAAAAA" } },
+        bottom: { style: "thin", color: { rgb: "AAAAAA" } },
+        left:   { style: "thin", color: { rgb: "AAAAAA" } },
+        right:  { style: "thin", color: { rgb: "AAAAAA" } }
+      };
+      const sDayLabel = {
+        font: { bold: true, sz: 9 },
+        fill: { patternType: "solid", fgColor: { rgb: "D9D9D9" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      };
+      const sDayWeekend = {
+        font: { bold: true, sz: 9, color: { rgb: "9C0006" } },
+        fill: { patternType: "solid", fgColor: { rgb: "F2DCDB" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      };
+      // "Shift Name" merged label (col 0, rows 1-2)
+      applyStyle(1, 0, {
+        font: { bold: true, sz: 9, color: { rgb: "1F3864" } },
+        fill: { patternType: "solid", fgColor: { rgb: "D9D9D9" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      });
+      for (let c = 1; c <= dates.length; c++) {
+        const dow = new Date(dates[c - 1]).getDay();
+        const isWeekend = dow === 0 || dow === 6;
+        applyStyle(1, c, isWeekend ? sDayWeekend : sDayLabel);
+        applyStyle(2, c, isWeekend ? sDayWeekend : sDayLabel);
+      }
+
+      // -----------------------------------------------------------------------
+      // 10.  Style: Shift data rows (3-6)
+      //       • Label column  → shift-type colour
+      //       • Data cells    → user's personal colour (or empty-cell style)
+      // -----------------------------------------------------------------------
+      const sEmptyCell = {
+        fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: thinBorder
+      };
+      const shiftRowMap: [number, number][] = [[1, 3], [2, 4], [3, 5], [4, 6]];
+      for (const [shiftNum, rowIdx] of shiftRowMap) {
+        // Label cell
+        applyStyle(rowIdx, 0, {
+          font: { bold: true, sz: 9, color: { rgb: SHIFT_LABEL_FG[shiftNum] } },
+          fill: { patternType: "solid", fgColor: { rgb: SHIFT_LABEL_BG[shiftNum] } },
+          alignment: { vertical: "center" },
+          border: thinBorder
+        });
+        // Data cells
+        for (let c = 1; c <= dates.length; c++) {
+          const date  = dates[c - 1];
+          const names = dateShiftMap[date]?.[shiftNum];
+          if (names && names.length > 0) {
+            const firstUser = names[0];
+            const userBg    = userColorMap[firstUser] ?? "FFFFFF";
+            applyStyle(rowIdx, c, {
+              font: { bold: true, sz: 9, color: { rgb: "000000" } },
+              fill: { patternType: "solid", fgColor: { rgb: userBg } },
+              alignment: { horizontal: "center", vertical: "center", wrapText: true },
+              border: thinBorder
+            });
+          } else {
+            applyStyle(rowIdx, c, sEmptyCell);
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 11.  Write workbook (single sheet — no DBA Legend)
+      // -----------------------------------------------------------------------
+      const wb = XLSXStyle.utils.book_new();
+      XLSXStyle.utils.book_append_sheet(wb, ws, "Shift Roster");
+      XLSXStyle.writeFile(wb, `Shift_Roster_${rosterFromDate}_to_${rosterToDate}.xlsx`);
+      toast.success(`Shift Roster downloaded — ${dates.length} days, ${sessions.length} sessions, ${uniqueUsers.length} DBA(s).`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate roster.");
+    } finally {
+      setRosterLoading(false);
     }
   };
 
@@ -1049,6 +1338,82 @@ export function ShiftManagementSection() {
 
       {/* Shift Login & Logout Log History */}
       <ShiftLogHistorySection />
+
+      {/* ----------------------------------------------------------------- */}
+      {/* Shift Roster Download                                             */}
+      {/* ----------------------------------------------------------------- */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+            Shift Roster Download
+          </CardTitle>
+          <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="text-xs font-medium text-emerald-300">Excel</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Description */}
+            <p className="text-xs text-muted-foreground">
+              Download a colour-coded Excel shift roster for any date range. Each shift
+              (Morning, Afternoon, Night &amp; General) is shown as a separate row with
+              the DBA name(s) logged in on each day.
+            </p>
+
+
+            {/* Date range inputs */}
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  From Date
+                </Label>
+                <Input
+                  type="date"
+                  value={rosterFromDate}
+                  onChange={(e) => setRosterFromDate(e.target.value)}
+                  className="h-9 w-44 text-xs"
+                  max={rosterToDate || undefined}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  To Date
+                </Label>
+                <Input
+                  type="date"
+                  value={rosterToDate}
+                  onChange={(e) => setRosterToDate(e.target.value)}
+                  className="h-9 w-44 text-xs"
+                  min={rosterFromDate || undefined}
+                />
+              </div>
+              <Button
+                onClick={() => void handleDownloadRoster()}
+                disabled={rosterLoading || !rosterFromDate || !rosterToDate}
+                className="h-9 gap-2 bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {rosterLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {rosterLoading ? "Generating…" : "Download Shift Roster"}
+              </Button>
+            </div>
+
+            {/* Hint */}
+            <p className="text-[11px] text-muted-foreground/70">
+              Maximum 62 days per download. Weekends are highlighted automatically.
+              Multiple DBAs on the same shift/day appear separated by &quot;/&quot;.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
 
       {/* Edit Handover Notes dialog — opens when author clicks Edit on an existing handover */}
       <Dialog open={isEditingHandover && !!mySession} onOpenChange={(open) => {

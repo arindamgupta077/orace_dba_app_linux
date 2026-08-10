@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 interface CreateUserBody {
   username?: string;
   email?: string;
+  psid?: string;
   role?: AppUserRole;
   initialPassword?: string;
   isActive?: boolean;
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
     const user = await createAppUser({
       username: String(body.username || ""),
       email: String(body.email || ""),
+      psid: String(body.psid || ""),
       role: String(body.role || "client") as AppUserRole,
       initialPassword: String(body.initialPassword || ""),
       isActive: body.isActive !== false

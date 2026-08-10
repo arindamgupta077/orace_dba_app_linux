@@ -162,6 +162,7 @@ export async function fetchAppUsers() {
 export async function createAppUser(input: {
   username: string;
   email: string;
+  psid: string;
   role: AppUserRole;
   initialPassword: string;
   isActive: boolean;
@@ -177,6 +178,7 @@ export async function updateAppUser(
   input: {
     username: string;
     email: string;
+    psid?: string | null;
     role: AppUserRole;
     isActive: boolean;
   }

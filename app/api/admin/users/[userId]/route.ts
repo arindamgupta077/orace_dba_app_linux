@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 interface UpdateUserBody {
   username?: string;
   email?: string;
+  psid?: string;
   role?: AppUserRole;
   isActive?: boolean;
 }
@@ -61,6 +62,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       userId,
       username: String(body.username || ""),
       email: String(body.email || ""),
+      psid: body.psid !== undefined ? String(body.psid) : undefined,
       role: nextRole,
       isActive: nextActive
     });
@@ -75,6 +77,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       const fieldMap: Array<{ field: string; oldVal: string; newVal: string }> = [
         { field: "username", oldVal: oldUser.username, newVal: user.username },
         { field: "email", oldVal: oldUser.email, newVal: user.email },
+        { field: "psid", oldVal: oldUser.psid || "", newVal: user.psid || "" },
         { field: "role", oldVal: oldUser.role, newVal: user.role },
         { field: "is_active", oldVal: String(oldUser.isActive), newVal: String(user.isActive) }
       ];

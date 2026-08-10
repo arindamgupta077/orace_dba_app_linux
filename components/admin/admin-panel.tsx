@@ -74,6 +74,7 @@ const ROLE_FILTER_OPTIONS: Array<{ value: RoleFilter; label: string }> = [
 interface UserFormState {
   username: string;
   email: string;
+  psid: string;
   role: AppUserRole;
   isActive: boolean;
   initialPassword: string;
@@ -82,6 +83,7 @@ interface UserFormState {
 const emptyForm: UserFormState = {
   username: "",
   email: "",
+  psid: "",
   role: "client",
   isActive: true,
   initialPassword: ""
@@ -192,7 +194,7 @@ export function AdminPanel() {
     const normalized = query.trim().toLowerCase();
     if (normalized) {
       result = result.filter((user) =>
-        [user.username, user.email, user.role]
+        [user.username, user.email, user.psid || "", user.role]
           .join(" ")
           .toLowerCase()
           .includes(normalized)
@@ -223,6 +225,7 @@ export function AdminPanel() {
     setForm({
       username: user.username,
       email: user.email,
+      psid: user.psid || "",
       role: user.role,
       isActive: user.isActive,
       initialPassword: ""
@@ -246,6 +249,7 @@ export function AdminPanel() {
       const response = await createAppUser({
         username: form.username,
         email: form.email,
+        psid: form.psid,
         role: form.role,
         isActive: form.isActive,
         initialPassword: form.initialPassword
@@ -270,6 +274,7 @@ export function AdminPanel() {
       const response = await updateAppUser(editingUser.userId, {
         username: form.username,
         email: form.email,
+        psid: form.psid,
         role: form.role,
         isActive: form.isActive
       });
@@ -348,6 +353,18 @@ export function AdminPanel() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
+          <Label htmlFor={`${mode}-psid`}>
+            PSID {mode === "create" && <span className="text-red-500 font-semibold">*</span>}
+          </Label>
+          <Input
+            id={`${mode}-psid`}
+            value={form.psid}
+            onChange={(event) => updateForm("psid", event.target.value)}
+            maxLength={64}
+            required={mode === "create"}
+          />
+        </div>
+        <div className="space-y-2">
           <Label>Role</Label>
           <Select value={form.role} onValueChange={(value) => updateForm("role", value as AppUserRole)}>
             <SelectTrigger>
@@ -362,7 +379,10 @@ export function AdminPanel() {
             </SelectContent>
           </Select>
         </div>
-        <label className="flex min-h-[38px] items-center gap-3 self-end rounded-md border border-border/70 bg-background/30 px-3 py-2 text-sm cursor-pointer hover:bg-accent/40 transition-colors">
+      </div>
+
+      <div className="flex items-center pt-1">
+        <label className="flex min-h-[38px] w-full items-center gap-3 rounded-md border border-border/70 bg-background/30 px-3 py-2 text-sm cursor-pointer hover:bg-accent/40 transition-colors">
           <input
             type="checkbox"
             checked={form.isActive}
@@ -571,6 +591,9 @@ export function AdminPanel() {
                         User
                       </TableHead>
                       <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        PSID
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                         Role
                       </TableHead>
                       <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
@@ -598,6 +621,9 @@ export function AdminPanel() {
                               <Skeleton className="h-3 w-36" />
                             </div>
                           </div>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <Skeleton className="h-4 w-16" />
                         </TableCell>
                         <TableCell className="py-3 px-4">
                           <Skeleton className="h-5 w-20 rounded-full" />
@@ -630,6 +656,9 @@ export function AdminPanel() {
                     <TableRow className="hover:bg-transparent border-b border-border/60">
                       <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                         User
+                      </TableHead>
+                      <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                        PSID
                       </TableHead>
                       <TableHead className="py-3 px-4 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                         Role
@@ -673,6 +702,17 @@ export function AdminPanel() {
                                 <div className="text-xs text-muted-foreground truncate font-mono">{user.email}</div>
                               </div>
                             </div>
+                          </TableCell>
+
+                          {/* PSID */}
+                          <TableCell className="py-3 px-4 text-xs font-mono">
+                            {user.psid ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted/70 text-foreground font-mono text-xs border border-border/50">
+                                {user.psid}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/40 italic">—</span>
+                            )}
                           </TableCell>
 
                           {/* Role */}

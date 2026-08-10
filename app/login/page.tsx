@@ -168,7 +168,7 @@ export default function LoginPage() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            Enterprise DBA Portal Online
+            ITSS DBA Portal Online
           </span>
         </div>
       </header>
@@ -189,9 +189,9 @@ export default function LoginPage() {
             </div>
 
             <h1 className="mt-4 max-w-xl text-balance text-[1.9rem] font-bold leading-[1.1] tracking-tight text-slate-900 xl:text-[2.3rem]">
-              Enterprise command center for your{" "}
+              Next-Gen Control Center for your{" "}
               <span className="bg-gradient-to-r from-red-600 via-rose-600 to-orange-500 bg-clip-text text-transparent">
-                Oracle database estate
+                Oracle Database Estate
               </span>
             </h1>
 
