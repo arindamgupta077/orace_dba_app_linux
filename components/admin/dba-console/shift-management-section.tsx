@@ -59,14 +59,14 @@ import {
 } from "@/services/api";
 import { ShiftLogHistorySection } from "@/components/admin/dba-console/shift-log-history-section";
 import { useAppStore } from "@/store/use-app-store";
-import { cn, formatDateTime, formatTime } from "@/lib/utils";
+import { cn, formatDateTime, formatTime, toIstDateString } from "@/lib/utils";
 import { isLateLogin } from "@/lib/server/shift-utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
 // xlsx-js-style: drop-in xlsx replacement with full cell-style support
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const XLSXStyle = require("xlsx-js-style") as typeof import("xlsx-js-style");
+import XLSXStyle from "xlsx-js-style";
 
 const GENERAL_SHIFT_NUMBER = 4;
+
 const SHIFT_LABELS: Record<number, string> = {
   1: "Shift 1 (07:00 - 15:30)",
   2: "Shift 2 (14:30 - 23:00)",
@@ -76,15 +76,35 @@ const SHIFT_LABELS: Record<number, string> = {
 
 const REFRESH_INTERVAL_MS = 30_000;
 
-/** Computes default date range: 1st of current month to today's date (YYYY-MM-DD) */
+/**
+ * Computes default date range for Shift Roster and Shift Allowance downloads:
+ * - On 1st to 3rd of every month: 1st date of previous month to last date of previous month.
+ * - On 4th of the month onwards: 1st date of current month to current date.
+ */
 function getDefaultDateRange(): { fromDate: string; toDate: string } {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+  const istDateStr = toIstDateString();
+  const [yearStr, monthStr, dayStr] = istDateStr.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const dayOfMonth = Number(dayStr);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  if (dayOfMonth >= 1 && dayOfMonth <= 3) {
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const lastDayObj = new Date(year, month - 1, 0);
+    const lastDay = lastDayObj.getDate();
+
+    return {
+      fromDate: `${prevYear}-${pad(prevMonth)}-01`,
+      toDate: `${prevYear}-${pad(prevMonth)}-${pad(lastDay)}`
+    };
+  }
+
   return {
-    fromDate: `${year}-${month}-01`,
-    toDate: `${year}-${month}-${day}`
+    fromDate: `${yearStr}-${monthStr}-01`,
+    toDate: istDateStr
   };
 }
 

@@ -26,9 +26,20 @@ async function requireAdmin() {
   return { session, response: null };
 }
 
+async function requireAdminOrDbaAdmin() {
+  const session = await requireAuthenticatedSession();
+  if (!session) {
+    return { session: null, response: NextResponse.json({ message: "Unauthorized." }, { status: 401 }) };
+  }
+  if (session.user.role !== "app_admin" && session.user.role !== "dba_admin") {
+    return { session: null, response: NextResponse.json({ message: "Admin role required." }, { status: 403 }) };
+  }
+  return { session, response: null };
+}
+
 export async function GET() {
   try {
-    const auth = await requireAdmin();
+    const auth = await requireAdminOrDbaAdmin();
     if (auth.response) return auth.response;
 
     const users = await listAppUsers();

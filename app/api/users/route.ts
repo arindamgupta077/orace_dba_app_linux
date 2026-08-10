@@ -16,8 +16,8 @@ export async function GET(request: Request) {
     if (!session) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
     }
-    if (session.user.role !== "app_admin") {
-      return NextResponse.json({ message: "App admin role required." }, { status: 403 });
+    if (session.user.role !== "app_admin" && session.user.role !== "dba_admin") {
+      return NextResponse.json({ message: "Admin role required." }, { status: 403 });
     }
 
     const url = new URL(request.url);
