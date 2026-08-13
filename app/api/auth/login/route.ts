@@ -123,7 +123,8 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       user,
-      expiresAt: session.expiresAt
+      expiresAt: session.expiresAt,
+      absoluteExpiresAt: session.absoluteExpiresAt
     });
     setSessionCookie(response, session.rawToken, session.expiresAt);
     return response;

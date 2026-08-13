@@ -94,6 +94,8 @@ interface SessionRecord {
   userId: number;
   user: UserSession;
   expiresAt: string;
+  absoluteExpiresAt: string;
+  lastActivityAt: string;
 }
 
 interface PersistRunDataInput {
@@ -1869,14 +1871,24 @@ export async function clearMustChangePasswordByResetToken(resetToken: string) {
 }
 
 export async function createSession(userId: number, authMode: AuthMode, rememberSession: boolean, ipAddress?: string, userAgent?: string) {
-  const { rememberSessionTtlDays, sessionTtlHours } = getServerEnv();
+  const { rememberSessionTtlDays, sessionTtlHours, sessionAbsoluteTimeoutHours } = getServerEnv();
   const rawToken = generateSessionToken();
   const hashedToken = hashSessionToken(rawToken);
+
+  // Compute the absolute hard cap — always based on the configured absolute timeout.
+  const absoluteExpiresAt = new Date();
+  absoluteExpiresAt.setHours(absoluteExpiresAt.getHours() + sessionAbsoluteTimeoutHours);
+
+  // The "soft" expires_at is the lesser of the legacy TTL and the absolute cap.
   const expiresAt = new Date();
   if (rememberSession) {
     expiresAt.setDate(expiresAt.getDate() + rememberSessionTtlDays);
   } else {
     expiresAt.setHours(expiresAt.getHours() + sessionTtlHours);
+  }
+  // Cap expires_at at the absolute limit — session can never outlive the hard cap.
+  if (expiresAt.getTime() > absoluteExpiresAt.getTime()) {
+    expiresAt.setTime(absoluteExpiresAt.getTime());
   }
 
   await executeOne(async (connection) => {
@@ -1887,14 +1899,18 @@ export async function createSession(userId: number, authMode: AuthMode, remember
          auth_mode,
          expires_at,
          ip_address,
-         user_agent
+         user_agent,
+         absolute_expires_at,
+         last_activity_at
        ) VALUES (
          :sessionTokenHash,
          :userId,
          :authMode,
          :expiresAt,
          :ipAddress,
-         :userAgent
+         :userAgent,
+         :absoluteExpiresAt,
+         SYSTIMESTAMP
        )`,
       {
         sessionTokenHash: hashedToken,
@@ -1902,23 +1918,39 @@ export async function createSession(userId: number, authMode: AuthMode, remember
         authMode,
         expiresAt,
         ipAddress: ipAddress ? ipAddress.slice(0, 64) : null,
-        userAgent: userAgent ? userAgent.slice(0, 512) : null
+        userAgent: userAgent ? userAgent.slice(0, 512) : null,
+        absoluteExpiresAt
       },
       { autoCommit: true }
     );
   });
 
-  return { rawToken, expiresAt: expiresAt.toISOString() };
+  return {
+    rawToken,
+    expiresAt: expiresAt.toISOString(),
+    absoluteExpiresAt: absoluteExpiresAt.toISOString()
+  };
 }
 
 export async function getSessionByToken(sessionToken: string): Promise<SessionRecord | null> {
   if (!sessionToken) return null;
 
+  const { sessionInactivityTimeoutMinutes } = getServerEnv();
   const tokenHash = hashSessionToken(sessionToken);
   return executeOne(async (connection) => {
     // Try the joined query first (preferences table present).  If the
     // app_user_preferences table hasn't been created yet (ORA-00942),
     // fall back to the base session query and default the theme to 'dark'.
+    //
+    // Session validity conditions:
+    //   1. Not revoked
+    //   2. Not past expires_at (legacy / soft expiry)
+    //   3. Not past absolute_expires_at (hard 24-hour cap)
+    //   4. Not idle longer than inactivity timeout
+    //   5. User is active
+    const inactivityFilter = `AND (s.last_activity_at IS NULL OR s.last_activity_at > SYSTIMESTAMP - INTERVAL '${Math.round(sessionInactivityTimeoutMinutes)}' MINUTE)`;
+    const absoluteFilter = `AND (s.absolute_expires_at IS NULL OR s.absolute_expires_at > SYSTIMESTAMP)`;
+
     let result;
     let preferencesJoined = true;
     try {
@@ -1927,6 +1959,8 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
             s.user_id,
             s.auth_mode,
             s.expires_at,
+            s.absolute_expires_at,
+            s.last_activity_at,
             u.username,
             u.role,
             p.theme_preference
@@ -1936,6 +1970,8 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
           WHERE s.session_token_hash = :sessionTokenHash
             AND s.revoked_at IS NULL
             AND s.expires_at > SYSTIMESTAMP
+            ${absoluteFilter}
+            ${inactivityFilter}
             AND u.is_active = 'Y'`,
         { sessionTokenHash: tokenHash }
       );
@@ -1947,6 +1983,8 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
             s.user_id,
             s.auth_mode,
             s.expires_at,
+            s.absolute_expires_at,
+            s.last_activity_at,
             u.username,
             u.role
           FROM app_sessions s
@@ -1954,6 +1992,8 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
           WHERE s.session_token_hash = :sessionTokenHash
             AND s.revoked_at IS NULL
             AND s.expires_at > SYSTIMESTAMP
+            ${absoluteFilter}
+            ${inactivityFilter}
             AND u.is_active = 'Y'`,
         { sessionTokenHash: tokenHash }
       );
@@ -1963,9 +2003,15 @@ export async function getSessionByToken(sessionToken: string): Promise<SessionRe
     if (!row) return null;
 
     const userId = Number(row.USER_ID);
+    const expiresAt = toIsoString(row.EXPIRES_AT);
+    const absoluteExpiresAt = row.ABSOLUTE_EXPIRES_AT ? toIsoString(row.ABSOLUTE_EXPIRES_AT) : expiresAt;
+    const lastActivityAt = row.LAST_ACTIVITY_AT ? toIsoString(row.LAST_ACTIVITY_AT) : new Date().toISOString();
+
     return {
       userId,
-      expiresAt: toIsoString(row.EXPIRES_AT),
+      expiresAt,
+      absoluteExpiresAt,
+      lastActivityAt,
       user: {
         username: String(row.USERNAME),
         userId,
@@ -1991,6 +2037,26 @@ export async function revokeSession(sessionToken: string) {
       { autoCommit: true }
     );
   });
+}
+
+/**
+ * Update last_activity_at for a session (by hashed token).
+ * Only updates if the session is still valid and not past the absolute cap.
+ * Returns true if the row was updated.
+ */
+export async function touchSessionActivity(sessionTokenHash: string): Promise<boolean> {
+  const result = await executeOne(async (connection) => {
+    return connection.execute(
+      `UPDATE app_sessions
+       SET last_activity_at = SYSTIMESTAMP
+       WHERE session_token_hash = :tokenHash
+         AND revoked_at IS NULL
+         AND (absolute_expires_at IS NULL OR absolute_expires_at > SYSTIMESTAMP)`,
+      { tokenHash: sessionTokenHash },
+      { autoCommit: true }
+    );
+  });
+  return ((result as { rowsAffected?: number })?.rowsAffected ?? 0) > 0;
 }
 
 const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow", "expdp", "impdp", "db_monitoring", "test_connection"]);

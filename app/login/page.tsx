@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   DatabaseZap,
@@ -67,6 +67,29 @@ function postLoginPath(role: string) {
   return role === "dba_admin" ? "/dba-console/shift-management" : "/dashboard";
 }
 
+function SessionExpiryToast() {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const reason = searchParams.get("reason");
+    if (reason === "session_expired") {
+      toast.info("Session expired", {
+        description: "Your session has expired. Please log in again.",
+        duration: 8000
+      });
+    } else if (reason === "session_inactive") {
+      toast.info("Logged out due to inactivity", {
+        description: "You were logged out due to inactivity. Please log in again.",
+        duration: 8000
+      });
+    }
+    if (reason) {
+      window.history.replaceState({}, "", "/login");
+    }
+  }, [searchParams]);
+
+  return null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAppStore((state) => state.setUser);
@@ -128,6 +151,9 @@ export default function LoginPage() {
 
   return (
     <main className="enterprise-grid relative flex min-h-screen flex-col overflow-hidden bg-slate-50/70 animate-grid-flow">
+      <Suspense fallback={null}>
+        <SessionExpiryToast />
+      </Suspense>
       {/* Background ambient glows */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(239,68,68,0.06),transparent_42%),radial-gradient(circle_at_88%_82%,rgba(14,116,144,0.05),transparent_42%),radial-gradient(circle_at_50%_120%,rgba(249,115,22,0.05),transparent_55%)]" />
 

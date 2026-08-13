@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { getServerEnv } from "@/lib/server/env";
-import { getSessionByToken } from "@/lib/server/repository";
+import { getSessionByToken, touchSessionActivity } from "@/lib/server/repository";
+import { hashSessionToken } from "@/lib/server/security";
 import type { UserSession } from "@/types/dba";
 
 export interface AuthenticatedSession {
@@ -12,6 +13,8 @@ export interface AuthenticatedSession {
   token: string;
   user: UserSession;
   expiresAt: string;
+  absoluteExpiresAt: string;
+  lastActivityAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +83,9 @@ export async function requireAuthenticatedSession(): Promise<AuthenticatedSessio
     userId: session.userId,
     token,
     user: session.user,
-    expiresAt: session.expiresAt
+    expiresAt: session.expiresAt,
+    absoluteExpiresAt: session.absoluteExpiresAt,
+    lastActivityAt: session.lastActivityAt
   };
 
   sessionCache.set(token, { result, cachedAt: now });
@@ -89,6 +94,28 @@ export async function requireAuthenticatedSession(): Promise<AuthenticatedSessio
   if (sessionCache.size > 200) pruneSessionCache();
 
   return result;
+}
+
+/**
+ * Touch the session's last_activity_at timestamp (DB + cache).
+ * Returns true if the session was successfully touched.
+ * This never extends the absolute session timeout.
+ */
+export async function touchSession(token: string): Promise<boolean> {
+  const tokenHash = hashSessionToken(token);
+  const ok = await touchSessionActivity(tokenHash);
+  if (!ok) return false;
+
+  // Update the cached entry so subsequent reads see fresh activity.
+  const cached = sessionCache.get(token);
+  if (cached) {
+    cached.result = {
+      ...cached.result,
+      lastActivityAt: new Date().toISOString()
+    };
+    cached.cachedAt = Date.now();
+  }
+  return true;
 }
 
 export function setSessionCookie(response: NextResponse, token: string, expiresAtIso: string) {

@@ -20,19 +20,22 @@ import {
   TrendingUp,
   UserCog
 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ActiveDbaPill } from "@/components/layout/active-dba-pill";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { SessionWarningModal } from "@/components/layout/session-warning-modal";
 import { WorkflowStatusModal } from "@/components/layout/workflow-status-modal";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DatabaseSelector } from "@/components/visual/database-selector";
 import { SecurityPostureCard } from "@/components/security-posture/security-posture-card";
 import { useTheme } from "@/components/providers/theme-provider";
-import { fetchCurrentSession, fetchDatabases, logoutSession } from "@/services/api";
+import { clearAuthAndRedirect } from "@/lib/auth-client";
+import { fetchCurrentSession, fetchDatabases } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { useNotificationStream } from "@/hooks/use-notification-stream";
+import { useSessionGuard, type SessionGuardConfig } from "@/hooks/use-session-guard";
 import { cn } from "@/lib/utils";
 
 // Pages accessible by the "client" role (all others are restricted to dba_admin / app_admin)
@@ -151,6 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+  const [sessionGuardConfig, setSessionGuardConfig] = useState<SessionGuardConfig | null>(null);
 
   const isNonDbRoute = pathname.startsWith("/admin-panel") || pathname.startsWith("/audit") || pathname.startsWith("/dba-console") || pathname.startsWith("/notifications");
   const isClient = user?.role === "client";
@@ -182,6 +186,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (session.user.themePreference) {
           setTheme(session.user.themePreference, { persistRemote: false });
         }
+
+        // Configure the session guard with server-authoritative timeout values.
+        const sConfig = (session as Record<string, unknown>).sessionConfig as
+          | { inactivityTimeoutMs?: number; absoluteTimeoutMs?: number; warningBeforeMs?: number }
+          | undefined;
+        const absoluteExpiresAtIso = (session as Record<string, unknown>).absoluteExpiresAt as string | undefined;
+        setSessionGuardConfig({
+          absoluteExpiresAt: absoluteExpiresAtIso
+            ? new Date(absoluteExpiresAtIso).getTime()
+            : Date.now() + (sConfig?.absoluteTimeoutMs ?? 24 * 60 * 60 * 1000),
+          inactivityTimeoutMs: sConfig?.inactivityTimeoutMs,
+          warningBeforeMs: sConfig?.warningBeforeMs
+        });
+
         fetchDatabases({ selectorOnly: true })
           .then((response) => {
             if (active) setDatabases(response.databases);
@@ -200,15 +218,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [setDatabases, setUser, setTheme]);
 
-  const logout = async () => {
-    try {
-      await logoutSession();
-    } catch {
-      // Ignore API logout errors and force local sign-out.
-    }
+  // Session guard — enforces inactivity and absolute session timeouts.
+  const activeConfig = useMemo(() => (user ? sessionGuardConfig : null), [user, sessionGuardConfig]);
+  const { showWarning, warningSecondsLeft, dismissWarning } = useSessionGuard(activeConfig);
+
+  const handleSessionWarningLogout = useCallback(() => {
     setUser(undefined);
-    router.push("/login");
-  };
+    void clearAuthAndRedirect("session_inactive");
+  }, [setUser]);
+
+  const logout = useCallback(async () => {
+    setUser(undefined);
+    void clearAuthAndRedirect("manual");
+  }, [setUser]);
 
   if (authChecking) {
     return (
@@ -370,6 +392,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SidebarContent onNavigate={() => setMobileOpen(false)} />
         </DialogContent>
       </Dialog>
+
+      {/* Session timeout warning modal */}
+      <SessionWarningModal
+        open={showWarning}
+        secondsLeft={warningSecondsLeft}
+        onContinue={dismissWarning}
+        onLogout={handleSessionWarningLogout}
+      />
     </div>
   );
 }

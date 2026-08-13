@@ -13,6 +13,9 @@ interface ServerEnv {
   sessionCookieName: string;
   sessionTtlHours: number;
   rememberSessionTtlDays: number;
+  sessionInactivityTimeoutMinutes: number;
+  sessionAbsoluteTimeoutHours: number;
+  sessionWarningBeforeMinutes: number;
   securityPostureUploadDir: string;
   securityPostureWebhookUrl: string;
   securityPostureWebhookToken: string;
@@ -66,6 +69,9 @@ export function getServerEnv(): ServerEnv {
     sessionCookieName: process.env.APP_SESSION_COOKIE_NAME?.trim() || "dba_session",
     sessionTtlHours: parsePositiveNumber("APP_SESSION_TTL_HOURS", 8),
     rememberSessionTtlDays: parsePositiveNumber("APP_SESSION_REMEMBER_TTL_DAYS", 30),
+    sessionInactivityTimeoutMinutes: parsePositiveNumber("APP_SESSION_INACTIVITY_TIMEOUT_MINUTES", 60),
+    sessionAbsoluteTimeoutHours: parsePositiveNumber("APP_SESSION_ABSOLUTE_TIMEOUT_HOURS", 24),
+    sessionWarningBeforeMinutes: parsePositiveNumber("APP_SESSION_WARNING_BEFORE_MINUTES", 5),
     securityPostureUploadDir: process.env.SECURITY_POSTURE_UPLOAD_DIR?.trim() || "./uploads/nessus-reports",
     securityPostureWebhookUrl: process.env.SECURITY_POSTURE_N8N_WEBHOOK_URL?.trim() || "",
     securityPostureWebhookToken: process.env.SECURITY_POSTURE_N8N_WEBHOOK_TOKEN?.trim() || "",

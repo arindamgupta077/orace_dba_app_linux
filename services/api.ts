@@ -72,7 +72,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
     if (response.status === 401 && !isAuthProbe) {
       const { clearAuthAndRedirect } = await import("@/lib/auth-client");
-      await clearAuthAndRedirect();
+      await clearAuthAndRedirect("session_expired");
     }
 
     const message =
