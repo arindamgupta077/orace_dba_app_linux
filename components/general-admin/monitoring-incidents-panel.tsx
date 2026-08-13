@@ -111,6 +111,7 @@ export function MonitoringIncidentsPanel() {
       setIncidents((prev) =>
         prev.map((inc) => (inc.incident_id === incidentId ? incident : inc))
       );
+      window.dispatchEvent(new CustomEvent("dba-monitoring-incident"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to acknowledge incident");
     } finally {
@@ -145,6 +146,7 @@ export function MonitoringIncidentsPanel() {
           );
         }
       }
+      window.dispatchEvent(new CustomEvent("dba-monitoring-incident"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to check status");
     } finally {

@@ -370,6 +370,7 @@ function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
     os: normalizeDatabaseOs(row.OPERATING_SYSTEM),
     db_type: normalizeDatabaseType(row.DATABASE_TYPE),
     security_posture_outdated: String(row.SECURITY_POSTURE_OUTDATED || "N").toUpperCase() === "Y",
+    incident_status: row.INCIDENT_STATUS ? String(row.INCIDENT_STATUS).trim().toUpperCase() : undefined,
     server_name: row.SERVER_NAME ? String(row.SERVER_NAME) : undefined,
     server_ip: row.SERVER_IP ? String(row.SERVER_IP) : undefined,
     zone: row.ZONE ? String(row.ZONE) : undefined,
@@ -1072,6 +1073,13 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
        d.database_type,
        d.status,
        d.environment_label,
+       (
+         SELECT i.incident_status
+         FROM app_db_monitoring_incidents i
+         WHERE UPPER(i.db_name) = UPPER(d.database_name)
+         ORDER BY i.last_reported DESC, i.created_at DESC
+         FETCH FIRST 1 ROWS ONLY
+       ) AS incident_status,
        d.server_type,
        d.db_version,
        d.db_edition,
@@ -1107,6 +1115,9 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
     if (input.selectorOnly && (input.role === "dba_admin" || input.role === "client")) {
       filters.push("d.enable_access = 'Y'");
     }
+    if (input.selectorOnly) {
+      filters.push("LOWER(d.status) NOT IN ('decommissioned', 'decomissioned', 'inactive')");
+    }
     if (input.prodOnly) {
       filters.push("d.environment_label = 'PROD'");
     }
@@ -1133,6 +1144,13 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
              AND r.is_active = 'Y'
              AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
          ) THEN 'Y' ELSE 'N' END AS security_posture_outdated,
+         (
+           SELECT i.incident_status
+           FROM app_db_monitoring_incidents i
+           WHERE UPPER(i.db_name) = UPPER(d.database_name)
+           ORDER BY i.last_reported DESC, i.created_at DESC
+           FETCH FIRST 1 ROWS ONLY
+         ) AS incident_status,
          d.server_type,
          d.db_version,
          d.db_edition,
@@ -1213,6 +1231,13 @@ d.server_name,
         d.database_type,
         d.status,
         d.environment_label,
+        (
+          SELECT i.incident_status
+          FROM app_db_monitoring_incidents i
+          WHERE UPPER(i.db_name) = UPPER(d.database_name)
+          ORDER BY i.last_reported DESC, i.created_at DESC
+          FETCH FIRST 1 ROWS ONLY
+        ) AS incident_status,
         d.server_type,
         d.db_version,
         d.db_edition,

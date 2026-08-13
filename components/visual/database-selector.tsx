@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { DatabaseTarget } from "@/types/dba";
+import type { DatabaseTarget, NotificationPayload } from "@/types/dba";
 import { DatabaseZap, Building2, Cpu, ShieldAlert, Search, X, Loader2 } from "lucide-react";
 import {
   Select,
@@ -103,6 +103,10 @@ export function DatabaseSelector() {
   const logicalDatabases = useMemo(() => {
     const seenNames = new Set<string>();
     return databases.filter((database) => {
+      const status = (database.status || "").trim().toLowerCase();
+      if (status === "decommissioned" || status === "decomissioned" || status === "inactive") {
+        return false;
+      }
       const key = database.name.trim().toUpperCase();
       if (seenNames.has(key)) return false;
       seenNames.add(key);
@@ -145,6 +149,32 @@ export function DatabaseSelector() {
 
   useEffect(() => {
     void refreshDatabaseStatuses();
+
+    const handleNotification = (e: Event) => {
+      const customEv = e as CustomEvent<NotificationPayload>;
+      const detail = customEv.detail;
+      if (
+        !detail ||
+        detail.type === "db_monitoring" ||
+        (detail as unknown as Record<string, unknown>).alertType === "db_monitoring" ||
+        (detail.title && detail.title.toLowerCase().includes("monitoring")) ||
+        (detail.message && detail.message.toLowerCase().includes("monitoring"))
+      ) {
+        void refreshDatabaseStatuses();
+      }
+    };
+
+    const handleMonitoringUpdate = () => {
+      void refreshDatabaseStatuses();
+    };
+
+    window.addEventListener("dba-notification", handleNotification);
+    window.addEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+
+    return () => {
+      window.removeEventListener("dba-notification", handleNotification);
+      window.removeEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -163,17 +193,18 @@ export function DatabaseSelector() {
     }
   };
 
-  const getStatusDotStyle = (status?: string) => {
-    switch (status?.toLowerCase()) {
-      case "active":
-      case "healthy":
-        return "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]";
-      case "inactive":
-      case "warning":
-        return "bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.7)]";
-      default:
-        return "bg-rose-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]";
+  const getStatusDotStyle = (db?: DatabaseTarget) => {
+    const incStatus = (db?.incident_status || "").trim().toUpperCase();
+    const dbStatus = (db?.status || "").trim().toUpperCase();
+    if (
+      incStatus === "DOWN" ||
+      incStatus === "ACKNOWLEDGED" ||
+      dbStatus === "DOWN" ||
+      dbStatus === "ACKNOWLEDGED"
+    ) {
+      return "bg-rose-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]";
     }
+    return "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]";
   };
 
   // Group and sort databases strictly environment back-to-back
@@ -286,7 +317,7 @@ export function DatabaseSelector() {
 
             {selected && (
               <span className="flex items-center gap-1 shrink-0 ml-1">
-                <span className={cn("h-2 w-2 rounded-full", getStatusDotStyle(selected.status))} />
+                <span className={cn("h-2 w-2 rounded-full", getStatusDotStyle(selected))} />
               </span>
             )}
           </div>
@@ -408,7 +439,7 @@ export function DatabaseSelector() {
                             )}
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
-                            <span className={cn("h-2 w-2 rounded-full shrink-0", getStatusDotStyle(db.status))} />
+                            <span className={cn("h-2 w-2 rounded-full shrink-0", getStatusDotStyle(db))} />
                           </div>
                         </div>
 

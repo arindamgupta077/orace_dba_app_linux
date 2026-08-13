@@ -437,6 +437,8 @@ export interface DatabaseTarget {
   db_type: DbType;
   /** True when the active Nessus security-posture report exceeds the configured refresh age. */
   security_posture_outdated: boolean;
+  /** Latest monitoring incident status from app_db_monitoring_incidents (e.g. 'DOWN') */
+  incident_status?: string;
   server_name?: string;
   server_ip?: string;
   zone?: string;

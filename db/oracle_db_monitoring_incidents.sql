@@ -5,6 +5,8 @@ WHENEVER SQLERROR EXIT FAILURE ROLLBACK;
 -- Database Monitoring Incidents Table
 -- Tracks database availability incidents reported by n8n.
 -- Lifecycle: DOWN → ACKNOWLEDGED → RESOLVED
+-- Note: When the latest incident_status for a database is 'DOWN' or 'ACKNOWLEDGED',
+-- the global database selector displays a red status indicator dot.
 -- ============================================================
 
 DECLARE

@@ -249,6 +249,7 @@ BEGIN
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_role CHECK (database_role IN ('Primary', 'Standby', 'Reporting'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_type CHECK (database_type IN ('Standalone', 'RAC', 'Dataguard', 'Active Dataguard', 'RAC & Datagaurd'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_enable_access CHECK (enable_access IN ('Y', 'N'))]');
+  -- Global DB selector dropdown queries exclude 'inactive' and 'decomissioned'/'decommissioned' databases.
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_status CHECK (status IN ('active', 'inactive', 'decomissioned'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_env_label CHECK (environment_label IN ('PROD', 'DEV', 'UAT', 'DR'))]');
   add_constraint_ignore_exists(q'[ALTER TABLE database_inventory ADD CONSTRAINT ck_db_inventory_location CHECK (location IN ('SDC', 'KDC'))]');
