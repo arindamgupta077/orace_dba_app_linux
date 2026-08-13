@@ -137,6 +137,7 @@ export const useAppStore = create<AppState>()(
               title: item.title || oldItem.title,
               message: item.message || oldItem.message,
               targetPath: item.targetPath || oldItem.targetPath,
+              timestamp: oldItem.timestamp || item.timestamp,
               read: isRead,
               readBy,
               readAt

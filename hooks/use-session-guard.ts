@@ -212,7 +212,7 @@ export function useSessionGuard(
       });
     }
 
-    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"] as const;
+    const events = ["mousedown", "keydown", "touchstart", "scroll", "click"] as const;
     for (const evt of events) {
       window.addEventListener(evt, onDomActivity, { passive: true });
     }
