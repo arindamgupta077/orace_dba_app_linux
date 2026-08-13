@@ -555,7 +555,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
               <div>
                 <DialogTitle className="text-lg font-semibold">Oracle Data Pump Export (EXPDP)</DialogTitle>
                 <DialogDescription className="text-xs">
-                  Configure export parameters — n8n builds and executes the expdp command on the Oracle server.
+                  Configure export parameters — agent builds and executes the expdp command on the Oracle server.
                 </DialogDescription>
               </div>
             </div>

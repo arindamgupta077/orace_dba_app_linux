@@ -25,7 +25,7 @@ export function RmanDashboard() {
     <div>
       <PageHeader
         title="RMAN Backup Dashboard"
-        description="Execute on-demand RMAN backups with dynamic script generation, and query backup history with flexible date-range filtering."
+        description="On-demand RMAN backups with dynamic scripts and date-filtered backup history."
         icon={ArchiveRestore}
       />
 
@@ -47,16 +47,15 @@ export function RmanDashboard() {
                   Action
                 </p>
                 <h2 className="mt-0.5 text-xl font-bold text-amber-100 tracking-tight">
-                  Take RMAN Backup
+                  Initiate RMAN Backup
                 </h2>
               </div>
             </div>
 
             {/* Description */}
             <p className="text-sm leading-6 text-muted-foreground">
-              Trigger an on-demand RMAN backup. The n8n workflow dynamically builds
-              and executes the RMAN script on your Oracle server via SSH — including
-              maintenance commands, compression, channel parallelism, and controlfile backup.
+              Trigger an on-demand RMAN backup with automated script execution,
+              maintenance, compression, parallel channels, and controlfile backup.
             </p>
 
             {/* Feature pills */}

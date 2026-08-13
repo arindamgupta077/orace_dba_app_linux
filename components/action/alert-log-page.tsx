@@ -333,7 +333,7 @@ function FallbackRawTable({ rawRows }: { rawRows: Record<string, unknown>[] }) {
     <div className="overflow-x-auto rounded-xl border border-amber-400/30 bg-amber-400/5">
       <div className="flex items-center gap-2 border-b border-amber-400/20 px-3 py-2">
         <span className="text-[11px] text-amber-300 font-semibold">
-          ⚠ Column mapping not matched — showing {rawRows.length} raw row{rawRows.length > 1 ? "s" : ""} from n8n
+          ⚠ Column mapping not matched — showing {rawRows.length} raw row{rawRows.length > 1 ? "s" : ""} from agent
         </span>
       </div>
       <table className="w-full text-xs">
@@ -1217,7 +1217,7 @@ function Section2() {
       {loading && (
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Querying n8n…
+          Querying agent…
         </div>
       )}
 
@@ -1527,7 +1527,7 @@ function Section3() {
       {loading && (
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Fetching log lines from n8n…
+          Fetching log lines from agent…
         </div>
       )}
 
@@ -1623,7 +1623,7 @@ export function AlertLogPage() {
         id="alert-notifications"
         icon={<Bell className="h-5 w-5" />}
         title="Alert Notification System"
-        subtitle="Oracle ORA- errors captured by n8n every 15 minutes — stored in dba_alert_log"
+        subtitle="Oracle ORA- errors captured by agent every 15 minutes — stored in dba_alert_log"
       >
         <Section1 />
       </SectionPanel>
@@ -1633,7 +1633,7 @@ export function AlertLogPage() {
         id="alert-by-time"
         icon={<Clock className="h-5 w-5" />}
         title="Check Alert by Time Range"
-        subtitle="Query v$diag_alert_ext via n8n for a custom time window"
+        subtitle="Query v$diag_alert_ext via agent for a custom time window"
       >
         <Section2 />
       </SectionPanel>
@@ -1643,7 +1643,7 @@ export function AlertLogPage() {
         id="alert-by-lines"
         icon={<Terminal className="h-5 w-5" />}
         title="Check Alert Log — Last N Lines"
-        subtitle="Fetch latest alert log lines via PowerShell Get-Content through n8n"
+        subtitle="Fetch latest alert log lines via PowerShell Get-Content through agent"
       >
         <Section3 />
       </SectionPanel>

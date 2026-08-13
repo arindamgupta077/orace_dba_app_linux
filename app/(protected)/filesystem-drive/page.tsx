@@ -23,7 +23,7 @@ export default function FilesystemDrivePage() {
   const action = {
     ...baseAction,
     title: `Check ${isWindows ? "Drive" : "Filesystem"} utilization status`,
-    description: `Run an on-demand ${targetLabel} utilization check through n8n SSH automation.`
+    description: `Run an on-demand ${targetLabel} utilization check through agent SSH automation.`
   };
 
   const openAction = (definition: DbaActionDefinition) => {

@@ -690,7 +690,7 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
           <div className="space-y-5">
             <div className="rounded-xl border border-violet-400/20 bg-violet-400/5 px-4 py-3">
               <p className="text-xs font-semibold text-violet-300">
-                n8n will fetch the latest dump file from target database server ({selectedDb}) via SSH
+                Agent will fetch the latest dump file from target database server ({selectedDb}) via SSH
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 The file name will be auto-populated below. You can edit it if needed.

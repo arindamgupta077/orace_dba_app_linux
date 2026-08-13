@@ -5526,6 +5526,10 @@ async function fetchChecklistCompletion(
     checkBinds.shiftNumber = filters.shiftNumber;
     checkConditions.push("shift_number = :shiftNumber");
   }
+  if (type === "db") {
+    // General Shift (shift 4) personnel do not perform DB availability checks.
+    checkConditions.push("shift_number != 4");
+  }
   const checkWhere = checkConditions.length ? `WHERE ${checkConditions.join(" AND ")}` : "";
 
   // The same date/shift scope applied to app_shift_sessions (alias s) so we can derive
@@ -5543,6 +5547,10 @@ async function fetchChecklistCompletion(
   if (filters.shiftNumber) {
     sessBinds.shiftNumber = filters.shiftNumber;
     sessConditions.push("s.shift_number = :shiftNumber");
+  }
+  if (type === "db") {
+    // General Shift (shift 4) personnel do not perform DB availability checks.
+    sessConditions.push("s.shift_number != 4");
   }
   const sessWhere = sessConditions.length ? `WHERE ${sessConditions.join(" AND ")}` : "";
 

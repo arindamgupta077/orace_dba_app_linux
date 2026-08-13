@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   Code2,
   HardDrive,
   Layers,
@@ -203,25 +202,13 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
               <HardDrive className="h-5 w-5 text-amber-600 dark:text-amber-300" />
             </div>
             <div>
-              <DialogTitle className="text-lg">Take RMAN Backup</DialogTitle>
+              <DialogTitle className="text-lg">RMAN Backup</DialogTitle>
               <DialogDescription>
-                Configure and launch an on-demand RMAN backup. The job runs in the background — you can navigate freely or close the app.
+                Launch RMAN backups in the background while you navigate freely or close the app.
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
-
-        {/* Background-mode info banner */}
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 dark:bg-amber-400/5 px-4 py-3 text-sm text-amber-950 dark:text-amber-200">
-          <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <div>
-            <p className="font-semibold text-foreground">Runs in the background</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              After clicking <strong>Execute Backup</strong> the modal closes immediately. The backup continues on the Oracle server via n8n even if you navigate away.
-              Track progress and results in the <strong>Background Backup Jobs</strong> panel on this page or via the notification bell.
-            </p>
-          </div>
-        </div>
 
         {/* Configuration */}
         <div className="space-y-4">
@@ -321,7 +308,7 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 dark:bg-amber-400/5 px-4 py-3">
                 <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                   <Wrench className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  Pre-backup maintenance commands included by n8n:
+                  Pre-backup maintenance commands included by the agent:
                 </p>
                 <p className="mt-1.5 text-xs text-muted-foreground font-mono leading-5">
                   CROSSCHECK BACKUP → DELETE NOPROMPT OBSOLETE → DELETE NOPROMPT EXPIRED BACKUP<br />
