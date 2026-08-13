@@ -81,7 +81,7 @@ const MOCK_METRICS: DashboardMetrics = {
   captured_at: new Date(Date.now() - 1000 * 60 * 3).toISOString()
 };
 
-function generateMockSnapshots(db: string): DashboardHistoryRow[] {
+function generateMockSnapshots(db: string, environmentLabel: string = "PROD"): DashboardHistoryRow[] {
   const now = Date.now();
   const offsets = [
     { minsAgo: 5, user: "ARINDAM", active: 29, cpu: 45.2, blockers: 1, fraPct: 46.3 },
@@ -118,7 +118,7 @@ function generateMockSnapshots(db: string): DashboardHistoryRow[] {
     return {
       id: 100 - index,
       db_name: db,
-      environment: "PROD",
+      environment: environmentLabel,
       os: "Linux",
       refreshed_by: o.user,
       refresh_timestamp: timestamp,
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
 
     if (isList) {
       if (env.mockMode) {
-        const fullMockList = generateMockSnapshots(db);
+        const fullMockList = generateMockSnapshots(db, "PROD");
         const total = fullMockList.length;
         const snapshots = fullMockList.slice(offset, offset + pageSize);
         const totalPages = Math.ceil(total / pageSize) || 1;

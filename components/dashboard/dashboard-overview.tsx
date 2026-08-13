@@ -810,6 +810,7 @@ export function DashboardOverview() {
   const memPctOnly    = memTotalGb === 0 && memPctDirect > 0; // flag: only % is available
 
   const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
+  const cpuPct = safeNum(osRes?.cpu_usage_pct);
   const isDbStatusOk = !m || (dbHealth?.open_mode?.includes("READ WRITE") ?? false);
   const listenerUpper = (dbHealth?.listener_status ?? "").toUpperCase();
   const isListenerOk = !m || (listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING");
@@ -818,6 +819,8 @@ export function DashboardOverview() {
   const isCritical = !!m && (
     maxTablespacePct > 95 ||
     (fra !== null && safeNum(fra.pct_used) > 90) ||
+    cpuPct >= 90 ||
+    memPct >= 90 ||
     blocking.length > 0 ||
     !isDbStatusOk ||
     !isListenerOk ||
@@ -839,6 +842,12 @@ export function DashboardOverview() {
       }
       if (fra && safeNum(fra.pct_used) > 90) {
         reasons.push(`- FRA usage above 90% (${safeNum(fra.pct_used).toFixed(1)}%)`);
+      }
+      if (cpuPct >= 90) {
+        reasons.push(`- CPU usage at or above 90% (${cpuPct.toFixed(1)}%)`);
+      }
+      if (memPct >= 90) {
+        reasons.push(`- Memory usage at or above 90% (${memPct.toFixed(1)}%)`);
       }
       if (blocking.length > 0) {
         reasons.push(`- Active blocking sessions (${blocking.length})`);
@@ -863,7 +872,7 @@ export function DashboardOverview() {
 
     const reasonsStr = reasons.length > 0 ? `Triggered by:\n${reasons.join("\n")}\n\n` : "";
 
-    return `${reasonsStr}Status Rules:\n• CRITICAL: Tablespace > 95%, FRA > 90%, Blocking sessions > 0, or negative DB/Listener/Remote connection\n• WARNING: Expiring users in 15 days or Failed logins > 50\n• HEALTHY: None of the above`;
+    return `${reasonsStr}Status Rules:\n• CRITICAL: Tablespace > 95%, FRA > 90%, CPU/Memory ≥ 90%, Blocking sessions > 0, or negative DB/Listener/Remote connection\n• WARNING: Expiring users in 15 days or Failed logins > 50\n• HEALTHY: None of the above`;
   };
 
   // ── No databases assigned (client role) ─────────────────────────────────

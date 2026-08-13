@@ -27,25 +27,78 @@ import { formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardSnapshotHistory } from "@/services/api";
 import type { DashboardHistoryRow, DashboardMetrics } from "@/types/dba";
 
+function safeNum(val: unknown): number {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function getSnapshotHealth(metrics: DashboardMetrics | null): {
   status: "healthy" | "warning" | "critical";
   label: string;
   color: string;
 } {
-  if (!metrics) return { status: "healthy", label: "Unknown", color: "border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-400" };
-
-  const blocking = metrics.blocking_sessions?.length ?? 0;
-  const fraUsed = metrics.fra?.pct_used ?? 0;
-  const cpuUsed = metrics.os_resources?.cpu_usage_pct ?? 0;
-  const tsMax = Math.max(0, ...(metrics.tablespaces ?? []).map((t) => t.pct_used ?? 0));
-
-  if (blocking > 0 || fraUsed > 85 || tsMax > 90 || cpuUsed > 85) {
-    return { status: "critical", label: "CRITICAL", color: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300" };
+  if (!metrics) {
+    return {
+      status: "healthy",
+      label: "Unknown",
+      color: "border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-400"
+    };
   }
-  if (fraUsed > 70 || tsMax > 80 || cpuUsed > 70) {
-    return { status: "warning", label: "WARNING", color: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" };
+
+  const tablespaces = metrics.tablespaces ?? [];
+  const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
+
+  const dbHealth = metrics.db_health;
+  const isDbStatusOk = dbHealth?.open_mode?.toUpperCase().includes("READ WRITE") ?? false;
+  const listenerUpper = (dbHealth?.listener_status ?? "").toUpperCase();
+  const isListenerOk = listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING";
+  const isRemoteConnOk = dbHealth?.connection_test === "SUCCESS";
+
+  const osRes = metrics.os_resources;
+  const cpuPct = safeNum(osRes?.cpu_usage_pct);
+  const memTotalGb = safeNum(osRes?.total_memory_gb);
+  const memFreeGb = safeNum(osRes?.free_memory_gb);
+  const memPctDirect = safeNum(osRes?.memory_used_pct);
+  const memPct = memTotalGb > 0 ? ((memTotalGb - memFreeGb) / memTotalGb) * 100 : memPctDirect;
+
+  const blocking = metrics.blocking_sessions ?? [];
+  const fraRaw = metrics.fra;
+  const fraUsed = fraRaw && safeNum(fraRaw.fra_size_gb) > 0 ? safeNum(fraRaw.pct_used) : null;
+
+  const usersExpiringCount = safeNum(metrics.users_expiring_in_15_days ?? metrics.password_expiring_users?.length);
+  const failedLoginCount = safeNum(metrics.failed_login_count);
+
+  const isCritical =
+    maxTablespacePct > 95 ||
+    (fraUsed !== null && fraUsed > 90) ||
+    cpuPct >= 90 ||
+    memPct >= 90 ||
+    blocking.length > 0 ||
+    !isDbStatusOk ||
+    !isListenerOk ||
+    !isRemoteConnOk;
+
+  const isWarning = !isCritical && (usersExpiringCount > 0 || failedLoginCount > 50);
+
+  if (isCritical) {
+    return {
+      status: "critical",
+      label: "CRITICAL",
+      color: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300"
+    };
   }
-  return { status: "healthy", label: "HEALTHY", color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" };
+  if (isWarning) {
+    return {
+      status: "warning",
+      label: "WARNING",
+      color: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    };
+  }
+  return {
+    status: "healthy",
+    label: "HEALTHY",
+    color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  };
 }
 
 export function HistoricalSnapshotsModal({
@@ -218,11 +271,9 @@ export function HistoricalSnapshotsModal({
                           <User className="h-3 w-3 text-muted-foreground" />
                           Refreshed by: <strong className="text-foreground font-mono">{snapshot.refreshed_by || "SYSTEM"}</strong>
                         </span>
-                        {snapshot.environment && (
-                          <span className="text-muted-foreground font-mono">
-                            Env: {snapshot.environment}
-                          </span>
-                        )}
+                        <span className="text-muted-foreground font-mono">
+                          Env: {snapshot.environment || "PROD"}
+                        </span>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
