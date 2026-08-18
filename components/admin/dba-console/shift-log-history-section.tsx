@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -20,6 +21,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
@@ -104,6 +106,7 @@ export function ShiftLogHistorySection({
   const [logsSearch, setLogsSearch] = useState("");
   const [logsStatusFilter, setLogsStatusFilter] = useState<"ALL" | "ACTIVE" | "CLOSED">("ALL");
   const [showLogsHistory, setShowLogsHistory] = useState(false);
+  const [selectedEmergencySession, setSelectedEmergencySession] = useState<ShiftSession | null>(null);
   const [logsPage, setLogsPage] = useState(0);
   const logsPageSize = hideViewFullHistoryButton ? pageSize : 10;
   const defaultFromDate = useMemo(() => toIstDateStringOffset(new Date(), -30), []);
@@ -343,6 +346,16 @@ export function ShiftLogHistorySection({
                           <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
                             ACTIVE
                           </Badge>
+                        ) : log.emergency_comment ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedEmergencySession(log)}
+                            className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                            title="Click to view emergency logout comment"
+                          >
+                            <AlertTriangle className="h-3 w-3 text-amber-500" />
+                            EMERGENCY LOGOUT
+                          </button>
                         ) : (
                           <Badge variant="outline" className="bg-slate-200/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 text-xs font-medium">
                             CLOSED
@@ -599,6 +612,16 @@ export function ShiftLogHistorySection({
                             <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
                               ACTIVE
                             </Badge>
+                          ) : log.emergency_comment ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedEmergencySession(log)}
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                              title="Click to view emergency logout comment"
+                            >
+                              <AlertTriangle className="h-3 w-3 text-amber-500" />
+                              EMERGENCY LOGOUT
+                            </button>
                           ) : (
                             <Badge variant="outline" className="bg-slate-200/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 text-xs font-medium">
                               CLOSED
@@ -612,9 +635,9 @@ export function ShiftLogHistorySection({
               )}
             </div>
 
-            {/* Pagination controls */}
+            {/* Pagination in Dialog */}
             {!logsLoading && filteredLogs.length > 0 && (
-              <div className="flex items-center justify-between border-t border-border/70 pt-3">
+              <div className="flex items-center justify-between border-t border-border/70 pt-3 mt-2">
                 <span className="text-xs text-muted-foreground">
                   Showing {logsStart + 1}–{Math.min(logsEnd, filteredLogs.length)} of {filteredLogs.length} logs
                 </span>
@@ -646,6 +669,78 @@ export function ShiftLogHistorySection({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Emergency Logout Reason Details Dialog */}
+      <Dialog
+        open={!!selectedEmergencySession}
+        onOpenChange={(open) => !open && setSelectedEmergencySession(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-500 text-base">
+              <AlertTriangle className="h-5 w-5" />
+              Emergency Logout Details
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Session #{selectedEmergencySession?.session_id} &mdash;{" "}
+              <strong className="text-foreground">{selectedEmergencySession?.username}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedEmergencySession && (
+            <div className="space-y-3.5 py-1">
+              {/* Shift summary details */}
+              <div className="grid grid-cols-2 gap-2 text-xs bg-muted/40 rounded-lg p-3 border border-border/60">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">DBA:</span>
+                  <span className="font-semibold">{selectedEmergencySession.username} ({selectedEmergencySession.role})</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Shift:</span>
+                  <span className="font-semibold">{SHIFT_LABELS[selectedEmergencySession.shift_number] || `Shift ${selectedEmergencySession.shift_number}`}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Shift Date:</span>
+                  <span className="font-mono">{selectedEmergencySession.shift_date || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Duration:</span>
+                  <span className="font-medium">{formatShiftDuration(selectedEmergencySession.login_at, selectedEmergencySession.logout_at)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Login Time (IST):</span>
+                  <span className="font-mono">{formatDateTime(selectedEmergencySession.login_at)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Logout Time (IST):</span>
+                  <span className="font-mono">{selectedEmergencySession.logout_at ? formatDateTime(selectedEmergencySession.logout_at) : "—"}</span>
+                </div>
+              </div>
+
+              {/* Emergency Comment Box */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Emergency Logout Reason / Comment:
+                </Label>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-foreground whitespace-pre-wrap">
+                  {selectedEmergencySession.emergency_comment || "No comment recorded."}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedEmergencySession(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

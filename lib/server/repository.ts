@@ -3859,6 +3859,7 @@ interface ShiftSessionRow extends DbRow {
   ACK_USERNAME?: string;
   ACK_AT?: Date;
   LATE_COMMENT?: string;
+  EMERGENCY_COMMENT?: string;
 }
 
 function mapShiftSession(row: ShiftSessionRow): ShiftSession {
@@ -3881,14 +3882,15 @@ function mapShiftSession(row: ShiftSessionRow): ShiftSession {
     handover_text: row.HANDOVER_TEXT ? String(row.HANDOVER_TEXT) : undefined,
     ack_username: row.ACK_USERNAME ? String(row.ACK_USERNAME) : undefined,
     ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined,
-    late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined
+    late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined,
+    emergency_comment: row.EMERGENCY_COMMENT ? String(row.EMERGENCY_COMMENT) : undefined
   };
 }
 
 const SHIFT_SESSION_COLUMNS = `
   s.session_id, s.user_id, s.username, s.email, u.role,
   s.shift_number, s.shift_date, s.login_at, s.logout_at,
-  s.status, s.is_active, s.late_comment,
+  s.status, s.is_active, s.late_comment, s.emergency_comment,
   h.handover_id, h.handover_text, h.status AS handover_status,
   h.ack_username, h.ack_at
 `;
@@ -4048,6 +4050,7 @@ export async function getShiftSessionById(sessionId: number): Promise<ShiftSessi
 export async function closeShiftSession(input: {
   sessionId: number;
   actor: string;
+  emergencyComment?: string;
 }): Promise<ShiftSession> {
   return executeOne(async (connection) => {
     try {
@@ -4056,9 +4059,14 @@ export async function closeShiftSession(input: {
          SET logout_at = SYSTIMESTAMP,
              status = 'CLOSED',
              is_active = 'N',
-             updated_by = :actor
+             updated_by = :actor,
+             emergency_comment = :emergencyComment
          WHERE session_id = :sessionId AND is_active = 'Y'`,
-        { sessionId: input.sessionId, actor: input.actor }
+        {
+          sessionId: input.sessionId,
+          actor: input.actor,
+          emergencyComment: input.emergencyComment || null
+        }
       );
 
       const affected = result.rowsAffected ?? 0;
@@ -7567,6 +7575,14 @@ export async function ensureNotificationReadColumnsExist(): Promise<void> {
           `ALTER TABLE ${table} ADD (read_at TIMESTAMP)`,
           `ALTER TABLE ${table} ADD (read_by VARCHAR2(100))`
         ];
+        if (table === "app_shift_sessions") {
+          statements.push(
+            `ALTER TABLE app_shift_sessions ADD (logout_is_read VARCHAR2(1) DEFAULT 'N')`,
+            `ALTER TABLE app_shift_sessions ADD (logout_read_at TIMESTAMP)`,
+            `ALTER TABLE app_shift_sessions ADD (logout_read_by VARCHAR2(100))`,
+            `ALTER TABLE app_shift_sessions ADD (emergency_comment VARCHAR2(1000 CHAR))`
+          );
+        }
         for (const stmt of statements) {
           try {
             await connection.execute(stmt, [], { autoCommit: true });
@@ -7700,7 +7716,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
         title = isUp ? `Database Online: ${db || ""}` : `DB Monitoring Incident: ${db || ""}`;
       }
       else if (type === "approval_workflow") title = `Approval Request: ${db || ""}`;
-      else if (type === "dba_shift") title = `DBA Console Event`;
+      else if (type === "dba_shift") title = row.OBJECT_NAME ? String(row.OBJECT_NAME) : `DBA Console Event`;
 
       return {
         id,
@@ -7729,7 +7745,9 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
     if (category !== "db" && (!typeFilter || typeFilter === "dba_shift")) {
       try {
         const sessionRes = await connection.execute<DbRow>(
-          `SELECT session_id, username, shift_number, login_at, logout_at, is_read, read_at, read_by
+          `SELECT session_id, username, shift_number, login_at, logout_at,
+                  is_read, read_at, read_by,
+                  logout_is_read, logout_read_at, logout_read_by
            FROM app_shift_sessions
            ORDER BY session_id DESC
            FETCH FIRST 500 ROWS ONLY`
@@ -7760,6 +7778,10 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
 
           if (row.LOGOUT_AT) {
             const logoutAt = toIstIsoString(row.LOGOUT_AT);
+            const logoutIsRead = String(row.LOGOUT_IS_READ || "N").toUpperCase() === "Y";
+            const logoutReadBy = row.LOGOUT_READ_BY ? String(row.LOGOUT_READ_BY) : undefined;
+            const logoutReadAt = row.LOGOUT_READ_AT ? toIstIsoString(row.LOGOUT_READ_AT) : undefined;
+
             consoleItems.push({
               id: `DBA-LOGOUT-${row.SESSION_ID}`,
               type: "dba_shift",
@@ -7770,9 +7792,9 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
               message: `${username} logged out from ${shiftLabel}.`,
               timestamp: logoutAt,
               targetPath: "/dba-console/shift-management",
-              read: isRead,
-              readBy,
-              readAt
+              read: logoutIsRead,
+              readBy: logoutReadBy,
+              readAt: logoutReadAt
             });
           }
         }
@@ -7881,7 +7903,9 @@ export async function listRecentShiftNotifications(limit: number = 30): Promise<
     // 1. Shift sessions (Logins / Logouts)
     try {
       const sessionRes = await connection.execute<DbRow>(
-        `SELECT session_id, username, shift_number, login_at, logout_at, is_read, read_at, read_by
+        `SELECT session_id, username, shift_number, login_at, logout_at,
+                is_read, read_at, read_by,
+                logout_is_read, logout_read_at, logout_read_by
          FROM app_shift_sessions
          ORDER BY session_id DESC
          FETCH FIRST :limit ROWS ONLY`,
@@ -7912,6 +7936,10 @@ export async function listRecentShiftNotifications(limit: number = 30): Promise<
 
         if (row.LOGOUT_AT) {
           const logoutAt = toIstIsoString(row.LOGOUT_AT);
+          const logoutIsRead = String(row.LOGOUT_IS_READ || "N").toUpperCase() === "Y";
+          const logoutReadBy = row.LOGOUT_READ_BY ? String(row.LOGOUT_READ_BY) : undefined;
+          const logoutReadAt = row.LOGOUT_READ_AT ? toIstIsoString(row.LOGOUT_READ_AT) : undefined;
+
           items.push({
             id: `DBA-LOGOUT-${row.SESSION_ID}`,
             type: "dba_shift",
@@ -7921,9 +7949,9 @@ export async function listRecentShiftNotifications(limit: number = 30): Promise<
             message: `${username} logged out from ${shiftLabel}.`,
             timestamp: logoutAt,
             targetPath: "/dba-console/shift-management",
-            read: isRead,
-            readBy,
-            readAt
+            read: logoutIsRead,
+            readBy: logoutReadBy,
+            readAt: logoutReadAt
           });
         }
       }
@@ -8064,8 +8092,8 @@ export async function markNotificationReadInDb(id: string, actor: string = "syst
       return;
     }
 
-    if (id.startsWith("DBA-LOGIN-") || id.startsWith("DBA-LOGOUT-")) {
-      const sessionIdStr = id.replace("DBA-LOGIN-", "").replace("DBA-LOGOUT-", "");
+    if (id.startsWith("DBA-LOGIN-")) {
+      const sessionIdStr = id.replace("DBA-LOGIN-", "");
       const sessionId = Number(sessionIdStr);
       if (!isNaN(sessionId)) {
         await connection.execute(
@@ -8073,6 +8101,22 @@ export async function markNotificationReadInDb(id: string, actor: string = "syst
            SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor
            WHERE session_id = :sessionId
              AND NVL(is_read, 'N') != 'Y'`,
+          { actor, sessionId },
+          { autoCommit: true }
+        );
+        return;
+      }
+    }
+
+    if (id.startsWith("DBA-LOGOUT-")) {
+      const sessionIdStr = id.replace("DBA-LOGOUT-", "");
+      const sessionId = Number(sessionIdStr);
+      if (!isNaN(sessionId)) {
+        await connection.execute(
+          `UPDATE app_shift_sessions
+           SET logout_is_read = 'Y', logout_read_at = SYSTIMESTAMP, logout_read_by = :actor
+           WHERE session_id = :sessionId
+             AND NVL(logout_is_read, 'N') != 'Y'`,
           { actor, sessionId },
           { autoCommit: true }
         );
@@ -8151,6 +8195,11 @@ export async function markAllNotificationsReadInDb(category: "db" | "console" | 
       );
       await connection.execute(
         `UPDATE app_shift_sessions SET is_read = 'Y', read_at = SYSTIMESTAMP, read_by = :actor WHERE NVL(is_read, 'N') != 'Y'`,
+        { actor },
+        { autoCommit: true }
+      );
+      await connection.execute(
+        `UPDATE app_shift_sessions SET logout_is_read = 'Y', logout_read_at = SYSTIMESTAMP, logout_read_by = :actor WHERE logout_at IS NOT NULL AND NVL(logout_is_read, 'N') != 'Y'`,
         { actor },
         { autoCommit: true }
       );

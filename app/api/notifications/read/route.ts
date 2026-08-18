@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { markAllNotificationsReadInDb, markNotificationReadInDb } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
-import { emitGlobalNotification } from "@/lib/server/notification-events";
+import { emitGlobalNotification, markAllRecentBroadcastsRead, markRecentBroadcastRead } from "@/lib/server/notification-events";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
 
     if (id) {
       await markNotificationReadInDb(id, actor);
+      markRecentBroadcastRead(id, actor, nowIso);
 
       // Emit a lightweight read-status update via SSE for multi-tab/multi-user sync.
       // We intentionally skip the expensive DB lookups (getAlertNotification,
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
 
     if (all || category) {
       await markAllNotificationsReadInDb(category || "all", actor);
+      markAllRecentBroadcastsRead(category, actor, nowIso);
 
       // Broadcast category mark-all-read event over SSE so all users sync instantly
       emitGlobalNotification({

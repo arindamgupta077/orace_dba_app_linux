@@ -12,3 +12,6 @@ coverage
 *.tsbuildinfo
 *.log
 codex-next-*.log
+
+APPLICATION_OVERVIEW.md
+docs/PPT_PRESENTATION_NOTES.md

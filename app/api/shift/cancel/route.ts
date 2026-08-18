@@ -4,6 +4,7 @@ import {
   cancelShiftSession,
   getActiveShiftSessionForUser,
   getShiftSessionById,
+  insertAlertNotification,
   insertAuditLog
 } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
@@ -73,13 +74,33 @@ export async function POST(request: Request) {
       shift: getShiftLabel(canceled.shiftNumber)
     });
 
+    const cancelAlertId = `DBA-CANCEL-${targetSessionId}`;
+    const cancelTitle = `DBA Shift Canceled: ${canceled.username}`;
+    const cancelMessage = `${session.user.username} canceled mistaken shift login for ${canceled.username} (${getShiftLabel(canceled.shiftNumber)}). Record deleted from database.`;
+
+    try {
+      await insertAlertNotification({
+        id: cancelAlertId,
+        source: "console",
+        alertType: "dba_shift",
+        db: getShiftLabel(canceled.shiftNumber),
+        objectName: cancelTitle,
+        severity: "warning",
+        status: "completed",
+        message: cancelMessage,
+        createdBy: session.user.username
+      });
+    } catch {
+      // Ignore if alert record already exists
+    }
+
     emitGlobalNotification({
-      id: `DBA-CANCEL-${targetSessionId}`,
+      id: cancelAlertId,
       type: "dba_shift",
       severity: "warning",
       db: getShiftLabel(canceled.shiftNumber),
-      title: `DBA Shift Canceled: ${canceled.username}`,
-      message: `${session.user.username} canceled mistaken shift login for ${canceled.username} (${getShiftLabel(canceled.shiftNumber)}). Record deleted from database.`,
+      title: cancelTitle,
+      message: cancelMessage,
       timestamp: new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });

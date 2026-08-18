@@ -147,12 +147,36 @@ export function emitGlobalNotification(payload: NotificationPayload) {
   }
 }
 
+export function markRecentBroadcastRead(id: string, actor: string = "system", readAt: string = new Date().toISOString()) {
+  for (const item of recentBroadcasts) {
+    if (String(item.id) === String(id)) {
+      item.read = true;
+      item.readBy = actor;
+      item.readAt = readAt;
+    }
+  }
+}
+
+export function markAllRecentBroadcastsRead(category?: "db" | "console" | "all", actor: string = "system", readAt: string = new Date().toISOString()) {
+  for (const item of recentBroadcasts) {
+    const isConsole = item.type === "dba_shift";
+    const shouldMark = !category || category === "all" || (category === "console" && isConsole) || (category === "db" && !isConsole);
+    if (shouldMark) {
+      item.read = true;
+      item.readBy = actor;
+      item.readAt = readAt;
+    }
+  }
+}
+
 export function alertTypeToTargetPath(alertType: string): string {
   const t = alertType.trim().toLowerCase();
   if (t === "tablespace") return "/tablespaces";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "/filesystem-drive";
   if (t === "approval_workflow") return "/admin-panel/pending-approvals";
   if (t === "db_monitoring") return "/general-admin";
+  if (t === "dba_shift") return "/dba-console/shift-management";
+  if (t === "alert_log") return "/alerts";
   return "/tablespaces";
 }
 
@@ -162,6 +186,8 @@ export function resolveNotificationType(alertType: string): NotificationItemType
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
   if (t === "approval_workflow") return "approval_workflow";
   if (t === "db_monitoring") return "db_monitoring";
+  if (t === "dba_shift") return "dba_shift";
+  if (t === "alert_log") return "alert_log";
   return "generic";
 }
 

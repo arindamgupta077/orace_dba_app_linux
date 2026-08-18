@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -53,6 +54,7 @@ import {
   fetchShiftSessionLogs,
   overrideHandoverApi,
   shiftCancel,
+  shiftEmergencyLogout,
   shiftLogin,
   shiftLogout,
   submitHandover
@@ -206,6 +208,9 @@ export function ShiftManagementSection() {
   const [overrideReason, setOverrideReason] = useState("");
   const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [cancelConfirmSession, setCancelConfirmSession] = useState<ShiftSession | null>(null);
+  const [emergencyLogoutSession, setEmergencyLogoutSession] = useState<ShiftSession | null>(null);
+  const [emergencyReason, setEmergencyReason] = useState("");
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
   const [viewHandover, setViewHandover] = useState<ShiftSession | null>(null);
   // Tracks handovers the current user has already viewed, mapped to the handover_text at the time
   // of viewing. If the author edits the handover (same handover_id, updated text), the stored text
@@ -408,6 +413,28 @@ export function ShiftManagementSection() {
       toast.error(error instanceof Error ? error.message : "Failed to cancel shift.");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleEmergencyLogout = async () => {
+    if (!emergencyLogoutSession) return;
+    const reason = emergencyReason.trim();
+    if (!reason) {
+      toast.error("Emergency logout reason/comment is mandatory.");
+      return;
+    }
+    setEmergencyLoading(true);
+    try {
+      const res = await shiftEmergencyLogout(emergencyLogoutSession.session_id, reason);
+      toast.success(res.message || "Emergency shift logout completed successfully.");
+      setEmergencyLogoutSession(null);
+      setEmergencyReason("");
+      await load();
+      window.dispatchEvent(new CustomEvent("dba-notification", { detail: { type: "dba_shift" } as NotificationPayload }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to execute emergency logout.");
+    } finally {
+      setEmergencyLoading(false);
     }
   };
 
@@ -1348,7 +1375,7 @@ export function ShiftManagementSection() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3.5">
                   <div className="flex items-center gap-3">
                     <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                       <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -1369,17 +1396,33 @@ export function ShiftManagementSection() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-red-500/30 bg-red-500/10 text-red-600 hover:bg-red-500/20 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 gap-1.5 shrink-0 px-3 text-xs font-medium"
-                    onClick={() => setCancelConfirmSession(mySession)}
-                    disabled={actionLoading}
-                    title="Cancel Shift (Mistaken Login) — Delete record from database"
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
-                    Cancel Shift
-                  </Button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 gap-1.5 shrink-0 px-3 text-xs font-medium"
+                      onClick={() => {
+                        setEmergencyReason("");
+                        setEmergencyLogoutSession(mySession);
+                      }}
+                      disabled={actionLoading || emergencyLoading}
+                      title="Emergency Logout — Leave shift immediately without completing handover or checklist conditions"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Emergency Logout
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-red-500/30 bg-red-500/10 text-red-600 hover:bg-red-500/20 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 gap-1.5 shrink-0 px-3 text-xs font-medium"
+                      onClick={() => setCancelConfirmSession(mySession)}
+                      disabled={actionLoading || emergencyLoading}
+                      title="Cancel Shift (Mistaken Login) — Delete record from database"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Cancel Shift
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Existing handover display — not shown for General Shift */}
@@ -1880,6 +1923,73 @@ export function ShiftManagementSection() {
             <Button variant="destructive" onClick={() => void handleCancelShift()} disabled={actionLoading}>
               {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
               Yes, Cancel Shift
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Emergency shift logout dialog */}
+      <Dialog
+        open={!!emergencyLogoutSession}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEmergencyLogoutSession(null);
+            setEmergencyReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-500">
+              <AlertTriangle className="h-5 w-5" />
+              Emergency Shift Logout
+            </DialogTitle>
+            <DialogDescription className="pt-1">
+              You are about to execute an emergency logout for{" "}
+              <strong className="text-foreground">{emergencyLogoutSession?.username}</strong> (
+              {SHIFT_LABELS[emergencyLogoutSession?.shift_number ?? 1] || `Shift ${emergencyLogoutSession?.shift_number}`}).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 space-y-1">
+            <p className="font-semibold">Bypasses Standard Logout Conditions</p>
+            <p>
+              Emergency logout immediately closes your shift without requiring handover acknowledgement, checklist completion, or pending alert clearance.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium flex items-center justify-between">
+              <span>Emergency Reason / Comment <span className="text-red-500">*</span></span>
+              <span className="text-[10px] text-muted-foreground">{emergencyReason.length}/1000</span>
+            </Label>
+            <Textarea
+              value={emergencyReason}
+              onChange={(e) => setEmergencyReason(e.target.value)}
+              placeholder="Please enter a mandatory reason for emergency logout..."
+              rows={4}
+              maxLength={1000}
+              className="text-xs resize-none"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEmergencyLogoutSession(null);
+                setEmergencyReason("");
+              }}
+              disabled={emergencyLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+              onClick={() => void handleEmergencyLogout()}
+              disabled={emergencyLoading || !emergencyReason.trim()}
+            >
+              {emergencyLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />}
+              Confirm Emergency Logout
             </Button>
           </DialogFooter>
         </DialogContent>

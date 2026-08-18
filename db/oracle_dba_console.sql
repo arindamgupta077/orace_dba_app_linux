@@ -70,9 +70,13 @@ BEGIN
         updated_by    VARCHAR2(128 CHAR),
         updated_at    TIMESTAMP(6) DEFAULT SYSTIMESTAMP NOT NULL,
         is_read       CHAR(1 CHAR) DEFAULT 'N' NOT NULL,
-        read_at       TIMESTAMP(6) WITH TIME ZONE,
+        read_at       TIMESTAMP(6),
         read_by       VARCHAR2(100 CHAR),
-        late_comment  VARCHAR2(1000 CHAR)
+        logout_is_read CHAR(1 CHAR) DEFAULT 'N' NOT NULL,
+        logout_read_at TIMESTAMP(6),
+        logout_read_by VARCHAR2(100 CHAR),
+        late_comment  VARCHAR2(1000 CHAR),
+        emergency_comment VARCHAR2(1000 CHAR)
       )
     ]';
   END IF;
@@ -108,9 +112,13 @@ BEGIN
   add_column_if_missing('updated_by',   'updated_by VARCHAR2(128 CHAR)');
   add_column_if_missing('updated_at',   'updated_at TIMESTAMP(6) DEFAULT SYSTIMESTAMP');
   add_column_if_missing('is_read',      q'[is_read CHAR(1 CHAR) DEFAULT 'N']');
-  add_column_if_missing('read_at',      'read_at TIMESTAMP(6) WITH TIME ZONE');
+  add_column_if_missing('read_at',      'read_at TIMESTAMP(6)');
   add_column_if_missing('read_by',      'read_by VARCHAR2(100 CHAR)');
+  add_column_if_missing('logout_is_read', q'[logout_is_read CHAR(1 CHAR) DEFAULT 'N']');
+  add_column_if_missing('logout_read_at', 'logout_read_at TIMESTAMP(6)');
+  add_column_if_missing('logout_read_by', 'logout_read_by VARCHAR2(100 CHAR)');
   add_column_if_missing('late_comment', 'late_comment VARCHAR2(1000 CHAR)');
+  add_column_if_missing('emergency_comment', 'emergency_comment VARCHAR2(1000 CHAR)');
 END;
 /
 

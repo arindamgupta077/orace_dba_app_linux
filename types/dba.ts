@@ -872,6 +872,7 @@ export interface ShiftSession {
   ack_username?: string;
   ack_at?: string;
   late_comment?: string;
+  emergency_comment?: string;
 }
 
 export interface ActiveDba {

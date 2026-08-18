@@ -43,7 +43,7 @@ async function buildReplayItems(userRole?: string, userId?: number, username?: s
           const sev = alert.severity.toUpperCase();
           if (alert.alert_type === "tablespace") return `Tablespace ${sev}: ${alert.tablespace || alert.db}`;
           if (alert.alert_type === "filesystem_drive") return `Filesystem ${sev}: ${alert.object_name || alert.db}`;
-          if (alert.alert_type === "dba_shift") return `DBA Console Event`;
+          if (alert.alert_type === "dba_shift") return alert.object_name || `DBA Console Event`;
           if (alert.alert_type === "approval_workflow") {
             const st = (alert.status || "").toLowerCase();
             if (alert.id.startsWith("EXEC-") || st === "completed") return "Execution Complete";
