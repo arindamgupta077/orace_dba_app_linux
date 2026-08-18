@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  DatabaseZap,
   FileClock,
   FileText,
   FileWarning,
@@ -20,10 +21,13 @@ import {
   Inbox,
   Layers,
   Loader2,
+  Play,
+  Radio,
   RefreshCw,
   Search,
   ShieldAlert,
   SlidersHorizontal,
+  StopCircle,
   Tag,
   UserCheck,
   X,
@@ -66,8 +70,19 @@ function getNotificationIcon(type: string) {
       return <UserCheck className="h-4 w-4" />;
     case "db_monitoring":
       return <ShieldAlert className="h-4 w-4" />;
+    case "database_start":
+      return <Play className="h-4 w-4" />;
+    case "database_stop":
+      return <StopCircle className="h-4 w-4" />;
+    case "listener_start":
+    case "listener_stop":
+      return <Radio className="h-4 w-4" />;
     case "approval_workflow":
       return <FileText className="h-4 w-4" />;
+    case "datapump":
+      return <DatabaseZap className="h-4 w-4" />;
+    case "rman":
+      return <Archive className="h-4 w-4" />;
     default:
       return <Bell className="h-4 w-4" />;
   }
@@ -81,12 +96,28 @@ function getTypeLabel(t: string) {
       return "Filesystem Usage";
     case "db_monitoring":
       return "DB Monitoring";
+    case "database_start":
+      return "Database Start";
+    case "database_stop":
+      return "Database Stop";
+    case "listener_start":
+      return "Listener Start";
+    case "listener_stop":
+      return "Listener Stop";
     case "approval_workflow":
       return "Approval Request";
     case "alert_log":
       return "Alert Log Warning";
     case "dba_shift":
       return "DBA Shift Activity";
+    case "expdp":
+      return "EXPDP";
+    case "impdp":
+      return "IMPDP";
+    case "datapump":
+      return "Data Pump";
+    case "rman":
+      return "RMAN Backup";
     default:
       return t;
   }
@@ -181,6 +212,7 @@ export function NotificationCenter() {
   const user = useAppStore((s) => s.user);
   const databases = useAppStore((s) => s.databases);
   const rawNotifications = useAppStore((s) => s.notifications);
+  const setSelectedDb = useAppStore((s) => s.setSelectedDb);
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
   const markAllNotificationsRead = useAppStore((s) => s.markAllNotificationsRead);
 
@@ -524,8 +556,15 @@ export function NotificationCenter() {
                 <option value="tablespace">Tablespace Capacity</option>
                 <option value="filesystem_drive">Filesystem Usage</option>
                 <option value="db_monitoring">Database Monitoring</option>
+                <option value="database_start">Database Start</option>
+                <option value="database_stop">Database Stop</option>
+                <option value="listener_start">Listener Start</option>
+                <option value="listener_stop">Listener Stop</option>
                 <option value="approval_workflow">Approval Requests</option>
                 <option value="alert_log">Alert Log Warnings</option>
+                <option value="expdp">Data Pump (EXPDP)</option>
+                <option value="impdp">Data Pump (IMPDP)</option>
+                <option value="rman">RMAN Backups</option>
                 <option value="dba_shift">DBA Console Shifts</option>
               </select>
             </div>
@@ -768,12 +807,21 @@ export function NotificationCenter() {
         ) : (
           <div className="divide-y divide-border/40">
             {items.map((item) => {
-              const ContentWrapper = item.targetPath ? Link : "div";
+              const lowerTitle = (item.title || "").toLowerCase();
+              const lowerMsg = (item.message || "").toLowerCase();
+              const isDp = item.type === "datapump" || lowerTitle.includes("expdp") || lowerTitle.includes("impdp") || lowerMsg.includes("expdp") || lowerMsg.includes("impdp");
+              const isRman = item.type === "rman" || lowerTitle.includes("rman") || lowerMsg.includes("rman");
+              const isLifecycle = item.type === "database_start" || item.type === "database_stop" || item.type === "listener_start" || item.type === "listener_stop" || item.type === "db_monitoring";
+              const resolvedTarget = isDp ? "/data-pump" : isRman ? "/backups" : isLifecycle ? "/general-admin" : (item.targetPath || "#");
+              const ContentWrapper = resolvedTarget && resolvedTarget !== "#" ? Link : "div";
               const isConsole = item.category === "console";
               return (
                 <ContentWrapper
                   key={item.id}
-                  href={item.targetPath || "#"}
+                  href={resolvedTarget}
+                  onClick={() => {
+                    if (item.db) setSelectedDb(item.db);
+                  }}
                   className={cn(
                     "flex flex-col gap-3 p-4 sm:flex-row sm:items-start transition-all duration-150 hover:bg-muted/30 cursor-pointer group relative",
                     !item.read && (isConsole ? "bg-amber-500/[0.03] border-l-4 border-l-amber-500" : "bg-cyan-500/[0.03] border-l-4 border-l-cyan-500")
@@ -797,6 +845,9 @@ export function NotificationCenter() {
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
                       {!item.read && <span className="h-2 w-2 rounded-full bg-cyan-500 shrink-0 animate-pulse" title="Unread" />}
+                      <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border border-border/50">
+                        {getTypeLabel(item.type)}
+                      </span>
                       {getSeverityBadge(item.severity)}
                       {getStatusBadge(item.status)}
                       {item.db && (

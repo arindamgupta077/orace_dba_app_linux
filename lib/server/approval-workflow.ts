@@ -532,6 +532,63 @@ async function dispatchApprovedWebhook(
       targetUsername: request.requester_username
     });
 
+    if (
+      request.action_name === "start_database" ||
+      request.action_name === "stop_database" ||
+      request.action_name === "start_listener" ||
+      request.action_name === "stop_listener"
+    ) {
+      const act = request.action_name;
+      const notifType = (
+        act === "start_database"
+          ? "database_start"
+          : act === "stop_database"
+          ? "database_stop"
+          : act === "start_listener"
+          ? "listener_start"
+          : "listener_stop"
+      ) as "database_start" | "database_stop" | "listener_start" | "listener_stop";
+      const notifSeverity = act === "stop_database" ? "warning" : "info";
+      const notifTitle =
+        act === "start_database"
+          ? `Database Started: ${request.db_name}`
+          : act === "stop_database"
+          ? `Database Stopped: ${request.db_name}`
+          : act === "start_listener"
+          ? `Listener Started: ${request.db_name}`
+          : `Listener Stopped: ${request.db_name}`;
+      const notifMsg =
+        dbaResponse.ai_summary ||
+        `Approved ${request.display_name} executed on ${request.db_name} by ${actorUsername}.`;
+      const notifId = `${notifType.toUpperCase().replace(/_/g, "-")}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      try {
+        await insertAlertNotification({
+          id: notifId,
+          source: "approval_workflow",
+          alertType: notifType,
+          db: request.db_name,
+          severity: notifSeverity,
+          status: "completed",
+          message: notifMsg,
+          createdBy: actorUsername
+        });
+      } catch {
+        // ignore duplicate
+      }
+
+      emitGlobalNotification({
+        id: notifId,
+        type: notifType,
+        severity: notifSeverity,
+        db: request.db_name,
+        title: notifTitle,
+        message: notifMsg,
+        timestamp: new Date().toISOString(),
+        targetPath: "/general-admin"
+      });
+    }
+
     return dbaResponse;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown execution error";

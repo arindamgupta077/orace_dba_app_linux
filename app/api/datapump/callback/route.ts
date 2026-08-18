@@ -77,8 +77,8 @@ export async function POST(req: NextRequest) {
     notifyDataPumpJob(body);
 
     // Broadcast a global bell notification so every authenticated user is
-    // informed when a Data Pump export/import completes (or fails).
-    const operationLabel = (body.action || "expdp").toUpperCase();
+    const actionNormalized = (body.action || "expdp").toLowerCase() as "expdp" | "impdp";
+    const operationLabel = actionNormalized.toUpperCase();
     const shortDb = body.db || "unknown DB";
     const dpDoneNotifId = `${body.job_id}-done`;
     const dpMsg = body.message || (isSuccess ? `${operationLabel} job finished successfully on ${shortDb}.` : `${operationLabel} job failed on ${shortDb}. Check the log for details.`);
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       await insertAlertNotification({
         id: dpDoneNotifId,
         source: "datapump",
-        alertType: "generic",
+        alertType: actionNormalized,
         db: shortDb,
         severity: isSuccess ? "info" : "critical",
         status: isSuccess ? "completed" : "failed",
@@ -97,11 +97,9 @@ export async function POST(req: NextRequest) {
       // Ignore duplicate insert error
     }
 
-    const actionNormalized = (body.action || "expdp").toLowerCase() as "expdp" | "impdp";
-
     emitGlobalNotification({
       id: dpDoneNotifId,
-      type: "generic",
+      type: actionNormalized,
       severity: isSuccess ? "info" : "critical",
       db: shortDb,
       title: `${operationLabel} ${isSuccess ? "completed" : "failed"}`,

@@ -7519,7 +7519,7 @@ export interface ListNotificationHistoryInput {
   page?: number;
   pageSize?: number;
   category?: "all" | "db" | "console";
-  type?: "all" | "tablespace" | "filesystem_drive" | "db_monitoring" | "approval_workflow" | "alert_log" | "dba_shift" | "other";
+  type?: "all" | "tablespace" | "filesystem_drive" | "db_monitoring" | "approval_workflow" | "alert_log" | "dba_shift" | "database_start" | "database_stop" | "listener_start" | "listener_stop" | "expdp" | "impdp" | "datapump" | "rman" | "other";
   severity?: "all" | "critical" | "error" | "warning" | "info";
   status?: "all" | "pending_approval" | "approved" | "rejected" | "completed" | "failed" | "acknowledged" | "active";
   db?: string;
@@ -7686,13 +7686,13 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
     );
 
     const alertItems: HistoricalNotificationItem[] = (alertRowsRes.rows || []).map((row) => {
-      const type = String(row.ALERT_TYPE || "generic");
-      const isConsole = type === "dba_shift";
+      const rawType = String(row.ALERT_TYPE || "generic");
+      const isConsole = rawType === "dba_shift";
       const id = String(row.ALERT_ID || "");
       const db = row.DB_NAME ? String(row.DB_NAME) : undefined;
       const severity = (row.SEVERITY ? String(row.SEVERITY).toLowerCase() : "info") as HistoricalNotificationItem["severity"];
       const rawStatus = row.ALERT_STATUS ? String(row.ALERT_STATUS) : undefined;
-      const status = type === "db_monitoring" && (rawStatus === "pending_approval" || !rawStatus) ? "DOWN" : rawStatus;
+      const status = rawType === "db_monitoring" && (rawStatus === "pending_approval" || !rawStatus) ? "DOWN" : rawStatus;
       const timestamp = row.CREATED_AT ? toIstIsoString(row.CREATED_AT) : new Date().toISOString();
       const updatedAt = row.UPDATED_AT ? toIstIsoString(row.UPDATED_AT) : undefined;
       const message = String(row.MESSAGE_TEXT || "");
@@ -7700,13 +7700,64 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       const readBy = row.READ_BY ? String(row.READ_BY) : undefined;
       const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
 
+      const sourceName = String(row.SOURCE_NAME || "").toLowerCase();
+      const isImpdp =
+        rawType === "impdp" ||
+        id.includes("impdp") ||
+        message.toLowerCase().includes("impdp");
+
+      const isExpdp =
+        rawType === "expdp" ||
+        id.includes("expdp") ||
+        message.toLowerCase().includes("expdp");
+
+      const isDatapump = isImpdp || isExpdp || rawType === "datapump" || sourceName === "datapump" || id.startsWith("DP-");
+
+      const isRman =
+        rawType === "rman" ||
+        rawType === "backup" ||
+        sourceName === "rman" ||
+        id.startsWith("RMAN-") ||
+        message.toLowerCase().includes("rman");
+
+      const isDbStart = rawType === "database_start" || rawType === "start_database" || id.startsWith("DB-START-");
+      const isDbStop = rawType === "database_stop" || rawType === "stop_database" || id.startsWith("DB-STOP-");
+      const isLsnrStart = rawType === "listener_start" || rawType === "start_listener" || id.startsWith("LSNR-START-");
+      const isLsnrStop = rawType === "listener_stop" || rawType === "stop_listener" || id.startsWith("LSNR-STOP-");
+
+      const type = isImpdp
+        ? "impdp"
+        : isExpdp
+        ? "expdp"
+        : isDatapump
+        ? "datapump"
+        : isRman
+        ? "rman"
+        : isDbStart
+        ? "database_start"
+        : isDbStop
+        ? "database_stop"
+        : isLsnrStart
+        ? "listener_start"
+        : isLsnrStop
+        ? "listener_stop"
+        : rawType;
+
       let targetPath = "/dashboard";
       if (type === "tablespace") targetPath = "/tablespaces";
       else if (type === "filesystem_drive") targetPath = "/filesystem-drive";
       else if (type === "alert_log") targetPath = "/alerts";
-      else if (type === "db_monitoring") targetPath = "/general-admin";
-      else if (type === "approval_workflow") targetPath = "/admin-panel";
+      else if (
+        type === "db_monitoring" ||
+        type === "database_start" ||
+        type === "database_stop" ||
+        type === "listener_start" ||
+        type === "listener_stop"
+      ) targetPath = "/general-admin";
+      else if (type === "approval_workflow") targetPath = "/admin-panel/pending-approvals";
       else if (type === "dba_shift") targetPath = "/dba-console/shift-management";
+      else if (isDatapump) targetPath = "/data-pump";
+      else if (isRman) targetPath = "/backups";
 
       let title = `Alert: ${db || "System"}`;
       if (type === "tablespace") title = `Tablespace Alert: ${row.TABLESPACE_NAME || db || ""}`;
@@ -7715,8 +7766,42 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
         const isUp = status === "completed" || status === "UP" || status === "resolved";
         title = isUp ? `Database Online: ${db || ""}` : `DB Monitoring Incident: ${db || ""}`;
       }
+      else if (type === "database_start") {
+        const isFailed = (status || "").toLowerCase() === "failed";
+        title = isFailed ? `Database Start Failed: ${db || ""}` : `Database Started: ${db || ""}`;
+      }
+      else if (type === "database_stop") {
+        const isFailed = (status || "").toLowerCase() === "failed";
+        title = isFailed ? `Database Stop Failed: ${db || ""}` : `Database Stopped: ${db || ""}`;
+      }
+      else if (type === "listener_start") {
+        const isFailed = (status || "").toLowerCase() === "failed";
+        title = isFailed ? `Listener Start Failed: ${db || ""}` : `Listener Started: ${db || ""}`;
+      }
+      else if (type === "listener_stop") {
+        const isFailed = (status || "").toLowerCase() === "failed";
+        title = isFailed ? `Listener Stop Failed: ${db || ""}` : `Listener Stopped: ${db || ""}`;
+      }
       else if (type === "approval_workflow") title = `Approval Request: ${db || ""}`;
       else if (type === "dba_shift") title = row.OBJECT_NAME ? String(row.OBJECT_NAME) : `DBA Console Event`;
+      else if (isImpdp) {
+        const st = (status || "").toLowerCase();
+        if (st === "completed" || st === "success") title = `IMPDP completed: ${db || ""}`;
+        else if (st === "failed") title = `IMPDP failed: ${db || ""}`;
+        else title = `IMPDP started: ${db || ""}`;
+      }
+      else if (isExpdp) {
+        const st = (status || "").toLowerCase();
+        if (st === "completed" || st === "success") title = `EXPDP completed: ${db || ""}`;
+        else if (st === "failed") title = `EXPDP failed: ${db || ""}`;
+        else title = `EXPDP started: ${db || ""}`;
+      }
+      else if (isRman) {
+        const st = (status || "").toLowerCase();
+        if (st === "completed" || st === "success") title = `RMAN Backup completed: ${db || ""}`;
+        else if (st === "failed") title = `RMAN Backup failed: ${db || ""}`;
+        else title = `RMAN Backup started: ${db || ""}`;
+      }
 
       return {
         id,

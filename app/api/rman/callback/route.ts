@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       await insertAlertNotification({
         id: notifId,
         source: "rman",
-        alertType: "generic",
+        alertType: "rman",
         db,
         severity: status === "success" ? "info" : "critical",
         status: status === "success" ? "completed" : "failed",
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
 
     emitGlobalNotification({
       id: notifId,
-      type: "generic",
+      type: "rman",
       severity: status === "success" ? "info" : "critical",
       db,
       title: status === "success" ? "RMAN Backup Completed" : "RMAN Backup Failed",

@@ -34,9 +34,16 @@ async function buildReplayItems(userRole?: string, userId?: number, username?: s
         (!alert.id.startsWith("UPD-") && !alert.id.startsWith("EXEC-") && !alert.id.startsWith("ERR-") && alert.status !== "approved" && alert.status !== "rejected")
       );
 
+      const resolvedType = resolveNotificationType(alert.alert_type, alert.source, alert.id, alert.message);
+      const isExpdp = resolvedType === "expdp" || (alert.message || "").toLowerCase().includes("expdp");
+      const isImpdp = resolvedType === "impdp" || (alert.message || "").toLowerCase().includes("impdp");
+      const isRman = resolvedType === "rman";
+
+      const finalType = isImpdp ? "impdp" : isExpdp ? "expdp" : resolvedType;
+
       const itemPayload: NotificationPayload = {
         id: alert.id,
-        type: resolveNotificationType(alert.alert_type),
+        type: finalType,
         severity: alert.severity,
         db: alert.db,
         title: (() => {
@@ -57,11 +64,47 @@ async function buildReplayItems(userRole?: string, userId?: number, username?: s
             return alert.status === "completed" ? `Database Online: ${alert.db}` : `DB Monitoring Incident: ${alert.db}`;
           }
           if (alert.alert_type === "alert_log") return `Alert Log Error: ${alert.db}`;
+          if (isImpdp) {
+            const st = (alert.status || "").toLowerCase();
+            if (st === "completed" || st === "success") return `IMPDP completed`;
+            if (st === "failed") return `IMPDP failed`;
+            return `IMPDP started`;
+          }
+          if (isExpdp) {
+            const st = (alert.status || "").toLowerCase();
+            if (st === "completed" || st === "success") return `EXPDP completed`;
+            if (st === "failed") return `EXPDP failed`;
+            return `EXPDP started`;
+          }
+          if (isRman) {
+            const st = (alert.status || "").toLowerCase();
+            if (st === "completed" || st === "success") return `RMAN Backup completed`;
+            if (st === "failed") return `RMAN Backup failed`;
+            return `RMAN Backup started`;
+          }
+          if (alert.alert_type === "database_start" || finalType === "database_start") {
+            const st = (alert.status || "").toLowerCase();
+            return st === "failed" ? `Database Start Failed: ${alert.db}` : `Database Started: ${alert.db}`;
+          }
+          if (alert.alert_type === "database_stop" || finalType === "database_stop") {
+            const st = (alert.status || "").toLowerCase();
+            return st === "failed" ? `Database Stop Failed: ${alert.db}` : `Database Stopped: ${alert.db}`;
+          }
+          if (alert.alert_type === "listener_start" || finalType === "listener_start") {
+            const st = (alert.status || "").toLowerCase();
+            return st === "failed" ? `Listener Start Failed: ${alert.db}` : `Listener Started: ${alert.db}`;
+          }
+          if (alert.alert_type === "listener_stop" || finalType === "listener_stop") {
+            const st = (alert.status || "").toLowerCase();
+            return st === "failed" ? `Listener Stop Failed: ${alert.db}` : `Listener Stopped: ${alert.db}`;
+          }
           return `Alert ${sev}: ${alert.db}`;
         })(),
         message: alert.message,
         timestamp: alert.created_at,
-        targetPath: isPendingReq ? "/admin-panel/pending-approvals" : alertTypeToTargetPath(alert.alert_type),
+        targetPath: isPendingReq
+          ? "/admin-panel/pending-approvals"
+          : alertTypeToTargetPath(alert.alert_type, alert.source, alert.id, alert.message),
         read: alert.read ?? false,
         readBy: alert.readBy,
         readAt: alert.readAt,

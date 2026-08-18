@@ -8,7 +8,7 @@ import {
   Play,
   StopCircle
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,10 +20,10 @@ import {
 } from "@/components/ui/dialog";
 import { ConsoleOutput } from "@/components/general-admin/console-output";
 import { RebootHistoryModal } from "@/components/general-admin/reboot-history-modal";
-import { executeDBAAction } from "@/services/api";
+import { executeDBAAction, fetchRebootHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
-import type { DbaAction, DbaResponse } from "@/types/dba";
+import type { DbaAction, DbaResponse, RebootHistoryItem } from "@/types/dba";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,45 @@ export function DbControlPanel() {
   // Reboot History modal
   const [rebootHistoryOpen, setRebootHistoryOpen] = useState(false);
 
+  // Latest reboot event for PROD database to control button state
+  const [latestRebootEvent, setLatestRebootEvent] = useState<RebootHistoryItem | null>(null);
+
+  const refreshRebootStatus = useCallback(async (db: string, isDbProd: boolean) => {
+    if (!isDbProd || !db) {
+      setLatestRebootEvent(null);
+      return;
+    }
+    try {
+      const history = await fetchRebootHistory(db, 1);
+      if (history && history.length > 0) {
+        setLatestRebootEvent(history[0]);
+      } else {
+        setLatestRebootEvent(null);
+      }
+    } catch {
+      // Non-blocking error handling
+      setLatestRebootEvent(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedDb && isProd) {
+      void refreshRebootStatus(selectedDb, isProd);
+    } else {
+      setLatestRebootEvent(null);
+    }
+  }, [selectedDb, isProd, refreshRebootStatus]);
+
+  // Is Stop Database disabled due to PRE_SHUTDOWN or POST_MOUNT_FAILED
+  const isStopDisabled =
+    isProd &&
+    (latestRebootEvent?.event_type === "PRE_SHUTDOWN" ||
+      latestRebootEvent?.event_type === "POST_MOUNT_FAILED");
+
+  // Is Start Database disabled due to POST_MOUNT_COMPLIANT
+  const isStartDisabled =
+    isProd && latestRebootEvent?.event_type === "POST_MOUNT_COMPLIANT";
+
   // ── Generic execute helper ─────────────────────────────────────────────────
 
   const execute = async (action: DbaAction, params: Record<string, unknown> = {}) => {
@@ -142,6 +181,10 @@ export function DbControlPanel() {
         action,
         response: result
       });
+      // Refresh latest reboot status if PROD
+      if (isProd && selectedDb) {
+        void refreshRebootStatus(selectedDb, isProd);
+      }
       return result;
     } catch (err) {
       setRunState({
@@ -159,6 +202,12 @@ export function DbControlPanel() {
   // ── Generic card click handler ─────────────────────────────────────────────
 
   const handleClick = (card: ActionCard) => {
+    if (card.action === "stop_database" && isStopDisabled) {
+      return;
+    }
+    if (card.action === "start_database" && isStartDisabled) {
+      return;
+    }
     if (card.destructive) {
       setConfirmAction(card);
     } else {
@@ -209,15 +258,34 @@ export function DbControlPanel() {
         </div>
 
         {selectedDb && isProd && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRebootHistoryOpen(true)}
-            className="flex items-center gap-1.5 border-indigo-200 bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 dark:hover:border-indigo-500/50 text-xs font-semibold transition-all shadow-2xs"
-          >
-            <History className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Reboot History</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            {latestRebootEvent && (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                <span className="text-[11px] font-semibold uppercase text-foreground/70">Latest Event:</span>
+                <span
+                  className={cn(
+                    "font-mono text-[11px] font-bold px-1.5 py-0.5 rounded",
+                    latestRebootEvent.event_type === "POST_MOUNT_COMPLIANT"
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                      : latestRebootEvent.event_type === "POST_MOUNT_FAILED"
+                      ? "bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30"
+                      : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                  )}
+                >
+                  {latestRebootEvent.event_type}
+                </span>
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRebootHistoryOpen(true)}
+              className="flex items-center gap-1.5 border-indigo-200 bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 dark:hover:border-indigo-500/50 text-xs font-semibold transition-all shadow-2xs"
+            >
+              <History className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Reboot History</span>
+            </Button>
+          </div>
         )}
       </div>
 
@@ -228,15 +296,22 @@ export function DbControlPanel() {
         {DB_ACTIONS.map((card) => {
           const Icon = card.icon;
           const isRunning = loading === card.action;
+          const isStopAction = card.action === "stop_database";
+          const isStartAction = card.action === "start_database";
+          const cardStopDisabled = isStopAction && isStopDisabled;
+          const cardStartDisabled = isStartAction && isStartDisabled;
+          const isActionDisabled = cardStopDisabled || cardStartDisabled;
+          const isDisabled = !selectedDb || loading !== null || isActionDisabled;
+
           return (
             <button
               key={card.action}
               onClick={() => handleClick(card)}
-              disabled={!selectedDb || loading !== null}
+              disabled={isDisabled}
               className={cn(
                 "group relative flex flex-col items-start gap-3 rounded-xl border border-border/60 bg-card/60 p-5 text-left",
                 "hover:border-border hover:bg-card/90 hover:scale-[1.02]",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
+                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:bg-card/60 disabled:hover:border-border/60",
                 "transition-all duration-200 cursor-pointer"
               )}
             >
@@ -256,7 +331,7 @@ export function DbControlPanel() {
                 )}
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 w-full">
                 <p className="font-semibold text-sm text-foreground">{card.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">{card.description}</p>
               </div>

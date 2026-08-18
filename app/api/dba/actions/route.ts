@@ -229,15 +229,15 @@ export async function POST(request: Request) {
       //    informed that the EXPDP/IMPDP just started, exactly like a shift
       //    handover or filesystem alert.
       const dpStartId = `${dataPumpJobId}-start`;
-      const dpStartMsg = `${session.user.username} initiated an ${action.toUpperCase()} job on ${db} at ${new Date(startedAt).toLocaleString()}. Status will update on the n8n callback.`;
+      const dpStartMsg = `${session.user.username} initiated an ${action.toUpperCase()} job on ${db} at ${new Date(startedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}. Status will update on the n8n callback.`;
       try {
         await insertAlertNotification({
           id: dpStartId,
           source: "datapump",
-          alertType: "generic",
+          alertType: action,
           db,
           severity: "warning",
-          status: "pending_approval",
+          status: "acknowledged",
           message: dpStartMsg,
           createdBy: session.user.username
         });
@@ -247,13 +247,16 @@ export async function POST(request: Request) {
 
       emitGlobalNotification({
         id: dpStartId,
-        type: "generic",
+        type: action as "expdp" | "impdp",
         severity: "warning",
         db,
         title: `${action.toUpperCase()} started`,
         message: dpStartMsg,
         timestamp: new Date().toISOString(),
-        targetPath: "/data-pump"
+        targetPath: "/data-pump",
+        dpJobId: dataPumpJobId,
+        dpAction: action as "expdp" | "impdp",
+        dpStatus: "running"
       });
     }
 
@@ -280,6 +283,37 @@ export async function POST(request: Request) {
       }).catch((err: unknown) => {
         console.error("[dba/actions] Failed to persist RMAN job start row:", err);
       });
+    }
+
+    // ── Pre-action Reboot History for Stop Database on PROD ──────────────────
+    // When user clicks "stop database" for a PROD database, first insert a
+    // record of column "event_type" ('PRE_SHUTDOWN') into db_reboot_history table.
+    // Without updating/inserting this event_type value, do NOT send the webhook request to n8n.
+    if (action === "stop_database" && dbTarget.env_label === "PROD") {
+      try {
+        await insertRebootHistory({
+          dbName: db,
+          environment: dbTarget.env_label,
+          eventType: "PRE_SHUTDOWN",
+          requestedBy: session.user.username,
+          capturedAt: new Date().toISOString(),
+          spfileValue: "",
+          auditSysOps: "TRUE",
+          auditTrail: "DB, EXTENDED",
+          dbNameParam: db,
+          isCompliant: true,
+          shutdownOption: String(params.shutdown_option || "IMMEDIATE")
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[dba/actions] Failed to insert PRE_SHUTDOWN record into db_reboot_history for ${db}:`,
+          errorMsg
+        );
+        throw new Error(
+          `Failed to record PRE_SHUTDOWN event in db_reboot_history: ${errorMsg}. Stop database request was not sent to n8n.`
+        );
+      }
     }
 
     const env = getServerEnv();
@@ -438,14 +472,11 @@ export async function POST(request: Request) {
       findings: result.findings,
       recommendations: result.recommendations
     });
-    // ── Reboot History: capture audit snapshot for PROD stop/start database
+    // ── Reboot History: capture audit snapshot for PROD start database
     // n8n returns the raw V$PARAMETER values inside raw_data.audit_snapshot.
     // We extract them here and insert one row into db_reboot_history.
     // Failures are non-fatal — they must never block the DBA response.
-    if (
-      (action === "stop_database" || action === "start_database") &&
-      dbTarget.env_label === "PROD"
-    ) {
+    if (action === "start_database" && dbTarget.env_label === "PROD") {
       try {
         const auditSnapshot = (
           result.raw_data as Record<string, unknown>
@@ -475,12 +506,8 @@ export async function POST(request: Request) {
           if (!["DB, EXTENDED", "DB_EXTENDED"].includes(auditTrail))
             failures.push(`audit_trail="${auditTrail}" — expected "DB, EXTENDED"`);
 
-          let eventType: RebootEventType;
-          if (action === "stop_database") {
-            eventType = "PRE_SHUTDOWN";
-          } else {
-            eventType = result.status === "error" ? "POST_MOUNT_FAILED" : "POST_MOUNT_COMPLIANT";
-          }
+          const eventType: RebootEventType =
+            result.status === "error" ? "POST_MOUNT_FAILED" : "POST_MOUNT_COMPLIANT";
 
           await insertRebootHistory({
             dbName:         db,
@@ -494,9 +521,7 @@ export async function POST(request: Request) {
             dbNameParam:    (auditSnapshot.DB_NAME ?? "").trim(),
             isCompliant,
             failureReasons: failures.length > 0 ? failures.join("; ") : undefined,
-            shutdownOption: action === "stop_database"
-              ? String(params.shutdown_option || "IMMEDIATE")
-              : undefined
+            shutdownOption: undefined
           });
         }
       } catch (rebootHistoryErr) {
@@ -588,7 +613,7 @@ if (action === "expdp" || action === "impdp") {
           await insertAlertNotification({
             id: dpDoneId,
             source: "datapump",
-            alertType: "generic",
+            alertType: action,
             db,
             severity: finalStatus === "success" ? "info" : "critical",
             status: finalStatus === "success" ? "completed" : "failed",
@@ -601,15 +626,94 @@ if (action === "expdp" || action === "impdp") {
 
         emitGlobalNotification({
           id: dpDoneId,
-          type: "generic",
+          type: action as "expdp" | "impdp",
           severity: finalStatus === "success" ? "info" : "critical",
           db,
           title: `${action.toUpperCase()} ${finalStatus === "success" ? "completed" : "failed"}`,
           message: dpDoneMsg,
           timestamp: new Date().toISOString(),
-          targetPath: "/data-pump"
+          targetPath: "/data-pump",
+          dpJobId: jobIdStr,
+          dpAction: action as "expdp" | "impdp",
+          dpStatus: finalStatus === "success" ? "success" : "error"
         });
       }
+    }
+
+    // ── Database Lifecycle Alert Notifications ──────────────────────────────
+    // Generate "Database Alerts" notification for "database start", "database stop",
+    // "listener start" and "listener stop" events.
+    if (action === "start_database" || action === "stop_database" || action === "start_listener" || action === "stop_listener") {
+      const isSuccess = result.status === "success";
+      let notifType: "database_start" | "database_stop" | "listener_start" | "listener_stop";
+      let notifSeverity: "info" | "warning" | "error" | "critical";
+      let notifStatus: "completed" | "failed";
+      let notifTitle: string;
+      let defaultMsg: string;
+
+      if (action === "start_database") {
+        notifType = "database_start";
+        notifSeverity = isSuccess ? "info" : "error";
+        notifStatus = isSuccess ? "completed" : "failed";
+        notifTitle = isSuccess ? `Database Started: ${db}` : `Database Start Failed: ${db}`;
+        defaultMsg = isSuccess
+          ? `Database ${db} instance was started successfully by ${session.user.username}.`
+          : `Failed to start database ${db} instance.`;
+      } else if (action === "stop_database") {
+        const shutdownOpt = String(params.shutdown_option || "IMMEDIATE");
+        notifType = "database_stop";
+        notifSeverity = isSuccess ? "warning" : "critical";
+        notifStatus = isSuccess ? "completed" : "failed";
+        notifTitle = isSuccess ? `Database Stopped: ${db}` : `Database Stop Failed: ${db}`;
+        defaultMsg = isSuccess
+          ? `Database ${db} instance was shut down (${shutdownOpt}) by ${session.user.username}.`
+          : `Failed to shut down database ${db} instance.`;
+      } else if (action === "start_listener") {
+        notifType = "listener_start";
+        notifSeverity = isSuccess ? "info" : "error";
+        notifStatus = isSuccess ? "completed" : "failed";
+        notifTitle = isSuccess ? `Listener Started: ${db}` : `Listener Start Failed: ${db}`;
+        defaultMsg = isSuccess
+          ? `Oracle Net Listener for ${db} was started successfully by ${session.user.username}.`
+          : `Failed to start Oracle Net Listener for ${db}.`;
+      } else {
+        notifType = "listener_stop";
+        notifSeverity = isSuccess ? "warning" : "error";
+        notifStatus = isSuccess ? "completed" : "failed";
+        notifTitle = isSuccess ? `Listener Stopped: ${db}` : `Listener Stop Failed: ${db}`;
+        defaultMsg = isSuccess
+          ? `Oracle Net Listener for ${db} was stopped by ${session.user.username}.`
+          : `Failed to stop Oracle Net Listener for ${db}.`;
+      }
+
+      const notifId = `${notifType.toUpperCase().replace(/_/g, "-")}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const notifMsg = result.ai_summary || defaultMsg;
+
+      try {
+        await insertAlertNotification({
+          id: notifId,
+          source: "general_admin",
+          alertType: notifType,
+          db,
+          severity: notifSeverity,
+          status: notifStatus,
+          message: notifMsg,
+          createdBy: session.user.username
+        });
+      } catch (insertNotifErr) {
+        console.error("[dba/actions] Failed to insert alert notification:", insertNotifErr);
+      }
+
+      emitGlobalNotification({
+        id: notifId,
+        type: notifType,
+        severity: notifSeverity,
+        db,
+        title: notifTitle,
+        message: notifMsg,
+        timestamp: new Date().toISOString(),
+        targetPath: "/general-admin"
+      });
     }
 
     return NextResponse.json(result);
@@ -636,6 +740,59 @@ if (action === "expdp" || action === "impdp") {
         detail: message,
         metadata: { duration_ms: durationMs }
       });
+
+      if (
+        payload.action === "start_database" ||
+        payload.action === "stop_database" ||
+        payload.action === "start_listener" ||
+        payload.action === "stop_listener"
+      ) {
+        const act = payload.action;
+        const notifType = (
+          act === "start_database"
+            ? "database_start"
+            : act === "stop_database"
+            ? "database_stop"
+            : act === "start_listener"
+            ? "listener_start"
+            : "listener_stop"
+        ) as "database_start" | "database_stop" | "listener_start" | "listener_stop";
+        const notifSeverity = act === "stop_database" ? "critical" : "error";
+        const notifTitle =
+          act === "start_database"
+            ? `Database Start Failed: ${payload.db}`
+            : act === "stop_database"
+            ? `Database Stop Failed: ${payload.db}`
+            : act === "start_listener"
+            ? `Listener Start Failed: ${payload.db}`
+            : `Listener Stop Failed: ${payload.db}`;
+        const notifId = `${notifType.toUpperCase().replace(/_/g, "-")}-ERR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        try {
+          await insertAlertNotification({
+            id: notifId,
+            source: "general_admin",
+            alertType: notifType,
+            db: payload.db,
+            severity: notifSeverity,
+            status: "failed",
+            message,
+            createdBy: session.user.username
+          });
+        } catch {
+          // ignore duplicate / non-fatal
+        }
+
+        emitGlobalNotification({
+          id: notifId,
+          type: notifType,
+          severity: notifSeverity,
+          db: payload.db,
+          title: notifTitle,
+          message,
+          timestamp: new Date().toISOString(),
+          targetPath: "/general-admin"
+        });
+      }
     }
 
     return NextResponse.json({ message }, { status: 500 });

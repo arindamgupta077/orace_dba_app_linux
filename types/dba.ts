@@ -282,7 +282,22 @@ export interface AlertLinesResponse {
   database_name: string;
 }
 
-export type NotificationItemType = "tablespace" | "filesystem_drive" | "alert_log" | "dba_shift" | "approval_workflow" | "db_monitoring" | "generic";
+export type NotificationItemType =
+  | "tablespace"
+  | "filesystem_drive"
+  | "alert_log"
+  | "dba_shift"
+  | "approval_workflow"
+  | "db_monitoring"
+  | "datapump"
+  | "expdp"
+  | "impdp"
+  | "rman"
+  | "database_start"
+  | "database_stop"
+  | "listener_start"
+  | "listener_stop"
+  | "generic";
 
 /** Shared shape of the SSE notification payload broadcast to clients */
 export interface NotificationPayload {
@@ -729,7 +744,7 @@ export interface ChatApprovalCallbackPayload {
 // Data Pump — EXPDP / IMPDP Types
 // ============================================================
 
-export type DataPumpJobStatus = "running" | "success" | "error" | "completed";
+export type DataPumpJobStatus = "running" | "success" | "error" | "completed" | "failed";
 export type DataPumpOperation = "expdp" | "impdp";
 
 export interface DataPumpJob {

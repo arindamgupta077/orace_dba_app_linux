@@ -128,22 +128,57 @@ export const useAppStore = create<AppState>()(
             const readBy = isRead ? (item.readBy || oldItem.readBy) : undefined;
             const readAt = isRead ? (item.readAt || oldItem.readAt) : undefined;
 
+            const lowerT = (item.title || oldItem.title || "").toLowerCase();
+            const lowerM = (item.message || oldItem.message || "").toLowerCase();
+            const isImpdp = item.type === "impdp" || item.dpAction === "impdp" || lowerT.includes("impdp") || lowerM.includes("impdp");
+            const isExpdp = item.type === "expdp" || item.dpAction === "expdp" || lowerT.includes("expdp") || lowerM.includes("expdp");
+            const isDp = isImpdp || isExpdp || item.type === "datapump";
+            const isRman = item.type === "rman" || lowerT.includes("rman") || lowerM.includes("rman");
+
+            const resolvedTargetPath = isDp
+              ? "/data-pump"
+              : isRman
+              ? "/backups"
+              : item.targetPath || oldItem.targetPath;
+
+            const resolvedType = isImpdp
+              ? "impdp"
+              : isExpdp
+              ? "expdp"
+              : isDp
+              ? "datapump"
+              : isRman
+              ? "rman"
+              : item.type && item.type !== "generic"
+              ? item.type
+              : oldItem.type || "generic";
+
             updated[existingIndex] = {
               ...oldItem,
               ...item,
-              type: item.type && item.type !== "generic" ? item.type : oldItem.type,
+              type: resolvedType,
               severity: item.severity || oldItem.severity,
               db: item.db || oldItem.db,
               title: item.title || oldItem.title,
               message: item.message || oldItem.message,
-              targetPath: item.targetPath || oldItem.targetPath,
+              targetPath: resolvedTargetPath,
               timestamp: oldItem.timestamp || item.timestamp,
               read: isRead,
               readBy,
               readAt
             };
           } else {
-            updated = [{ ...item, read: item.read ?? false }, ...state.notifications];
+            const lowerT = (item.title || "").toLowerCase();
+            const lowerM = (item.message || "").toLowerCase();
+            const isImpdp = item.type === "impdp" || item.dpAction === "impdp" || lowerT.includes("impdp") || lowerM.includes("impdp");
+            const isExpdp = item.type === "expdp" || item.dpAction === "expdp" || lowerT.includes("expdp") || lowerM.includes("expdp");
+            const isDp = isImpdp || isExpdp || item.type === "datapump";
+            const isRman = item.type === "rman" || lowerT.includes("rman") || lowerM.includes("rman");
+
+            const resolvedTargetPath = isDp ? "/data-pump" : isRman ? "/backups" : item.targetPath;
+            const resolvedType = isImpdp ? "impdp" : isExpdp ? "expdp" : isDp ? "datapump" : isRman ? "rman" : item.type;
+
+            updated = [{ ...item, type: resolvedType, targetPath: resolvedTargetPath, read: item.read ?? false }, ...state.notifications];
           }
 
           updated.sort(

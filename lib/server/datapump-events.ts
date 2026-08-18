@@ -1,8 +1,8 @@
-import "server-only";
+import type { DataPumpJobStatus } from "@/types/dba";
 
 export interface DataPumpCallbackPayload {
   job_id: string;
-  status: "success" | "error" | "running" | "completed";
+  status: DataPumpJobStatus;
   action: "expdp" | "impdp";
   db?: string;
   dump_file?: string;

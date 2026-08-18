@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, BellRing, Check, ChevronRight, Database, FileClock, FileText, FileWarning, HardDrive, ShieldAlert, UserCheck, X } from "lucide-react";
+import { Archive, Bell, BellRing, Check, ChevronRight, Database, DatabaseZap, FileClock, FileText, FileWarning, HardDrive, Play, Radio, ShieldAlert, StopCircle, UserCheck, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -47,7 +47,7 @@ function severityTextClass(severity: NotificationItem["severity"]) {
   }
 }
 
-function typeLabel(type: NotificationItemType) {
+function typeLabel(type: NotificationItemType, notif?: { title?: string; message?: string }) {
   switch (type) {
     case "tablespace":
       return "Tablespace Capacity";
@@ -61,6 +61,27 @@ function typeLabel(type: NotificationItemType) {
       return "Approval Workflow";
     case "db_monitoring":
       return "Database Monitoring";
+    case "database_start":
+      return "Database Start";
+    case "database_stop":
+      return "Database Stop";
+    case "listener_start":
+      return "Listener Start";
+    case "listener_stop":
+      return "Listener Stop";
+    case "expdp":
+      return "EXPDP";
+    case "impdp":
+      return "IMPDP";
+    case "datapump": {
+      const lowerT = (notif?.title || "").toLowerCase();
+      const lowerM = (notif?.message || "").toLowerCase();
+      if (lowerT.includes("impdp") || lowerM.includes("impdp")) return "IMPDP";
+      if (lowerT.includes("expdp") || lowerM.includes("expdp")) return "EXPDP";
+      return "Data Pump";
+    }
+    case "rman":
+      return "RMAN Backup";
     default:
       return "Database Alert";
   }
@@ -80,6 +101,19 @@ function NotificationTypeIcon({ type }: { type: NotificationItemType }) {
       return <FileClock className="h-3.5 w-3.5" />;
     case "db_monitoring":
       return <ShieldAlert className="h-3.5 w-3.5" />;
+    case "database_start":
+      return <Play className="h-3.5 w-3.5" />;
+    case "database_stop":
+      return <StopCircle className="h-3.5 w-3.5" />;
+    case "listener_start":
+    case "listener_stop":
+      return <Radio className="h-3.5 w-3.5" />;
+    case "datapump":
+    case "expdp":
+    case "impdp":
+      return <DatabaseZap className="h-3.5 w-3.5" />;
+    case "rman":
+      return <Archive className="h-3.5 w-3.5" />;
     default:
       return <Bell className="h-3.5 w-3.5" />;
   }
@@ -169,7 +203,21 @@ export function DatabaseAlertsBell() {
       return;
     }
 
-    router.push(notification.targetPath);
+    let target = notification.targetPath;
+    const lowerTitle = (notification.title || "").toLowerCase();
+    const lowerMsg = (notification.message || "").toLowerCase();
+    const isDp = notification.type === "datapump" || lowerTitle.includes("expdp") || lowerTitle.includes("impdp") || lowerMsg.includes("expdp") || lowerMsg.includes("impdp");
+    const isRman = notification.type === "rman" || lowerTitle.includes("rman") || lowerMsg.includes("rman");
+
+    if (isDp) {
+      target = "/data-pump";
+    } else if (isRman) {
+      target = "/backups";
+    }
+
+    if (target) {
+      router.push(target);
+    }
   };
 
   return (
@@ -366,7 +414,7 @@ export function DatabaseAlertsBell() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
                         <p className={cn("truncate text-xs font-semibold uppercase tracking-wider", severityTextClass(notif.severity))}>
-                          {typeLabel(notif.type)}
+                          {typeLabel(notif.type, notif)}
                         </p>
                         
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>

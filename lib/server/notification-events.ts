@@ -169,19 +169,97 @@ export function markAllRecentBroadcastsRead(category?: "db" | "console" | "all",
   }
 }
 
-export function alertTypeToTargetPath(alertType: string): string {
-  const t = alertType.trim().toLowerCase();
+export function alertTypeToTargetPath(alertType: string, sourceName?: string, alertId?: string, message?: string): string {
+  const t = (alertType || "").trim().toLowerCase();
+  const s = (sourceName || "").trim().toLowerCase();
+  const id = (alertId || "").trim().toLowerCase();
+  const m = (message || "").toLowerCase();
+
+  if (
+    t === "datapump" ||
+    t === "expdp" ||
+    t === "impdp" ||
+    s === "datapump" ||
+    id.startsWith("dp-") ||
+    id.includes("expdp") ||
+    id.includes("impdp") ||
+    m.includes("expdp") ||
+    m.includes("impdp")
+  ) {
+    return "/data-pump";
+  }
+  if (
+    t === "rman" ||
+    t === "backup" ||
+    s === "rman" ||
+    id.startsWith("rman-") ||
+    id.includes("rman") ||
+    m.includes("rman")
+  ) {
+    return "/backups";
+  }
   if (t === "tablespace") return "/tablespaces";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "/filesystem-drive";
   if (t === "approval_workflow") return "/admin-panel/pending-approvals";
-  if (t === "db_monitoring") return "/general-admin";
+  if (
+    t === "db_monitoring" ||
+    t === "database_start" ||
+    t === "start_database" ||
+    t === "database_stop" ||
+    t === "stop_database" ||
+    t === "listener_start" ||
+    t === "start_listener" ||
+    t === "listener_stop" ||
+    t === "stop_listener" ||
+    id.startsWith("db-start-") ||
+    id.startsWith("db-stop-") ||
+    id.startsWith("lsnr-start-") ||
+    id.startsWith("lsnr-stop-")
+  ) {
+    return "/general-admin";
+  }
   if (t === "dba_shift") return "/dba-console/shift-management";
   if (t === "alert_log") return "/alerts";
   return "/tablespaces";
 }
 
-export function resolveNotificationType(alertType: string): NotificationItemType {
-  const t = alertType.trim().toLowerCase();
+export function resolveNotificationType(alertType: string, sourceName?: string, alertId?: string, message?: string): NotificationItemType {
+  const t = (alertType || "").trim().toLowerCase();
+  const s = (sourceName || "").trim().toLowerCase();
+  const id = (alertId || "").trim().toLowerCase();
+  const m = (message || "").toLowerCase();
+
+  if (t === "impdp" || id.includes("impdp") || m.includes("impdp")) {
+    return "impdp";
+  }
+  if (t === "expdp" || id.includes("expdp") || m.includes("expdp")) {
+    return "expdp";
+  }
+  if (t === "datapump" || s === "datapump" || id.startsWith("dp-")) {
+    return "datapump";
+  }
+  if (
+    t === "rman" ||
+    t === "backup" ||
+    s === "rman" ||
+    id.startsWith("rman-") ||
+    id.includes("rman") ||
+    m.includes("rman")
+  ) {
+    return "rman";
+  }
+  if (t === "database_start" || t === "start_database" || id.startsWith("db-start-")) {
+    return "database_start";
+  }
+  if (t === "database_stop" || t === "stop_database" || id.startsWith("db-stop-")) {
+    return "database_stop";
+  }
+  if (t === "listener_start" || t === "start_listener" || id.startsWith("lsnr-start-")) {
+    return "listener_start";
+  }
+  if (t === "listener_stop" || t === "stop_listener" || id.startsWith("lsnr-stop-")) {
+    return "listener_stop";
+  }
   if (t === "tablespace") return "tablespace";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
   if (t === "approval_workflow") return "approval_workflow";
@@ -197,6 +275,10 @@ export function alertTypeToAuditAction(alertType: string): string {
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "disk_utilization";
   if (t === "approval_workflow") return "approval_workflow";
   if (t === "db_monitoring") return "db_monitoring";
+  if (t === "database_start" || t === "start_database") return "database_start";
+  if (t === "database_stop" || t === "stop_database") return "database_stop";
+  if (t === "listener_start" || t === "start_listener") return "listener_start";
+  if (t === "listener_stop" || t === "stop_listener") return "listener_stop";
   return "alert_log";
 }
 

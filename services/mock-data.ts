@@ -1012,5 +1012,122 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
     ].join("\n");
   }
 
+  if (action === "start_database") {
+    base.db_status = "healthy";
+    base.ai_summary = `Database ${db} started successfully (OPEN mode).`;
+    base.findings = [
+      {
+        title: "Database Startup Complete",
+        detail: `The database instance was successfully started and brought to OPEN mode.`,
+        severity: "healthy",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Verify instance operations",
+        detail: "Run 'Check Status' or review active sessions to verify application connections.",
+        severity: "healthy",
+        action: "status_database"
+      }
+    ];
+    base.raw_output = [
+      "SQL*Plus: Release 19.0.0.0.0 - Production on Sat Jul 11 12:36:00 2026",
+      "Version 19.3.0.0.0",
+      "",
+      "Copyright (c) 1982, 2019, Oracle.  All rights reserved.",
+      "",
+      "Connected to an idle instance.",
+      "",
+      "SQL> STARTUP;",
+      "ORACLE instance started.",
+      "",
+      "Total System Global Area 10737418240 bytes",
+      "Fixed Size                  8900488 bytes",
+      "Variable Size            2147483648 bytes",
+      "Database Buffers         8522825728 bytes",
+      "Redo Buffers               58208368 bytes",
+      "Database mounted.",
+      "Database opened.",
+      `Request ${requestId} completed successfully.`
+    ].join("\n");
+  }
+
+  if (action === "start_listener") {
+    base.db_status = "healthy";
+    base.ai_summary = `Oracle Net Listener for ${db} started successfully.`;
+    base.findings = [
+      {
+        title: "Listener Service Online",
+        detail: `The Oracle Net Listener is listening on port 1521 and ready for client connections.`,
+        severity: "healthy",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Check Listener Status",
+        detail: "Run 'Check Listener Status' to review registered database services.",
+        severity: "healthy",
+        action: "check_listener"
+      }
+    ];
+    base.raw_output = [
+      "LSNRCTL for Linux: Version 19.0.0.0.0 - Production on 11-JUL-2026 12:37:00",
+      "",
+      "Copyright (c) 1991, 2019, Oracle.  All rights reserved.",
+      "",
+      "Starting /u01/app/oracle/product/19.0.0/dbhome_1/bin/tnslsnr: please wait...",
+      "",
+      "TNSLSNR for Linux: Version 19.0.0.0.0 - Production",
+      "System parameter file is /u01/app/oracle/product/19.0.0/dbhome_1/network/admin/listener.ora",
+      "Log messages written to /u01/app/oracle/diag/tnslsnr/dbserver01/listener/alert/log.xml",
+      "Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=dbserver01.example.com)(PORT=1521)))",
+      "",
+      "Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=dbserver01.example.com)(PORT=1521)))",
+      "STATUS of the LISTENER",
+      "------------------------",
+      "Alias                     LISTENER",
+      "Version                   TNSLSNR for Linux: Version 19.0.0.0.0 - Production",
+      "Start Date                Sat Jul 11 12:37:00 2026",
+      "Uptime                    0 days 0 hr. 0 min. 1 sec",
+      "Trace Level               off",
+      "Security                  ON: Local OS Authentication",
+      "SNMP                      OFF",
+      "The listener supports no services",
+      "The command completed successfully"
+    ].join("\n");
+  }
+
+  if (action === "stop_listener") {
+    base.db_status = "warning";
+    base.ai_summary = `Oracle Net Listener for ${db} was stopped. Incoming client connections are paused.`;
+    base.findings = [
+      {
+        title: "Listener Service Halted",
+        detail: `The Oracle Net Listener was stopped on ${db}. New client connections cannot be established.`,
+        severity: "warning",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Restart Listener",
+        detail: "Start the listener as soon as maintenance is complete to restore client access.",
+        severity: "warning",
+        action: "start_listener"
+      }
+    ];
+    base.raw_output = [
+      "LSNRCTL for Linux: Version 19.0.0.0.0 - Production on 11-JUL-2026 12:38:00",
+      "",
+      "Copyright (c) 1991, 2019, Oracle.  All rights reserved.",
+      "",
+      "Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=dbserver01.example.com)(PORT=1521)))",
+      "Waiting for listener to stop...",
+      "The command completed successfully"
+    ].join("\n");
+  }
+
   return base;
 }

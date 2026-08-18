@@ -243,6 +243,8 @@ function buildAlertTitle(alertType: string, target: string, severity: string) {
   const sev = severity.toUpperCase();
   if (alertType === "tablespace") return `Tablespace ${sev}: ${target}`;
   if (alertType === "filesystem_drive") return `Filesystem ${sev}: ${target}`;
+  if (alertType === "datapump" || alertType === "expdp" || alertType === "impdp") return `Data Pump Alert: ${target}`;
+  if (alertType === "rman") return `RMAN Alert: ${target}`;
   return `Alert ${sev}: ${target}`;
 }
 
