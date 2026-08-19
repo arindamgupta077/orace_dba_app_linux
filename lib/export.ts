@@ -690,6 +690,7 @@ export function exportFullShiftReportPdf(
     sectionHeader("9. RECENT SHIFT ACTIVITY TIMELINE");
 
     const timelineBody = report.activityTimeline.slice(0, 50).map((t) => [
+      t.session_id ? `#${t.session_id}` : "—",
       t.event,
       t.username,
       `Shift ${t.shift_number}`,
@@ -699,17 +700,18 @@ export function exportFullShiftReportPdf(
 
     autoTable(doc, {
       startY: currentY,
-      head: [["Event", "DBA User", "Shift", "Timestamp", "Detail / Activity"]],
+      head: [["Session ID", "Event", "DBA User", "Shift", "Timestamp", "Detail / Activity"]],
       body: timelineBody,
       styles: { font: "helvetica", fontSize: 7.5, cellPadding: 3, lineColor: [226, 232, 240], lineWidth: 0.4 },
       headStyles: { fillColor: [24, 43, 73], textColor: [255, 255, 255], fontStyle: "bold" },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: {
-        0: { fontStyle: "bold" },
-        4: { cellWidth: 320 }
+        0: { fontStyle: "bold", halign: "center" },
+        1: { fontStyle: "bold" },
+        5: { cellWidth: 280 }
       },
       didParseCell: (data) => {
-        if (data.section === "body" && data.column.index === 0) {
+        if (data.section === "body" && data.column.index === 1) {
           const text = String(data.cell.raw);
           if (text === "login") data.cell.styles.textColor = [21, 128, 61];
           else if (text === "logout") data.cell.styles.textColor = [185, 28, 28];

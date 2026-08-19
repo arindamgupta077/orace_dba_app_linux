@@ -149,27 +149,7 @@ function HandoverContent({ html, className }: { html: string; className?: string
   return <div className={cn("text-sm whitespace-pre-wrap text-slate-900 dark:text-foreground/90", className)}>{html}</div>;
 }
 
-const SESSION_COLORS = [
-  { rowBg: "bg-cyan-500/10 hover:bg-cyan-500/15 border-l-4 border-l-cyan-600 dark:bg-cyan-500/10 dark:hover:bg-cyan-500/15 dark:border-l-cyan-400", dot: "bg-cyan-500 dark:bg-cyan-400", badge: "border-cyan-300 bg-cyan-100 text-cyan-800 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300" },
-  { rowBg: "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-600 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 dark:border-l-amber-400", dot: "bg-amber-500 dark:bg-amber-400", badge: "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" },
-  { rowBg: "bg-purple-500/10 hover:bg-purple-500/15 border-l-4 border-l-purple-600 dark:bg-purple-500/10 dark:hover:bg-purple-500/15 dark:border-l-purple-400", dot: "bg-purple-500 dark:bg-purple-400", badge: "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300" },
-  { rowBg: "bg-emerald-500/10 hover:bg-emerald-500/15 border-l-4 border-l-emerald-600 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15 dark:border-l-emerald-400", dot: "bg-emerald-500 dark:bg-emerald-400", badge: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" },
-  { rowBg: "bg-rose-500/10 hover:bg-rose-500/15 border-l-4 border-l-rose-600 dark:bg-rose-500/10 dark:hover:bg-rose-500/15 dark:border-l-rose-400", dot: "bg-rose-500 dark:bg-rose-400", badge: "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" },
-  { rowBg: "bg-indigo-500/10 hover:bg-indigo-500/15 border-l-4 border-l-indigo-600 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/15 dark:border-l-indigo-400", dot: "bg-indigo-500 dark:bg-indigo-400", badge: "border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" },
-  { rowBg: "bg-orange-500/10 hover:bg-orange-500/15 border-l-4 border-l-orange-600 dark:bg-orange-500/10 dark:hover:bg-orange-500/15 dark:border-l-orange-400", dot: "bg-orange-500 dark:bg-orange-400", badge: "border-orange-300 bg-orange-100 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300" },
-  { rowBg: "bg-sky-500/10 hover:bg-sky-500/15 border-l-4 border-l-sky-600 dark:bg-sky-500/10 dark:hover:bg-sky-500/15 dark:border-l-sky-400", dot: "bg-sky-500 dark:bg-sky-400", badge: "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300" },
-  { rowBg: "bg-pink-500/10 hover:bg-pink-500/15 border-l-4 border-l-pink-600 dark:bg-pink-500/10 dark:hover:bg-pink-500/15 dark:border-l-pink-400", dot: "bg-pink-500 dark:bg-pink-400", badge: "border-pink-300 bg-pink-100 text-pink-800 dark:border-pink-500/30 dark:bg-pink-500/10 dark:text-pink-300" },
-  { rowBg: "bg-teal-500/10 hover:bg-teal-500/15 border-l-4 border-l-teal-600 dark:bg-teal-500/10 dark:hover:bg-teal-500/15 dark:border-l-teal-400", dot: "bg-teal-500 dark:bg-teal-400", badge: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-300" }
-];
 
-function getSessionColor(sessionId?: number, customMap?: Map<number, (typeof SESSION_COLORS)[number]>) {
-  if (!sessionId) return SESSION_COLORS[0];
-  if (customMap && customMap.has(sessionId)) {
-    return customMap.get(sessionId)!;
-  }
-  const idx = Math.abs(sessionId * 7) % SESSION_COLORS.length;
-  return SESSION_COLORS[idx];
-}
 
 const MONTH_OPTIONS = [
   { value: "1", label: "January" },
@@ -458,25 +438,7 @@ export function ShiftReportSection() {
     return list.sort((a, b) => b.total_completed - a.total_completed || a.username.localeCompare(b.username));
   }, [users, report, dbaUserId]);
 
-  const timelineSessionColorMap = useMemo(() => {
-    if (!report?.activityTimeline) return new Map<number, (typeof SESSION_COLORS)[number]>();
 
-    const colorMap = new Map<number, (typeof SESSION_COLORS)[number]>();
-    let prevIndex = -1;
-
-    report.activityTimeline.forEach((evt) => {
-      if (evt.session_id && !colorMap.has(evt.session_id)) {
-        let nextIndex = prevIndex === -1 ? Math.abs(evt.session_id * 7) % SESSION_COLORS.length : (prevIndex + 3) % SESSION_COLORS.length;
-        if (nextIndex === prevIndex) {
-          nextIndex = (nextIndex + 1) % SESSION_COLORS.length;
-        }
-        colorMap.set(evt.session_id, SESSION_COLORS[nextIndex]);
-        prevIndex = nextIndex;
-      }
-    });
-
-    return colorMap;
-  }, [report?.activityTimeline]);
 
   // ---------- Export definitions ----------
   const baseMeta = (title: string): ExportMeta => ({
@@ -513,6 +475,7 @@ export function ShiftReportSection() {
       }
       case "timeline": {
         const cols: ExportColumn<ShiftReportTimelineEntry>[] = [
+          { header: "Session ID", value: (r) => (r.session_id != null ? `#${r.session_id}` : ""), align: "center" },
           { header: "Event", value: (r) => r.event, align: "left" },
           { header: "DBA (Username)", value: (r) => r.username, align: "left" },
           { header: "Shift", value: (r) => shiftLabel(r.shift_number), align: "left" },
@@ -1440,8 +1403,8 @@ export function ShiftReportSection() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") applyTimelineSearch();
               }}
-              placeholder="Search DBA username or detail..."
-              className="h-9 w-52"
+              placeholder="Search DBA, session ID or detail..."
+              className="h-9 w-56"
             />
             <Button size="sm" variant="outline" onClick={applyTimelineSearch}>
               Search
@@ -1477,6 +1440,7 @@ export function ShiftReportSection() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-24">Session ID</TableHead>
                     <TableHead>Event</TableHead>
                     <TableHead>DBA</TableHead>
                     <TableHead>Shift</TableHead>
@@ -1488,16 +1452,15 @@ export function ShiftReportSection() {
                   {report.activityTimeline.map((event, i) => {
                     const isHandover = event.event === "handover" || event.event === "handover_notes";
                     const hasHandoverNote = isHandover;
-                    const sessionStyle = getSessionColor(event.session_id, timelineSessionColorMap);
 
                     return (
                       <TableRow
                         key={i}
-                        className={cn(
-                          "transition-colors",
-                          event.session_id ? sessionStyle.rowBg : "hover:bg-muted/40"
-                        )}
+                        className="transition-colors hover:bg-muted/40"
                       >
+                        <TableCell className="font-mono text-xs font-semibold text-muted-foreground">
+                          {event.session_id ? `#${event.session_id}` : "—"}
+                        </TableCell>
                         <TableCell>
                           <Badge
                             className={cn(
@@ -1652,6 +1615,12 @@ export function ShiftReportSection() {
                 <span className="text-muted-foreground">Shift: </span>
                 <span className="font-medium text-foreground">Shift {selectedHandoverNote?.shift_number}</span>
               </div>
+              {selectedHandoverNote?.session_id && (
+                <div>
+                  <span className="text-muted-foreground">Session ID: </span>
+                  <span className="font-mono font-medium text-foreground">#{selectedHandoverNote.session_id}</span>
+                </div>
+              )}
               {activeHandoverNote?.shift_date && (
                 <div>
                   <span className="text-muted-foreground">Shift Date: </span>
