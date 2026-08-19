@@ -4,7 +4,8 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
-import type { ShiftReportData } from "@/types/dba";
+import type { ShiftReportData, RebootHistoryItem } from "@/types/dba";
+import { formatDateTime } from "@/lib/utils";
 
 export type ExportFormat = "pdf" | "excel";
 
@@ -722,6 +723,178 @@ export function exportFullShiftReportPdf(
 
   applyPageNumbersAndFooters(doc, meta.title, genTime);
   doc.save(`full_executive_shift_report_${fileStamp()}.pdf`);
+}
+
+// ── Reboot History Audit Compliance PDF Export ───────────────────────────────
+
+export function exportRebootHistoryPdf(
+  items: RebootHistoryItem[],
+  meta: ExportMeta & { dbName: string }
+): void {
+  if (!items || items.length === 0) {
+    toast.error("No reboot history data to export.");
+    return;
+  }
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const genTime = timestampNow();
+  let currentY = renderPdfHeader(doc, meta);
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Summary Metrics calculation
+  const total = items.length;
+  const compliantCount = items.filter((i) => i.is_compliant).length;
+  const nonCompliantCount = total - compliantCount;
+  const compliantPct = total > 0 ? Math.round((compliantCount / total) * 100) : 100;
+  const preShutdownCount = items.filter((i) => i.event_type === "PRE_SHUTDOWN").length;
+  const startupCount = items.filter(
+    (i) => i.event_type === "POST_MOUNT_COMPLIANT" || i.event_type === "POST_MOUNT_FAILED"
+  ).length;
+
+  // Summary KPI banner box
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(40, currentY, pageWidth - 80, 32, 4, 4, "FD");
+
+  const statCols = [
+    { label: "Total Events", value: `${total}` },
+    {
+      label: "Audit Compliant",
+      value: `${compliantCount} (${compliantPct}%)`,
+      highlight: compliantPct === 100 ? "green" : "default"
+    },
+    {
+      label: "Non-Compliant",
+      value: `${nonCompliantCount}`,
+      highlight: nonCompliantCount > 0 ? "red" : "default"
+    },
+    { label: "Pre-Shutdown Snapshots", value: `${preShutdownCount}` },
+    { label: "Startup Mount Audits", value: `${startupCount}` }
+  ];
+
+  const colWidth = (pageWidth - 80) / statCols.length;
+  statCols.forEach((col, idx) => {
+    const colX = 40 + idx * colWidth + 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(col.label, colX, currentY + 12);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    if (col.highlight === "green") {
+      doc.setTextColor(21, 128, 61);
+    } else if (col.highlight === "red") {
+      doc.setTextColor(185, 28, 28);
+    } else {
+      doc.setTextColor(15, 23, 42);
+    }
+    doc.text(col.value, colX, currentY + 24);
+  });
+
+  currentY += 42;
+
+  const eventLabel = (type: string) => {
+    if (type === "PRE_SHUTDOWN") return "Pre-Shutdown";
+    if (type === "POST_MOUNT_COMPLIANT") return "Started (Compliant)";
+    return "Startup Aborted";
+  };
+
+  const body = items.map((item) => {
+    const paramDetails = [
+      `spfile: ${item.spfile_value ? item.spfile_value : "(blank) [OK]"}`,
+      `audit_sys_ops: ${item.audit_sys_ops || "—"}`,
+      `audit_trail: ${item.audit_trail || "—"}`
+    ].join("\n");
+
+    const failureOrNotes = item.is_compliant
+      ? "✓ All audit checks compliant"
+      : sanitizePdfText(item.failure_reasons || "Non-compliant parameters detected");
+
+    const timeStr = item.created_at
+      ? formatDateTime(item.created_at)
+      : (item.captured_at || "—");
+
+    return [
+      sanitizePdfText(timeStr),
+      eventLabel(item.event_type),
+      sanitizePdfText(item.requested_by || "system"),
+      sanitizePdfText(item.shutdown_option || "—"),
+      item.is_compliant ? "COMPLIANT" : "NON_COMPLIANT",
+      paramDetails,
+      failureOrNotes
+    ];
+  });
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [[
+      "Timestamp (IST)",
+      "Event Type",
+      "Requested By",
+      "Mode / Option",
+      "Compliance",
+      "Captured V$PARAMETER Audit Values",
+      "Failure Reasons / Audit Notes"
+    ]],
+    body,
+    styles: {
+      font: "helvetica",
+      fontSize: 7.5,
+      cellPadding: 4,
+      lineColor: [226, 232, 240],
+      lineWidth: 0.4,
+      textColor: [30, 41, 59],
+      overflow: "linebreak"
+    },
+    headStyles: {
+      fillColor: [24, 43, 73],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8,
+      halign: "left"
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252]
+    },
+    columnStyles: {
+      0: { cellWidth: 105 },
+      1: { cellWidth: 95 },
+      2: { cellWidth: 80 },
+      3: { cellWidth: 70 },
+      4: { halign: "center", cellWidth: 80, fontStyle: "bold" },
+      5: { cellWidth: 175, font: "courier", fontSize: 7 },
+      6: { cellWidth: 155 }
+    },
+    didParseCell: (data) => {
+      if (data.section === "body") {
+        if (data.column.index === 4) {
+          const text = String(data.cell.raw);
+          if (text === "COMPLIANT") {
+            data.cell.styles.textColor = [21, 128, 61];
+          } else {
+            data.cell.styles.textColor = [185, 28, 28];
+          }
+        }
+        if (data.column.index === 1) {
+          const text = String(data.cell.raw);
+          if (text.includes("Pre-Shutdown")) {
+            data.cell.styles.textColor = [180, 83, 9];
+          } else if (text.includes("Started")) {
+            data.cell.styles.textColor = [21, 128, 61];
+          } else if (text.includes("Aborted")) {
+            data.cell.styles.textColor = [185, 28, 28];
+          }
+        }
+      }
+    },
+    margin: { top: 32, bottom: 36, left: 40, right: 40 }
+  });
+
+  applyPageNumbersAndFooters(doc, meta.title, genTime);
+  const cleanDb = meta.dbName.toLowerCase().replace(/[^a-z0-9]/gi, "_");
+  doc.save(`reboot_history_${cleanDb}_${fileStamp()}.pdf`);
+  toast.success("PDF report downloaded successfully.");
 }
 
 function triggerDownload(blob: Blob, filename: string): void {

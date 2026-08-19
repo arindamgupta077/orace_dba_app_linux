@@ -8383,13 +8383,30 @@ export async function insertRebootHistory(input: {
 
 export async function listRebootHistory(
   db?: string,
-  limit: number = 100
+  limit: number = 100,
+  input: { startDate?: string; endDate?: string } = {}
 ): Promise<RebootHistoryItem[]> {
   return executeOne(async (connection) => {
-    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
-    const hasDbFilter = !!db?.trim();
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+    const conditions: string[] = [];
     const binds: BindParameters = { limit: safeLimit };
-    if (hasDbFilter) binds.dbName = db!.trim().toUpperCase();
+
+    if (db?.trim()) {
+      conditions.push("UPPER(db_name) = :dbName");
+      binds.dbName = db.trim().toUpperCase();
+    }
+
+    if (input.startDate) {
+      conditions.push("created_at >= TO_DATE(:startDate, 'YYYY-MM-DD')");
+      binds.startDate = input.startDate;
+    }
+
+    if (input.endDate) {
+      conditions.push("created_at < TO_DATE(:endDate, 'YYYY-MM-DD') + 1");
+      binds.endDate = input.endDate;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const result = await connection.execute<DbRow>(
       `SELECT id, db_name, environment, event_type, requested_by,
@@ -8397,7 +8414,7 @@ export async function listRebootHistory(
               db_name_param, is_compliant, failure_reasons,
               shutdown_option, created_at
          FROM db_reboot_history
-        ${hasDbFilter ? "WHERE UPPER(db_name) = :dbName" : ""}
+        ${whereClause}
         ORDER BY created_at DESC
         FETCH FIRST :limit ROWS ONLY`,
       binds

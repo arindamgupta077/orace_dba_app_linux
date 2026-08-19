@@ -1036,9 +1036,13 @@ export async function fetchMonitoringIncidentHistory(limit: number = 200, db?: s
 
 export async function fetchRebootHistory(
   db: string,
-  limit: number = 100
+  limit: number = 300,
+  startDate?: string,
+  endDate?: string
 ): Promise<RebootHistoryItem[]> {
   const query = new URLSearchParams({ db, limit: String(limit) });
+  if (startDate) query.set("startDate", startDate);
+  if (endDate) query.set("endDate", endDate);
   const data = await requestJson<{ items: RebootHistoryItem[] }>(
     `/api/dba/reboot-history?${query.toString()}`
   );

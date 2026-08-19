@@ -25,9 +25,11 @@ export async function GET(request: Request) {
     const url        = new URL(request.url);
     const db         = url.searchParams.get("db") || undefined;
     const limitParam = url.searchParams.get("limit");
-    const limit      = limitParam ? Math.min(Math.max(Number(limitParam), 1), 500) : 100;
+    const limit      = limitParam ? Math.min(Math.max(Number(limitParam), 1), 1000) : 300;
+    const startDate  = url.searchParams.get("startDate") || undefined;
+    const endDate    = url.searchParams.get("endDate") || undefined;
 
-    const items = await listRebootHistory(db, limit);
+    const items = await listRebootHistory(db, limit, { startDate, endDate });
     return NextResponse.json({ items });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch reboot history.";
