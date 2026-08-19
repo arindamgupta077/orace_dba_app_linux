@@ -8,13 +8,14 @@ import {
   Settings2,
   Terminal
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DbControlPanel } from "@/components/general-admin/db-control-panel";
 import { ListenerControlPanel } from "@/components/general-admin/listener-control-panel";
 import { MonitoringIncidentHistoryModal } from "@/components/general-admin/monitoring-incident-history-modal";
 import { MonitoringIncidentsPanel } from "@/components/general-admin/monitoring-incidents-panel";
 import { QueryPanel } from "@/components/general-admin/query-panel";
+import { loadSessionData, saveSessionData } from "@/components/general-admin/storage-helpers";
 import { cn } from "@/lib/utils";
 
 type TabKey = "db-control" | "listener-control" | "query";
@@ -55,10 +56,19 @@ const TABS: Tab[] = [
   }
 ];
 
+const ACTIVE_TAB_STORAGE_KEY = "general_admin_active_tab";
+
 export function GeneralAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<TabKey>("db-control");
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    loadSessionData<TabKey>(ACTIVE_TAB_STORAGE_KEY, "db-control")
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
-  const activeTabDef = TABS.find((t) => t.key === activeTab)!;
+
+  useEffect(() => {
+    saveSessionData(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
+
+  const activeTabDef = TABS.find((t) => t.key === activeTab) || TABS[0];
 
   return (
     <div className="space-y-6">

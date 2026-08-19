@@ -125,6 +125,14 @@ export async function POST(request: Request) {
       db_type: dbTarget?.db_type
     };
 
+    // ── Production Gate for Listener Start/Stop ───────────────────────
+    if ((action === "start_listener" || action === "stop_listener") && dbTarget.env_label === "PROD") {
+      return NextResponse.json(
+        { message: "Start and Stop Listener operations are disabled for production databases." },
+        { status: 403 }
+      );
+    }
+
     // ── Approval gate ──────────────────────────────────────────────────
     // For the `query` action on PROD, the SQL is inspected for destructive
     // content. When destructive, an approval request is created using the

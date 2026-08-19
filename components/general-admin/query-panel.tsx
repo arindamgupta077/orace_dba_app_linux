@@ -1,11 +1,17 @@
 "use client";
 
 import { AlertTriangle, Play, RotateCcw, Terminal } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConsoleOutput } from "@/components/general-admin/console-output";
-import { executeDBAAction } from "@/services/api";
+import { loadSessionData, saveSessionData } from "@/components/general-admin/storage-helpers";
+import {
+  executeQueryBackground,
+  getActiveAdminAction,
+  isAdminActionRunning
+} from "@/services/general-admin-service";
 import { useAppStore } from "@/store/use-app-store";
+import type { DbaResponse } from "@/types/dba";
 
 const SAMPLE_QUERIES = [
   "SELECT SYSDATE FROM DUAL",
@@ -19,31 +25,107 @@ interface RunState {
   status: "idle" | "loading" | "success" | "error";
   output: string | null;
   timestamp: string | null;
+  response?: DbaResponse | null;
 }
 
 export function QueryPanel() {
   const selectedDb = useAppStore((s) => s.selectedDb);
-  const [query, setQuery] = useState("SELECT SYSDATE FROM DUAL");
-  const [runState, setRunState] = useState<RunState>({ status: "idle", output: null, timestamp: null });
+  const [query, setQuery] = useState(() => {
+    return loadSessionData<string>(
+      `general_admin_query_sql_${selectedDb || "default"}`,
+      "SELECT SYSDATE FROM DUAL"
+    );
+  });
+  const [runState, setRunState] = useState<RunState>(() => {
+    const active = getActiveAdminAction("query", selectedDb);
+    if (active) {
+      return {
+        status: "loading",
+        output: null,
+        timestamp: null,
+        response: null
+      };
+    }
+    return loadSessionData<RunState>(
+      `general_admin_query_runstate_${selectedDb || "default"}`,
+      { status: "idle", output: null, timestamp: null, response: null }
+    );
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync query and runState when selectedDb changes
+  useEffect(() => {
+    if (selectedDb) {
+      const savedQuery = loadSessionData<string>(
+        `general_admin_query_sql_${selectedDb}`,
+        "SELECT SYSDATE FROM DUAL"
+      );
+      setQuery(savedQuery);
+
+      const active = getActiveAdminAction("query", selectedDb);
+      if (active) {
+        setRunState({
+          status: "loading",
+          output: null,
+          timestamp: null,
+          response: null
+        });
+      } else {
+        const savedRunState = loadSessionData<RunState>(
+          `general_admin_query_runstate_${selectedDb}`,
+          { status: "idle", output: null, timestamp: null, response: null }
+        );
+        if (savedRunState.status === "loading" && !isAdminActionRunning("query", selectedDb)) {
+          setRunState({ status: "idle", output: null, timestamp: null, response: null });
+        } else {
+          setRunState(savedRunState);
+        }
+      }
+    }
+  }, [selectedDb]);
+
+  // Listen to background runstate changes
+  useEffect(() => {
+    const handleRunStateChange = (e: Event) => {
+      const customEv = e as CustomEvent<{
+        type: string;
+        db: string;
+        action: string;
+        runState: RunState;
+      }>;
+      if (
+        customEv.detail?.type === "query" &&
+        selectedDb &&
+        customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()
+      ) {
+        setRunState(customEv.detail.runState);
+      }
+    };
+
+    window.addEventListener("general-admin-runstate-change", handleRunStateChange);
+    return () => {
+      window.removeEventListener("general-admin-runstate-change", handleRunStateChange);
+    };
+  }, [selectedDb]);
+
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+    if (selectedDb) {
+      saveSessionData(`general_admin_query_sql_${selectedDb}`, val);
+    }
+  };
+
+  const handleSelectTemplate = (q: string) => {
+    setQuery(q);
+    if (selectedDb) {
+      saveSessionData(`general_admin_query_sql_${selectedDb}`, q);
+    }
+  };
 
   const runQuery = async () => {
     if (!selectedDb || !query.trim()) return;
-    setRunState({ status: "loading", output: null, timestamp: null });
-    try {
-      const result = await executeDBAAction("query", selectedDb, { sql_query: query.trim() });
-      setRunState({
-        status: result.status === "error" ? "error" : "success",
-        output: result.raw_output || result.ai_summary || "(no output)",
-        timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false })
-      });
-    } catch (err) {
-      setRunState({
-        status: "error",
-        output: err instanceof Error ? err.message : "Unknown error occurred.",
-        timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false })
-      });
-    }
+    setRunState({ status: "loading", output: null, timestamp: null, response: null });
+    return executeQueryBackground(selectedDb, query.trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -60,14 +142,19 @@ export function QueryPanel() {
       const start = ta.selectionStart;
       const end = ta.selectionEnd;
       const newValue = query.substring(0, start) + "  " + query.substring(end);
-      setQuery(newValue);
+      handleQueryChange(newValue);
       setTimeout(() => ta.setSelectionRange(start + 2, start + 2), 0);
     }
   };
 
   const clearAll = () => {
     setQuery("");
-    setRunState({ status: "idle", output: null, timestamp: null });
+    const clearedRunState: RunState = { status: "idle", output: null, timestamp: null, response: null };
+    setRunState(clearedRunState);
+    if (selectedDb) {
+      saveSessionData(`general_admin_query_sql_${selectedDb}`, "");
+      saveSessionData(`general_admin_query_runstate_${selectedDb}`, clearedRunState);
+    }
     textareaRef.current?.focus();
   };
 
@@ -80,7 +167,7 @@ export function QueryPanel() {
           {SAMPLE_QUERIES.map((q) => (
             <button
               key={q}
-              onClick={() => setQuery(q)}
+              onClick={() => handleSelectTemplate(q)}
               className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] font-mono text-muted-foreground hover:border-border hover:text-foreground hover:bg-muted/60 transition-colors"
             >
               {q}
@@ -123,7 +210,7 @@ export function QueryPanel() {
             ref={textareaRef}
             id="general-admin-query-editor"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="-- Write your SQL query here&#10;-- Press Ctrl+Enter to execute"
             rows={Math.max(8, query.split("\n").length + 2)}
@@ -178,6 +265,7 @@ export function QueryPanel() {
         output={runState.output}
         action="query"
         timestamp={runState.timestamp ?? undefined}
+        response={runState.response}
       />
     </div>
   );

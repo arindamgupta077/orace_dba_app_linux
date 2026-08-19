@@ -20,7 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { ConsoleOutput } from "@/components/general-admin/console-output";
 import { RebootHistoryModal } from "@/components/general-admin/reboot-history-modal";
-import { executeDBAAction, fetchMonitoringIncidentHistory, fetchRebootHistory } from "@/services/api";
+import { loadSessionData, saveSessionData } from "@/components/general-admin/storage-helpers";
+import {
+  executeDbControlBackground,
+  getActiveAdminAction,
+  isAdminActionRunning
+} from "@/services/general-admin-service";
+import { fetchMonitoringIncidentHistory, fetchRebootHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 import type { DbaAction, DbaResponse, RebootHistoryItem } from "@/types/dba";
@@ -109,21 +115,43 @@ export function DbControlPanel() {
   );
   const isProd = selectedDbTarget?.env_label === "PROD";
 
-  const [runState, setRunState] = useState<RunState>({
-    status: "idle",
-    output: null,
-    timestamp: null,
-    action: null
+  const [loading, setLoading] = useState<DbaAction | null>(() => {
+    return (getActiveAdminAction("db-control", selectedDb) as DbaAction) || null;
+  });
+
+  const [runState, setRunState] = useState<RunState>(() => {
+    const active = getActiveAdminAction("db-control", selectedDb);
+    if (active) {
+      return {
+        status: "loading",
+        output: null,
+        timestamp: null,
+        action: active as DbaAction,
+        response: null
+      };
+    }
+    return loadSessionData<RunState>(
+      `general_admin_db_control_runstate_${selectedDb || "default"}`,
+      {
+        status: "idle",
+        output: null,
+        timestamp: null,
+        action: null,
+        response: null
+      }
+    );
   });
 
   // Generic destructive confirm (Start / Stop)
   const [confirmAction, setConfirmAction] = useState<ActionCard | null>(null);
 
   // Selected shutdown option
-  const [selectedShutdownOption, setSelectedShutdownOption] = useState<string>("IMMEDIATE");
-
-  // Loading tracker for all buttons
-  const [loading, setLoading] = useState<DbaAction | null>(null);
+  const [selectedShutdownOption, setSelectedShutdownOption] = useState<string>(() => {
+    return loadSessionData<string>(
+      `general_admin_shutdown_option_${selectedDb || "default"}`,
+      "IMMEDIATE"
+    );
+  });
 
   // Mount-Database confirmation
   const [mountConfirmOpen, setMountConfirmOpen] = useState(false);
@@ -137,6 +165,41 @@ export function DbControlPanel() {
 
   // Latest incident status from app_db_monitoring_incidents to override button states
   const [latestIncidentStatus, setLatestIncidentStatus] = useState<string | null>(null);
+
+  // Sync runState and shutdown option from session storage whenever selectedDb changes
+  useEffect(() => {
+    if (selectedDb) {
+      const active = getActiveAdminAction("db-control", selectedDb);
+      if (active) {
+        setLoading(active as DbaAction);
+        setRunState({
+          status: "loading",
+          output: null,
+          timestamp: null,
+          action: active as DbaAction,
+          response: null
+        });
+      } else {
+        const savedRunState = loadSessionData<RunState>(
+          `general_admin_db_control_runstate_${selectedDb}`,
+          { status: "idle", output: null, timestamp: null, action: null, response: null }
+        );
+        if (savedRunState.status === "loading" && !isAdminActionRunning("db-control", selectedDb)) {
+          setRunState({ status: "idle", output: null, timestamp: null, action: null, response: null });
+          setLoading(null);
+        } else {
+          setRunState(savedRunState);
+          setLoading(savedRunState.status === "loading" ? (savedRunState.action as DbaAction) : null);
+        }
+      }
+
+      const savedShutdown = loadSessionData<string>(
+        `general_admin_shutdown_option_${selectedDb}`,
+        "IMMEDIATE"
+      );
+      setSelectedShutdownOption(savedShutdown);
+    }
+  }, [selectedDb]);
 
   const refreshRebootStatus = useCallback(async (db: string, isDbProd: boolean) => {
     if (!isDbProd || !db) {
@@ -209,14 +272,43 @@ export function DbControlPanel() {
       }
     };
 
+    const handleRunStateChange = (e: Event) => {
+      const customEv = e as CustomEvent<{
+        type: string;
+        db: string;
+        action: DbaAction;
+        runState: RunState;
+      }>;
+      if (
+        customEv.detail?.type === "db-control" &&
+        selectedDb &&
+        customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()
+      ) {
+        const detail = customEv.detail;
+        if (detail.runState.status === "loading") {
+          setLoading(detail.action);
+          setRunState(detail.runState);
+        } else {
+          setLoading(null);
+          setRunState(detail.runState);
+          if (isProd) {
+            void refreshRebootStatus(selectedDb, isProd);
+          }
+          void refreshIncidentStatus(selectedDb);
+        }
+      }
+    };
+
     window.addEventListener("dba-monitoring-incident", handleMonitoringUpdate);
     window.addEventListener("dba-notification", handleMonitoringUpdate);
     window.addEventListener("dba-database-update", handleDatabaseUpdate);
+    window.addEventListener("general-admin-runstate-change", handleRunStateChange);
 
     return () => {
       window.removeEventListener("dba-monitoring-incident", handleMonitoringUpdate);
       window.removeEventListener("dba-notification", handleMonitoringUpdate);
       window.removeEventListener("dba-database-update", handleDatabaseUpdate);
+      window.removeEventListener("general-admin-runstate-change", handleRunStateChange);
     };
   }, [selectedDb, isProd, refreshRebootStatus, refreshIncidentStatus]);
 
@@ -258,52 +350,7 @@ export function DbControlPanel() {
     if (!selectedDb) return;
     setLoading(action);
     setRunState({ status: "loading", output: null, timestamp: null, action, response: null });
-    try {
-      if (action === "stop_database" && isProd) {
-        updateDatabaseRebootEvent(selectedDb, "PRE_SHUTDOWN");
-        window.dispatchEvent(
-          new CustomEvent("dba-database-update", {
-            detail: { db: selectedDb, event_type: "PRE_SHUTDOWN" }
-          })
-        );
-      }
-      const result = await executeDBAAction(action, selectedDb, params);
-      setRunState({
-        status: result.status === "error" ? "error" : "success",
-        output: result.raw_output || result.ai_summary || "(no output)",
-        timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
-        action,
-        response: result
-      });
-      // Refresh latest reboot status & incident status
-      if (selectedDb) {
-        if (isProd) {
-          void refreshRebootStatus(selectedDb, isProd);
-        }
-        void refreshIncidentStatus(selectedDb);
-      }
-
-      // Automatically trigger check-status on active monitoring incident card for this database
-      if (action === "start_database" && result.status !== "error" && selectedDb) {
-        window.dispatchEvent(
-          new CustomEvent("dba-auto-check-monitoring-incident", {
-            detail: { db: selectedDb }
-          })
-        );
-      }
-
-      return result;
-    } catch (err) {
-      setRunState({
-        status: "error",
-        output: err instanceof Error ? err.message : "Unknown error occurred.",
-        timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }),
-        action
-      });
-      return null;
-    } finally {
-      setLoading(null);
-    }
+    return executeDbControlBackground(selectedDb, action, params, isProd);
   };
 
   // ── Generic card click handler ─────────────────────────────────────────────
@@ -527,7 +574,12 @@ export function DbControlPanel() {
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setSelectedShutdownOption(opt.value)}
+                    onClick={() => {
+                      setSelectedShutdownOption(opt.value);
+                      if (selectedDb) {
+                        saveSessionData(`general_admin_shutdown_option_${selectedDb}`, opt.value);
+                      }
+                    }}
                     className={cn(
                       "flex flex-col items-start gap-1 rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer",
                       selectedShutdownOption === opt.value
