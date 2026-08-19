@@ -19,6 +19,12 @@ export const STATUS_COLOR: Record<string, string> = {
   completed: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10",
   failed: "text-red-300 border-red-400/30 bg-red-500/10",
   acknowledged: "text-slate-300 border-slate-400/25 bg-slate-400/10",
-  open: "text-cyan-300 border-cyan-400/30 bg-cyan-400/10",
+  open: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10",
+  started: "text-amber-300 border-amber-400/30 bg-amber-400/10",
+  mounted: "text-amber-300 border-amber-400/30 bg-amber-400/10",
+  shutdown: "text-red-300 border-red-400/30 bg-red-500/10",
+  down: "text-red-300 border-red-400/30 bg-red-500/10",
+  stopped: "text-red-300 border-red-400/30 bg-red-500/10",
+  closed: "text-red-300 border-red-400/30 bg-red-500/10",
   resolved: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10"
 };

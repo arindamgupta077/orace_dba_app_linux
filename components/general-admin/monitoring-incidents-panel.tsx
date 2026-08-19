@@ -68,6 +68,11 @@ export function MonitoringIncidentsPanel() {
   const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const mountedRef = useRef(true);
 
+  const incidentsRef = useRef<MonitoringIncident[]>([]);
+  incidentsRef.current = incidents;
+  const inFlightChecksRef = useRef<Set<string>>(new Set());
+  const lastAutoCheckRef = useRef<Record<string, number>>({});
+
   const refresh = useCallback(async () => {
     try {
       const data = await fetchMonitoringIncidents(selectedDb);
@@ -91,18 +96,6 @@ export function MonitoringIncidentsPanel() {
     };
   }, [refresh]);
 
-  // Listen for live monitoring notifications to trigger a refresh
-  useEffect(() => {
-    function onNotification(e: Event) {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.type === "db_monitoring") {
-        void refresh();
-      }
-    }
-    window.addEventListener("dba-notification", onNotification);
-    return () => window.removeEventListener("dba-notification", onNotification);
-  }, [refresh]);
-
   const handleAcknowledge = async (incidentId: string) => {
     setActionLoading((prev) => ({ ...prev, [incidentId]: "acknowledge" }));
     try {
@@ -123,11 +116,15 @@ export function MonitoringIncidentsPanel() {
     }
   };
 
-  const handleCheckStatus = async (incidentId: string) => {
+  const handleCheckStatus = useCallback(async (incidentId: string, customDbName?: string) => {
+    if (inFlightChecksRef.current.has(incidentId)) {
+      return; // Already checking this incident
+    }
+    inFlightChecksRef.current.add(incidentId);
     setActionLoading((prev) => ({ ...prev, [incidentId]: "check" }));
     try {
-      const targetInc = incidents.find((i) => i.incident_id === incidentId);
-      const dbName = targetInc?.db_name || "database";
+      const targetInc = incidentsRef.current.find((i) => i.incident_id === incidentId);
+      const dbName = customDbName || targetInc?.db_name || "database";
       const result = await checkMonitoringIncidentStatus(incidentId);
 
       if (result.resolved || result.status === "UP") {
@@ -150,13 +147,73 @@ export function MonitoringIncidentsPanel() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to check status");
     } finally {
+      inFlightChecksRef.current.delete(incidentId);
       setActionLoading((prev) => {
         const next = { ...prev };
         delete next[incidentId];
         return next;
       });
     }
-  };
+  }, []);
+
+  // Listen for live monitoring notifications to trigger refresh
+  useEffect(() => {
+    function onNotification(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.type === "db_monitoring") {
+        void refresh();
+      }
+    }
+    window.addEventListener("dba-notification", onNotification);
+    return () => window.removeEventListener("dba-notification", onNotification);
+  }, [refresh]);
+
+  // Listen for auto-check event triggered after database startup
+  useEffect(() => {
+    const handleAutoCheck = async (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string }>;
+      const targetDb = customEv.detail?.db || selectedDb;
+      if (!targetDb) return;
+
+      const normalizedDb = targetDb.trim().toUpperCase();
+      const now = Date.now();
+      if (lastAutoCheckRef.current[normalizedDb] && now - lastAutoCheckRef.current[normalizedDb] < 3000) {
+        return; // Debounce duplicate events within 3s window
+      }
+      lastAutoCheckRef.current[normalizedDb] = now;
+
+      // Small delay to ensure database connection is ready for status check
+      await new Promise((r) => setTimeout(r, 600));
+
+      let activeList = incidentsRef.current.filter(
+        (inc) => inc.db_name.trim().toUpperCase() === normalizedDb
+      );
+
+      // If not present in current state, fetch active incidents to check
+      if (activeList.length === 0) {
+        try {
+          const freshData = await fetchMonitoringIncidents(targetDb);
+          if (mountedRef.current && freshData.length > 0) {
+            setIncidents(freshData);
+            activeList = freshData.filter(
+              (inc) => inc.db_name.trim().toUpperCase() === normalizedDb
+            );
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      for (const inc of activeList) {
+        void handleCheckStatus(inc.incident_id, inc.db_name);
+      }
+    };
+
+    window.addEventListener("dba-auto-check-monitoring-incident", handleAutoCheck);
+    return () => {
+      window.removeEventListener("dba-auto-check-monitoring-incident", handleAutoCheck);
+    };
+  }, [selectedDb, handleCheckStatus]);
 
   const visibleIncidents = incidents.filter(
     (inc) => !selectedDb || inc.db_name.toUpperCase() === selectedDb.toUpperCase()

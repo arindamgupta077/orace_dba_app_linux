@@ -53,6 +53,7 @@ export function DatabaseSelector() {
   const rmanJobs = useAppStore((state) => state.rmanJobs);
   const upsertDataPumpJob = useAppStore((state) => state.upsertDataPumpJob);
   const upsertRmanJob = useAppStore((state) => state.upsertRmanJob);
+  const updateDatabaseRebootEvent = useAppStore((state) => state.updateDatabaseRebootEvent);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEnvFilter, setSelectedEnvFilter] = useState<string>("ALL");
@@ -153,27 +154,41 @@ export function DatabaseSelector() {
     const handleNotification = (e: Event) => {
       const customEv = e as CustomEvent<NotificationPayload>;
       const detail = customEv.detail;
-      if (
-        !detail ||
-        detail.type === "db_monitoring" ||
-        (detail as unknown as Record<string, unknown>).alertType === "db_monitoring" ||
-        (detail.title && detail.title.toLowerCase().includes("monitoring")) ||
-        (detail.message && detail.message.toLowerCase().includes("monitoring"))
-      ) {
+      if (!detail) {
         void refreshDatabaseStatuses();
+        return;
       }
+      const type = detail.type || (detail as unknown as Record<string, unknown>).alertType;
+      if (detail.db) {
+        if (type === "database_stop" || detail.title?.toLowerCase().includes("stopped")) {
+          updateDatabaseRebootEvent(detail.db, "PRE_SHUTDOWN");
+        } else if (type === "database_start" && !detail.title?.toLowerCase().includes("fail")) {
+          updateDatabaseRebootEvent(detail.db, "POST_MOUNT_COMPLIANT");
+        }
+      }
+      void refreshDatabaseStatuses();
     };
 
     const handleMonitoringUpdate = () => {
       void refreshDatabaseStatuses();
     };
 
+    const handleDatabaseUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string; event_type?: string }>;
+      if (customEv.detail?.db && customEv.detail?.event_type) {
+        updateDatabaseRebootEvent(customEv.detail.db, customEv.detail.event_type);
+      }
+      void refreshDatabaseStatuses();
+    };
+
     window.addEventListener("dba-notification", handleNotification);
     window.addEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+    window.addEventListener("dba-database-update", handleDatabaseUpdate);
 
     return () => {
       window.removeEventListener("dba-notification", handleNotification);
       window.removeEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+      window.removeEventListener("dba-database-update", handleDatabaseUpdate);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -196,11 +211,13 @@ export function DatabaseSelector() {
   const getStatusDotStyle = (db?: DatabaseTarget) => {
     const incStatus = (db?.incident_status || "").trim().toUpperCase();
     const dbStatus = (db?.status || "").trim().toUpperCase();
+    const latestReboot = (db?.latest_reboot_event || "").trim().toUpperCase();
     if (
       incStatus === "DOWN" ||
       incStatus === "ACKNOWLEDGED" ||
       dbStatus === "DOWN" ||
-      dbStatus === "ACKNOWLEDGED"
+      dbStatus === "ACKNOWLEDGED" ||
+      latestReboot === "PRE_SHUTDOWN"
     ) {
       return "bg-rose-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]";
     }

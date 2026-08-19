@@ -371,6 +371,7 @@ function mapDatabaseInventoryRow(row: DbRow): DatabaseInventoryItem {
     db_type: normalizeDatabaseType(row.DATABASE_TYPE),
     security_posture_outdated: String(row.SECURITY_POSTURE_OUTDATED || "N").toUpperCase() === "Y",
     incident_status: row.INCIDENT_STATUS ? String(row.INCIDENT_STATUS).trim().toUpperCase() : undefined,
+    latest_reboot_event: row.LATEST_EVENT_TYPE ? String(row.LATEST_EVENT_TYPE).trim().toUpperCase() : undefined,
     server_name: row.SERVER_NAME ? String(row.SERVER_NAME) : undefined,
     server_ip: row.SERVER_IP ? String(row.SERVER_IP) : undefined,
     zone: row.ZONE ? String(row.ZONE) : undefined,
@@ -1080,6 +1081,13 @@ async function fetchDatabaseInventoryById(connection: Connection, id: number): P
          ORDER BY i.last_reported DESC, i.created_at DESC
          FETCH FIRST 1 ROWS ONLY
        ) AS incident_status,
+       (
+         SELECT h.event_type
+         FROM db_reboot_history h
+         WHERE UPPER(h.db_name) = UPPER(d.database_name)
+         ORDER BY h.created_at DESC
+         FETCH FIRST 1 ROWS ONLY
+       ) AS latest_event_type,
        d.server_type,
        d.db_version,
        d.db_edition,
@@ -1151,6 +1159,13 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
            ORDER BY i.last_reported DESC, i.created_at DESC
            FETCH FIRST 1 ROWS ONLY
          ) AS incident_status,
+         (
+           SELECT h.event_type
+           FROM db_reboot_history h
+           WHERE UPPER(h.db_name) = UPPER(d.database_name)
+           ORDER BY h.created_at DESC
+           FETCH FIRST 1 ROWS ONLY
+         ) AS latest_event_type,
          d.server_type,
          d.db_version,
          d.db_edition,
@@ -1238,6 +1253,13 @@ d.server_name,
           ORDER BY i.last_reported DESC, i.created_at DESC
           FETCH FIRST 1 ROWS ONLY
         ) AS incident_status,
+        (
+          SELECT h.event_type
+          FROM db_reboot_history h
+          WHERE UPPER(h.db_name) = UPPER(d.database_name)
+          ORDER BY h.created_at DESC
+          FETCH FIRST 1 ROWS ONLY
+        ) AS latest_event_type,
         d.server_type,
         d.db_version,
         d.db_edition,

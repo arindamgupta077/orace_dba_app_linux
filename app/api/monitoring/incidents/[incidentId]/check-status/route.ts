@@ -14,6 +14,16 @@ export const dynamic = "force-dynamic";
 
 const MONITORING_ACTOR = "Monitoring Agent";
 
+interface CheckStatusResult {
+  status: "UP" | "DOWN";
+  resolved: boolean;
+  incident?: unknown;
+  message: string;
+  statusCode?: number;
+}
+
+const inFlightCheckMap = new Map<string, Promise<CheckStatusResult>>();
+
 /**
  * POST /api/monitoring/incidents/[incidentId]/check-status
  *
@@ -33,147 +43,165 @@ export async function POST(
 
     const { incidentId } = await params;
 
-    const incident = await getMonitoringIncident(incidentId);
-    if (!incident) {
-      return NextResponse.json({ message: "Incident not found." }, { status: 404 });
+    // Deduplicate concurrent check-status requests for the same incident
+    const existingCheck = inFlightCheckMap.get(incidentId);
+    if (existingCheck) {
+      const result = await existingCheck;
+      return NextResponse.json(result, { status: result.statusCode ?? 200 });
     }
 
-    if (incident.status === "RESOLVED") {
-      return NextResponse.json({
-        status: "UP",
-        resolved: true,
-        message: "Incident is already resolved."
-      });
-    }
-
-    // ── Call n8n test_connection ──────────────────────────────────────────
-    const env = getServerEnv();
-    let connectionResult: "UP" | "DOWN" = "DOWN";
-
-    if (env.mockMode) {
-      // In mock mode, simulate UP after a short delay
-      await new Promise((r) => setTimeout(r, 600));
-      connectionResult = "UP";
-    } else {
-      if (!env.webhookUrl) {
-        throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
+    const checkPromise = (async (): Promise<CheckStatusResult> => {
+      const incident = await getMonitoringIncident(incidentId);
+      if (!incident) {
+        return { status: "DOWN", resolved: false, message: "Incident not found.", statusCode: 404 };
       }
 
-      const payload = {
-        action: "test_connection",
-        db: incident.db_name,
-        params: {
-          database_name: incident.db_name,
-          requested_by: session.user.username
-        },
-        requested_by: session.user.username,
-        user_id: session.userId
-      };
+      if (incident.status === "RESOLVED") {
+        return {
+          status: "UP",
+          resolved: true,
+          incident,
+          message: "Incident is already resolved."
+        };
+      }
 
-      const response = await fetch(env.webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {})
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store"
-      });
+      // ── Call n8n test_connection ──────────────────────────────────────────
+      const env = getServerEnv();
+      let connectionResult: "UP" | "DOWN" = "DOWN";
 
-      if (!response.ok) {
-        let errMsg: string;
-        try {
-          const errBody = (await response.json()) as { message?: string };
-          errMsg = errBody.message || response.statusText;
-        } catch {
-          errMsg = response.statusText;
+      if (env.mockMode) {
+        // In mock mode, simulate UP after a short delay
+        await new Promise((r) => setTimeout(r, 600));
+        connectionResult = "UP";
+      } else {
+        if (!env.webhookUrl) {
+          throw new Error("DBA_WEBHOOK_URL is required when mock mode is disabled.");
         }
-        throw new Error(`n8n webhook failed (${response.status}): ${errMsg}`);
-      }
 
-      const result = await response.json() as Record<string, unknown>;
+        const payload = {
+          action: "test_connection",
+          db: incident.db_name,
+          params: {
+            database_name: incident.db_name,
+            requested_by: session.user.username
+          },
+          requested_by: session.user.username,
+          user_id: session.userId
+        };
 
-      // Extract remote_connection from potentially wrapped n8n response
-      let connectionValue: string | undefined;
-      if (typeof result.remote_connection === "string") {
-        connectionValue = result.remote_connection;
-      } else if (Array.isArray(result)) {
-        for (const item of result) {
-          const obj = (item as Record<string, unknown>)?.json ?? item;
-          if (obj && typeof (obj as Record<string, unknown>).remote_connection === "string") {
-            connectionValue = (obj as Record<string, unknown>).remote_connection as string;
-            break;
+        const response = await fetch(env.webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {})
+          },
+          body: JSON.stringify(payload),
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          let errMsg: string;
+          try {
+            const errBody = (await response.json()) as { message?: string };
+            errMsg = errBody.message || response.statusText;
+          } catch {
+            errMsg = response.statusText;
+          }
+          throw new Error(`n8n webhook failed (${response.status}): ${errMsg}`);
+        }
+
+        const result = (await response.json()) as Record<string, unknown>;
+
+        // Extract remote_connection from potentially wrapped n8n response
+        let connectionValue: string | undefined;
+        if (typeof result.remote_connection === "string") {
+          connectionValue = result.remote_connection;
+        } else if (Array.isArray(result)) {
+          for (const item of result) {
+            const obj = (item as Record<string, unknown>)?.json ?? item;
+            if (obj && typeof (obj as Record<string, unknown>).remote_connection === "string") {
+              connectionValue = (obj as Record<string, unknown>).remote_connection as string;
+              break;
+            }
           }
         }
+
+        connectionResult = connectionValue?.toUpperCase() === "UP" ? "UP" : "DOWN";
       }
 
-      connectionResult = connectionValue?.toUpperCase() === "UP" ? "UP" : "DOWN";
-    }
-
-    // ── Audit the status check ───────────────────────────────────────────
-    await insertAuditLog({
-      actor: session.user.username,
-      action: "test_connection",
-      db: incident.db_name,
-      status: connectionResult,
-      detail: `Status check for ${incident.db_name} by ${session.user.username}: result=${connectionResult}.`
-    });
-
-    if (connectionResult === "UP") {
-      // ── Resolve the incident ─────────────────────────────────────────
-      const resolved = await updateMonitoringIncidentStatus(incidentId, "RESOLVED");
-
+      // ── Audit the status check ───────────────────────────────────────────
       await insertAuditLog({
         actor: session.user.username,
-        action: "db_monitoring",
+        action: "test_connection",
         db: incident.db_name,
-        status: "resolved",
-        detail: `Database ${incident.db_name} confirmed UP — incident ${incidentId} resolved by ${session.user.username}.`
+        status: connectionResult,
+        detail: `Status check for ${incident.db_name} by ${session.user.username}: result=${connectionResult}.`
       });
 
-      const upNotifId = `MON-UP-${incident.db_name}-${incidentId}`;
-      try {
-        await insertAlertNotification({
-          id: upNotifId,
-          source: MONITORING_ACTOR,
-          alertType: "db_monitoring",
+      if (connectionResult === "UP") {
+        // ── Resolve the incident ─────────────────────────────────────────
+        const resolved = await updateMonitoringIncidentStatus(incidentId, "RESOLVED");
+
+        await insertAuditLog({
+          actor: session.user.username,
+          action: "db_monitoring",
           db: incident.db_name,
-          severity: "info",
-          status: "completed",
-          message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
-          createdBy: session.user.username
+          status: "resolved",
+          detail: `Database ${incident.db_name} confirmed UP — incident ${incidentId} resolved by ${session.user.username}.`
         });
-      } catch {
-        // Ignore duplicate insert error
+
+        const upNotifId = `MON-UP-${incident.db_name}-${incidentId}`;
+        try {
+          await insertAlertNotification({
+            id: upNotifId,
+            source: MONITORING_ACTOR,
+            alertType: "db_monitoring",
+            db: incident.db_name,
+            severity: "info",
+            status: "completed",
+            message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
+            createdBy: session.user.username
+          });
+        } catch {
+          // Ignore duplicate insert error
+        }
+
+        // ── Emit global notification for UP / resolved ───────────────────
+        emitGlobalNotification({
+          id: upNotifId,
+          type: "db_monitoring",
+          severity: "info",
+          db: incident.db_name,
+          title: `Database Online: ${incident.db_name}`,
+          message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
+          timestamp: new Date().toISOString(),
+          targetPath: "/general-admin"
+        });
+
+        return {
+          status: "UP",
+          resolved: true,
+          incident: resolved,
+          message: `Database ${incident.db_name} is back online. Incident resolved.`
+        };
       }
 
-      // ── Emit global notification for UP / resolved ───────────────────
-      emitGlobalNotification({
-        id: upNotifId,
-        type: "db_monitoring",
-        severity: "info",
-        db: incident.db_name,
-        title: `Database Online: ${incident.db_name}`,
-        message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
-        timestamp: new Date().toISOString(),
-        targetPath: "/general-admin"
-      });
+      // ── Still DOWN — leave incident as-is ───────────────────────────────
+      return {
+        status: "DOWN",
+        resolved: false,
+        incident,
+        message: `Database ${incident.db_name} is still unreachable.`
+      };
+    })();
 
-      return NextResponse.json({
-        status: "UP",
-        resolved: true,
-        incident: resolved,
-        message: `Database ${incident.db_name} is back online. Incident resolved.`
-      });
+    inFlightCheckMap.set(incidentId, checkPromise);
+    try {
+      const result = await checkPromise;
+      return NextResponse.json(result, { status: result.statusCode ?? 200 });
+    } finally {
+      inFlightCheckMap.delete(incidentId);
     }
-
-    // ── Still DOWN — leave incident as-is ───────────────────────────────
-    return NextResponse.json({
-      status: "DOWN",
-      resolved: false,
-      incident,
-      message: `Database ${incident.db_name} is still unreachable.`
-    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error checking database status.";
     return NextResponse.json({ message }, { status: 500 });

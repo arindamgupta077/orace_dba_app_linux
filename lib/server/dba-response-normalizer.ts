@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { DbaAction, DbaResponse } from "@/types/dba";
+import type { DbaAction, DbaResponse, DbaStatus } from "@/types/dba";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -162,6 +162,32 @@ export function normalizeDbaResponse(input: unknown, action: DbaAction): DbaResp
     rawData.rows = dataRows;
   }
 
+  // Extract and preserve db_status from payload or fallback locations
+  let extractedDbStatus: DbaStatus = "unknown";
+  const rawDbStatus =
+    (typeof payload.db_status === "string" && payload.db_status.trim()) ||
+    (typeof payload.dbStatus === "string" && payload.dbStatus.trim()) ||
+    (typeof payload.database_status === "string" && payload.database_status.trim()) ||
+    (typeof payload.instance_status === "string" && payload.instance_status.trim()) ||
+    (typeof rawData.db_status === "string" && String(rawData.db_status).trim()) ||
+    (typeof rawData.status === "string" && String(rawData.status).trim()) ||
+    (typeof dataRows[0]?.STATUS === "string" && String(dataRows[0].STATUS).trim()) ||
+    (typeof dataRows[0]?.DATABASE_STATUS === "string" && String(dataRows[0].DATABASE_STATUS).trim()) ||
+    (typeof dataRows[0]?.DB_STATUS === "string" && String(dataRows[0].DB_STATUS).trim()) ||
+    "";
+
+  if (rawDbStatus) {
+    extractedDbStatus = rawDbStatus as DbaStatus;
+  } else if (status === "error") {
+    extractedDbStatus = "critical";
+  } else if (action === "start_database") {
+    extractedDbStatus = "OPEN";
+  } else if (action === "stop_database") {
+    extractedDbStatus = "SHUTDOWN";
+  } else if (action === "mount_database") {
+    extractedDbStatus = "MOUNTED";
+  }
+
   const rawOutput =
     textOutput ||
     (dataRows.length > 0 ? JSON.stringify(dataRows, null, 2) : "");
@@ -173,13 +199,7 @@ export function normalizeDbaResponse(input: unknown, action: DbaAction): DbaResp
         ? payload.request_id
         : `DBA-${Date.now()}`,
     action,
-    db_status:
-      payload.db_status === "healthy" ||
-      payload.db_status === "warning" ||
-      payload.db_status === "critical" ||
-      payload.db_status === "unknown"
-        ? payload.db_status
-        : "unknown",
+    db_status: extractedDbStatus,
     ai_summary:
       typeof payload.ai_summary === "string" ? payload.ai_summary : "Execution completed.",
     findings: Array.isArray(payload.findings)

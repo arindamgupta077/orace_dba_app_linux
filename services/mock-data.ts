@@ -972,7 +972,7 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
 
   if (action === "stop_database") {
     const shutdownOption = String(params.shutdown_option || "IMMEDIATE");
-    base.db_status = "unknown";
+    base.db_status = "SHUTDOWN";
     base.ai_summary = `Database ${db} shutdown command triggered with mode ${shutdownOption}.`;
     base.findings = [
       {
@@ -1013,7 +1013,7 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
   }
 
   if (action === "start_database") {
-    base.db_status = "healthy";
+    base.db_status = "OPEN";
     base.ai_summary = `Database ${db} started successfully (OPEN mode).`;
     base.findings = [
       {

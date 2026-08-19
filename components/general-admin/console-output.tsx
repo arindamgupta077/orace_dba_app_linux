@@ -28,6 +28,21 @@ function checkAuditTrailCompliant(val?: string | null): boolean {
   );
 }
 
+function getDbStatusBadgeClass(statusStr?: string | null): string {
+  if (!statusStr) return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+  const s = statusStr.trim().toUpperCase();
+  if (["OPEN", "OPEN_READ_WRITE", "HEALTHY", "UP", "ONLINE", "READY"].includes(s)) {
+    return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+  }
+  if (["MOUNTED", "MOUNT", "STARTED", "NOMOUNT", "WARNING", "RESTRICTED"].includes(s)) {
+    return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  }
+  if (["SHUTDOWN", "DOWN", "STOPPED", "CLOSED", "CRITICAL", "OFFLINE", "ERROR", "FAILED"].includes(s)) {
+    return "bg-red-500/15 text-red-400 border-red-500/30";
+  }
+  return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+}
+
 interface ConsoleOutputProps {
   output: string | null;
   status: "idle" | "loading" | "success" | "error";
@@ -75,19 +90,29 @@ export function ConsoleOutput({ output, status, action, timestamp, className, re
   }
 
   // Extract structured fields
-  const requestId = typeof resObj?.request_id === "string" ? resObj.request_id : null;
-  const actionName = (typeof resObj?.action === "string" ? resObj.action : action) || "Database Activity";
-  const dbStatus = typeof resObj?.db_status === "string" ? resObj.db_status : null;
-  const aiSummary = typeof resObj?.ai_summary === "string" ? resObj.ai_summary : null;
-  const rawOut = typeof resObj?.raw_output === "string" ? resObj.raw_output : (typeof output === "string" && !resObj ? output : null);
-
   const rawData = resObj?.raw_data && typeof resObj.raw_data === "object" ? (resObj.raw_data as Record<string, unknown>) : null;
   const auditSnapshot = rawData?.audit_snapshot && typeof rawData.audit_snapshot === "object"
     ? (rawData.audit_snapshot as Record<string, string>)
     : null;
 
+  const requestId = typeof resObj?.request_id === "string" ? resObj.request_id : null;
+  const actionName = (typeof resObj?.action === "string" ? resObj.action : action) || "Database Activity";
+  const dbStatus =
+    (typeof resObj?.db_status === "string" && resObj.db_status.trim()) ||
+    (typeof resObj?.dbStatus === "string" && resObj.dbStatus.trim()) ||
+    (typeof resObj?.database_status === "string" && resObj.database_status.trim()) ||
+    (typeof resObj?.instance_status === "string" && resObj.instance_status.trim()) ||
+    (typeof rawData?.db_status === "string" && String(rawData.db_status).trim()) ||
+    (typeof rawData?.status === "string" && String(rawData.status).trim()) ||
+    null;
+  const aiSummary = typeof resObj?.ai_summary === "string" ? resObj.ai_summary : null;
+  const rawOut = typeof resObj?.raw_output === "string" ? resObj.raw_output : (typeof output === "string" && !resObj ? output : null);
+
   // Collect any custom top-level fields (e.g. myNewField)
-  const knownKeys = new Set(["status", "request_id", "action", "db_status", "ai_summary", "findings", "recommendations", "raw_output", "raw_data"]);
+  const knownKeys = new Set([
+    "status", "request_id", "action", "db_status", "dbStatus", "database_status", 
+    "instance_status", "ai_summary", "findings", "recommendations", "raw_output", "raw_data"
+  ]);
   const customFields: Array<[string, unknown]> = resObj
     ? Object.entries(resObj).filter(([k]) => !knownKeys.has(k))
     : [];
@@ -180,11 +205,7 @@ export function ConsoleOutput({ output, status, action, timestamp, className, re
                     {dbStatus && (
                       <span className={cn(
                         "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide border font-mono",
-                        dbStatus === "healthy"
-                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                          : dbStatus === "warning"
-                          ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                          : "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                        getDbStatusBadgeClass(dbStatus)
                       )}>
                         DB Status: {dbStatus}
                       </span>

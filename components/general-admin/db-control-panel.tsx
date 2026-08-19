@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { ConsoleOutput } from "@/components/general-admin/console-output";
 import { RebootHistoryModal } from "@/components/general-admin/reboot-history-modal";
-import { executeDBAAction, fetchRebootHistory } from "@/services/api";
+import { executeDBAAction, fetchMonitoringIncidentHistory, fetchRebootHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import { cn } from "@/lib/utils";
 import type { DbaAction, DbaResponse, RebootHistoryItem } from "@/types/dba";
@@ -59,7 +59,7 @@ const DB_ACTIONS: ActionCard[] = [
   {
     action: "start_database",
     label: "Start Database",
-    description: "Execute STARTUP — bring the database to OPEN mode",
+    description: "Execute STARTUP — bring the database to OPEN mode. (Listener will be started after database startup)",
     icon: Play,
     colorClass: "from-emerald-500 to-teal-600",
     glowClass: "shadow-[0_0_18px_rgba(16,185,129,0.35)]"
@@ -67,7 +67,7 @@ const DB_ACTIONS: ActionCard[] = [
   {
     action: "stop_database",
     label: "Stop Database",
-    description: "Execute SHUTDOWN IMMEDIATE — graceful instance shutdown",
+    description: "Execute SHUTDOWN IMMEDIATE — graceful instance shutdown. (Listener will be stopped before shutdown)",
     icon: StopCircle,
     colorClass: "from-red-500 to-rose-600",
     glowClass: "shadow-[0_0_18px_rgba(239,68,68,0.35)]",
@@ -98,6 +98,10 @@ const SHUTDOWN_OPTIONS = [
 export function DbControlPanel() {
   const selectedDb  = useAppStore((s) => s.selectedDb);
   const databases   = useAppStore((s) => s.databases);
+  const updateDatabaseRebootEvent = useAppStore((s) => s.updateDatabaseRebootEvent);
+  const updateDatabaseIncidentStatus = useAppStore((s) => s.updateDatabaseIncidentStatus);
+
+  const isDbInventoryLoading = databases.length === 0;
 
   // Derive the env_label for the selected DB to gate PROD-only features
   const selectedDbTarget = databases.find(
@@ -129,42 +133,124 @@ export function DbControlPanel() {
 
   // Latest reboot event for PROD database to control button state
   const [latestRebootEvent, setLatestRebootEvent] = useState<RebootHistoryItem | null>(null);
+  const [rebootStatusLoaded, setRebootStatusLoaded] = useState(false);
+
+  // Latest incident status from app_db_monitoring_incidents to override button states
+  const [latestIncidentStatus, setLatestIncidentStatus] = useState<string | null>(null);
 
   const refreshRebootStatus = useCallback(async (db: string, isDbProd: boolean) => {
     if (!isDbProd || !db) {
       setLatestRebootEvent(null);
+      setRebootStatusLoaded(true);
       return;
     }
     try {
       const history = await fetchRebootHistory(db, 1);
       if (history && history.length > 0) {
         setLatestRebootEvent(history[0]);
+        updateDatabaseRebootEvent(db, history[0].event_type);
       } else {
         setLatestRebootEvent(null);
       }
     } catch {
       // Non-blocking error handling
       setLatestRebootEvent(null);
+    } finally {
+      setRebootStatusLoaded(true);
     }
-  }, []);
+  }, [updateDatabaseRebootEvent]);
+
+  const refreshIncidentStatus = useCallback(async (db: string) => {
+    if (!db) {
+      setLatestIncidentStatus(null);
+      return;
+    }
+    try {
+      const history = await fetchMonitoringIncidentHistory(1, db);
+      if (history && history.length > 0) {
+        const incStatus = history[0].status;
+        setLatestIncidentStatus(incStatus);
+        updateDatabaseIncidentStatus(db, incStatus);
+      } else {
+        setLatestIncidentStatus(null);
+      }
+    } catch {
+      // Non-blocking fallback
+      setLatestIncidentStatus(null);
+    }
+  }, [updateDatabaseIncidentStatus]);
 
   useEffect(() => {
-    if (selectedDb && isProd) {
+    if (!selectedDb || isDbInventoryLoading) return;
+    void refreshIncidentStatus(selectedDb);
+    if (isProd) {
+      setRebootStatusLoaded(false);
       void refreshRebootStatus(selectedDb, isProd);
     } else {
       setLatestRebootEvent(null);
+      setRebootStatusLoaded(true);
     }
-  }, [selectedDb, isProd, refreshRebootStatus]);
+  }, [selectedDb, isProd, isDbInventoryLoading, refreshRebootStatus, refreshIncidentStatus]);
 
-  // Is Stop Database disabled due to PRE_SHUTDOWN or POST_MOUNT_FAILED
+  useEffect(() => {
+    const handleMonitoringUpdate = () => {
+      if (selectedDb) {
+        void refreshIncidentStatus(selectedDb);
+      }
+    };
+
+    const handleDatabaseUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string; event_type?: string }>;
+      if (customEv.detail?.db && selectedDb && customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()) {
+        if (isProd) {
+          void refreshRebootStatus(selectedDb, isProd);
+        }
+        void refreshIncidentStatus(selectedDb);
+      }
+    };
+
+    window.addEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+    window.addEventListener("dba-notification", handleMonitoringUpdate);
+    window.addEventListener("dba-database-update", handleDatabaseUpdate);
+
+    return () => {
+      window.removeEventListener("dba-monitoring-incident", handleMonitoringUpdate);
+      window.removeEventListener("dba-notification", handleMonitoringUpdate);
+      window.removeEventListener("dba-database-update", handleDatabaseUpdate);
+    };
+  }, [selectedDb, isProd, refreshRebootStatus, refreshIncidentStatus]);
+
+  const effectiveIncidentStatus = (
+    latestIncidentStatus ??
+    selectedDbTarget?.incident_status ??
+    ""
+  ).trim().toUpperCase();
+
+  const isLatestIncidentActive =
+    effectiveIncidentStatus === "DOWN" || effectiveIncidentStatus === "ACKNOWLEDGED";
+
+  // Is Stop Database disabled:
+  // If latest incident_status is "DOWN" or "ACKNOWLEDGED" (not resolved) -> STOP is DISABLED (overrides existing condition).
+  // If latest incident_status is "RESOLVED" (or not active) -> keep existing condition in place.
   const isStopDisabled =
-    isProd &&
-    (latestRebootEvent?.event_type === "PRE_SHUTDOWN" ||
-      latestRebootEvent?.event_type === "POST_MOUNT_FAILED");
+    isDbInventoryLoading ||
+    (isLatestIncidentActive
+      ? true
+      : isProd &&
+        (!rebootStatusLoaded ||
+          latestRebootEvent?.event_type === "PRE_SHUTDOWN" ||
+          latestRebootEvent?.event_type === "POST_MOUNT_FAILED"));
 
-  // Is Start Database disabled due to POST_MOUNT_COMPLIANT
+  // Is Start Database disabled:
+  // If latest incident_status is "DOWN" or "ACKNOWLEDGED" (not resolved) -> START is ENABLED (isStartDisabled = false, overrides existing condition).
+  // If latest incident_status is "RESOLVED" (or not active) -> keep existing condition in place.
   const isStartDisabled =
-    isProd && latestRebootEvent?.event_type === "POST_MOUNT_COMPLIANT";
+    isDbInventoryLoading ||
+    (isLatestIncidentActive
+      ? false
+      : isProd &&
+        (!rebootStatusLoaded ||
+          latestRebootEvent?.event_type === "POST_MOUNT_COMPLIANT"));
 
   // ── Generic execute helper ─────────────────────────────────────────────────
 
@@ -173,6 +259,14 @@ export function DbControlPanel() {
     setLoading(action);
     setRunState({ status: "loading", output: null, timestamp: null, action, response: null });
     try {
+      if (action === "stop_database" && isProd) {
+        updateDatabaseRebootEvent(selectedDb, "PRE_SHUTDOWN");
+        window.dispatchEvent(
+          new CustomEvent("dba-database-update", {
+            detail: { db: selectedDb, event_type: "PRE_SHUTDOWN" }
+          })
+        );
+      }
       const result = await executeDBAAction(action, selectedDb, params);
       setRunState({
         status: result.status === "error" ? "error" : "success",
@@ -181,10 +275,23 @@ export function DbControlPanel() {
         action,
         response: result
       });
-      // Refresh latest reboot status if PROD
-      if (isProd && selectedDb) {
-        void refreshRebootStatus(selectedDb, isProd);
+      // Refresh latest reboot status & incident status
+      if (selectedDb) {
+        if (isProd) {
+          void refreshRebootStatus(selectedDb, isProd);
+        }
+        void refreshIncidentStatus(selectedDb);
       }
+
+      // Automatically trigger check-status on active monitoring incident card for this database
+      if (action === "start_database" && result.status !== "error" && selectedDb) {
+        window.dispatchEvent(
+          new CustomEvent("dba-auto-check-monitoring-incident", {
+            detail: { db: selectedDb }
+          })
+        );
+      }
+
       return result;
     } catch (err) {
       setRunState({
@@ -259,23 +366,6 @@ export function DbControlPanel() {
 
         {selectedDb && isProd && (
           <div className="flex items-center gap-2">
-            {latestRebootEvent && (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-                <span className="text-[11px] font-semibold uppercase text-foreground/70">Latest Event:</span>
-                <span
-                  className={cn(
-                    "font-mono text-[11px] font-bold px-1.5 py-0.5 rounded",
-                    latestRebootEvent.event_type === "POST_MOUNT_COMPLIANT"
-                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                      : latestRebootEvent.event_type === "POST_MOUNT_FAILED"
-                      ? "bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30"
-                      : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                  )}
-                >
-                  {latestRebootEvent.event_type}
-                </span>
-              </span>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -301,7 +391,7 @@ export function DbControlPanel() {
           const cardStopDisabled = isStopAction && isStopDisabled;
           const cardStartDisabled = isStartAction && isStartDisabled;
           const isActionDisabled = cardStopDisabled || cardStartDisabled;
-          const isDisabled = !selectedDb || loading !== null || isActionDisabled;
+          const isDisabled = !selectedDb || isDbInventoryLoading || !selectedDbTarget || loading !== null || isActionDisabled;
 
           return (
             <button
@@ -349,7 +439,7 @@ export function DbControlPanel() {
         {/* ── Mount / Change Mode card ───────────────────────────────────── */}
         <button
           onClick={() => setMountConfirmOpen(true)}
-          disabled={!selectedDb || loading !== null}
+          disabled={!selectedDb || isDbInventoryLoading || !selectedDbTarget || loading !== null}
           className={cn(
             "group relative flex flex-col items-start gap-3 rounded-xl border bg-card/60 p-5 text-left",
             "hover:bg-card/90 hover:scale-[1.02]",
@@ -425,6 +515,10 @@ export function DbControlPanel() {
 
           {confirmAction?.action === "stop_database" && (
             <div className="my-4 space-y-3">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                <span><strong>Note:</strong> The Oracle listener will be stopped before database shutdown.</span>
+              </div>
               <label className="text-sm font-semibold text-muted-foreground block">
                 Select Shutdown Option:
               </label>

@@ -553,7 +553,7 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   {
     action: "start_database",
     title: "Start Database",
-    description: "Start the Oracle database instance via SSH (STARTUP command).",
+    description: "Start the Oracle database instance via SSH (STARTUP command). The listener will be started after database startup.",
     category: "general_admin",
     icon: "Play",
     params: []
@@ -561,7 +561,7 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   {
     action: "stop_database",
     title: "Stop Database",
-    description: "Shutdown the Oracle database instance via SSH (IMMEDIATE, TRANSACTIONAL, or ABORT).",
+    description: "Shutdown the Oracle database instance via SSH (IMMEDIATE, TRANSACTIONAL, or ABORT). The listener will be stopped before shutdown.",
     category: "general_admin",
     destructive: true,
     icon: "StopCircle",

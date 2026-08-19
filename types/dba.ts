@@ -1,4 +1,4 @@
-export type DbaStatus = "healthy" | "warning" | "critical" | "unknown";
+export type DbaStatus = "healthy" | "warning" | "critical" | "unknown" | (string & {});
 
 export type RequestStatus = "idle" | "loading" | "success" | "error" | "pending_approval";
 
@@ -454,6 +454,8 @@ export interface DatabaseTarget {
   security_posture_outdated: boolean;
   /** Latest monitoring incident status from app_db_monitoring_incidents (e.g. 'DOWN') */
   incident_status?: string;
+  /** Latest reboot event_type from db_reboot_history (e.g. 'PRE_SHUTDOWN') */
+  latest_reboot_event?: string;
   server_name?: string;
   server_ip?: string;
   zone?: string;

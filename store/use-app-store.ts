@@ -21,6 +21,8 @@ interface AppState {
   setUser: (user?: UserSession) => void;
   setSelectedDb: (db: string) => void;
   setDatabases: (databases: DatabaseTarget[]) => void;
+  updateDatabaseRebootEvent: (dbName: string, eventType: string) => void;
+  updateDatabaseIncidentStatus: (dbName: string, status?: string) => void;
   setAutoRefreshSeconds: (seconds: number) => void;
   addRequestHistory: (item: RequestHistoryItem) => void;
   updateRequestHistory: (id: string, patch: Partial<RequestHistoryItem>) => void;
@@ -85,6 +87,22 @@ export const useAppStore = create<AppState>()(
 
           return { databases, selectedDb };
         }),
+      updateDatabaseRebootEvent: (dbName, eventType) =>
+        set((state) => ({
+          databases: state.databases.map((db) =>
+            db.name.trim().toUpperCase() === dbName.trim().toUpperCase()
+              ? { ...db, latest_reboot_event: eventType }
+              : db
+          )
+        })),
+      updateDatabaseIncidentStatus: (dbName, status) =>
+        set((state) => ({
+          databases: state.databases.map((db) =>
+            db.name.trim().toUpperCase() === dbName.trim().toUpperCase()
+              ? { ...db, incident_status: status }
+              : db
+          )
+        })),
       setAutoRefreshSeconds: (autoRefreshSeconds) => set({ autoRefreshSeconds }),
       addRequestHistory: (item) =>
         set((state) => ({
