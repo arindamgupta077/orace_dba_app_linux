@@ -683,6 +683,10 @@ export interface DashboardMetrics {
   datapump_exports?: DashboardDatapumpExportRow[];
   password_expiring_users?: DashboardPasswordExpiryUserRow[];
   failed_login_count?: number;
+  db_response_time_ms?: number;
+  total_db_size_gb?: number;
+  avg_active_sessions_1hr?: number;
+  peak_active_sessions_1hr?: number;
   fra: FraMetrics;
   ora_errors: OraErrorRow[];
   captured_at?: string;

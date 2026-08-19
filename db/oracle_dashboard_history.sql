@@ -95,6 +95,10 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 -- │    Branch 11 — Invalid Objects Count (SQL)                               │
 -- │    Branch 12 — FRA Utilization (SQL)                                     │
 -- │    Branch 13 — ORA Errors from Alert Log (SQL)                           │
+-- │    Branch 14 — SQL Service Response Time (60m Window) (SQL)              │
+-- │    Branch 15 — Total Database Size in GB (SQL)                           │
+-- │    Branch 16 — 1-Hour Average Active Sessions (SQL)                      │
+-- │    Branch 17 — 1-Hour Peak Active Sessions (SQL)                         │
 -- │                                                                           │
 -- │ 4. Merge Node (Mode: Wait for All Inputs to Arrive)                      │
 -- │                                                                           │
@@ -143,6 +147,10 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 -- const b11 = items[10]?.json ?? {};   // Invalid objects count
 -- const b12 = items[11]?.json ?? {};   // FRA
 -- const b13 = items[12]?.json ?? {};   // ORA errors
+-- const b14 = items[13]?.json ?? {};   // SQL Service Response Time (60m Avg)
+-- const b15 = items[14]?.json ?? {};   // Database Size GB
+-- const b16 = items[15]?.json ?? {};   // 1-Hour Avg Active Sessions
+-- const b17 = items[16]?.json ?? {};   // 1-Hour Peak Active Sessions
 --
 -- const payload = {
 --   db_health: {
@@ -180,7 +188,14 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 --   blocking_sessions:rows(items[8]),
 --   failed_jobs:      parseInt(b10.failed_jobs_count ?? b10.FAILED_JOBS_COUNT ?? 0),
 --   invalid_objects:  parseInt(b11.invalid_object_count ?? b11.INVALID_OBJECT_COUNT ?? 0),
+--   db_response_time_ms:      parseFloat(b14.db_response_time_ms ?? b14.DB_RESPONSE_TIME_MS ?? 0),
+--   total_db_size_gb:         parseFloat(b15.total_db_size_gb ?? b15.TOTAL_DB_SIZE_GB ?? 0),
+--   avg_active_sessions_1hr:  parseFloat(b16.avg_active_sessions_1hr ?? b16.AVG_ACTIVE_SESSIONS_1HR ?? 0),
+--   peak_active_sessions_1hr: parseFloat(b17.peak_active_sessions_1hr ?? b17.PEAK_ACTIVE_SESSIONS_1HR ?? 0),
 --   fra:             (rows(items[11])[0] ?? b12),
+--   ora_errors:       rows(items[12]),
+--   captured_at:      new Date().toISOString()
+-- };
 --   ora_errors:       rows(items[12]),
 --   captured_at:      new Date().toISOString()
 -- };
@@ -362,3 +377,32 @@ CREATE INDEX idx_dash_hist_db_time ON dashboard_history (db_name, refresh_timest
 --       WHERE REGEXP_LIKE(message_text, 'ORA-[0-9]+')
 --       ORDER BY originating_timestamp DESC
 --   ) WHERE ROWNUM <= 5;
+--
+-- BRANCH 14: SQL Service Response Time - 60-Minute Window (Oracle DB Node)
+--   SELECT ROUND(average * 10, 2) AS db_response_time_ms
+--   FROM v$sysmetric_summary
+--   WHERE metric_name = 'SQL Service Response Time'
+--     AND group_id = 2;
+--
+-- BRANCH 15: Total Database Size in GB (Oracle DB Node)
+--   SELECT ROUND(SUM(NVL(bytes, 0)) / 1024 / 1024 / 1024, 2) AS total_db_size_gb
+--   FROM (
+--       SELECT bytes FROM dba_data_files
+--       UNION ALL
+--       SELECT bytes FROM dba_temp_files
+--       UNION ALL
+--       SELECT bytes FROM v$log
+--   );
+--
+-- BRANCH 16: 1-Hour Average Active Sessions (Oracle DB Node)
+--   SELECT ROUND(average / 100, 2) AS avg_active_sessions_1hr
+--   FROM v$sysmetric_summary
+--   WHERE metric_name = 'Database Time Per Sec'
+--     AND group_id = 2;
+--
+-- BRANCH 17: 1-Hour Peak Active Sessions (Oracle DB Node)
+--   SELECT ROUND(maxval / 100, 2) AS peak_active_sessions_1hr
+--   FROM v$sysmetric_summary
+--   WHERE metric_name = 'Database Time Per Sec'
+--     AND group_id = 2;
+

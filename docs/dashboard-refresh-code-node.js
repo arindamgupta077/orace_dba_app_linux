@@ -70,6 +70,10 @@ let payload = {
   datapump_exports: [],
   password_expiring_users: [],
   failed_login_count: 0,
+  db_response_time_ms: 0,
+  total_db_size_gb: 0,
+  avg_active_sessions_1hr: 0,
+  peak_active_sessions_1hr: 0,
   fra: {},
   ora_errors: [],
   captured_at: new Date().toISOString()
@@ -118,7 +122,7 @@ for (const item of items) {
     payload.invalid_objects = toInt(read(item, "INVALID_OBJECT_COUNT", "invalid_object_count"));
   }
 
-  // New single-value metrics.
+  // Single-value metrics (security, capacity & performance).
   if (read(item, "USERS_EXPIRING_IN_15_DAYS", "users_expiring_in_15_days") !== undefined) {
     payload.users_expiring_in_15_days = toInt(read(item, "USERS_EXPIRING_IN_15_DAYS", "users_expiring_in_15_days"));
   }
@@ -127,6 +131,18 @@ for (const item of items) {
   }
   if (read(item, "FAILED_LOGIN_COUNT", "failed_login_count") !== undefined) {
     payload.failed_login_count = toInt(read(item, "FAILED_LOGIN_COUNT", "failed_login_count"));
+  }
+  if (read(item, "DB_RESPONSE_TIME_MS", "db_response_time_ms") !== undefined) {
+    payload.db_response_time_ms = toNumber(read(item, "DB_RESPONSE_TIME_MS", "db_response_time_ms"));
+  }
+  if (read(item, "TOTAL_DB_SIZE_GB", "total_db_size_gb") !== undefined) {
+    payload.total_db_size_gb = toNumber(read(item, "TOTAL_DB_SIZE_GB", "total_db_size_gb"));
+  }
+  if (read(item, "AVG_ACTIVE_SESSIONS_1HR", "avg_active_sessions_1hr") !== undefined) {
+    payload.avg_active_sessions_1hr = toNumber(read(item, "AVG_ACTIVE_SESSIONS_1HR", "avg_active_sessions_1hr"));
+  }
+  if (read(item, "PEAK_ACTIVE_SESSIONS_1HR", "peak_active_sessions_1hr") !== undefined) {
+    payload.peak_active_sessions_1hr = toNumber(read(item, "PEAK_ACTIVE_SESSIONS_1HR", "peak_active_sessions_1hr"));
   }
 
   // Existing arrays.

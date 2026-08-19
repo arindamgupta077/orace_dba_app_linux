@@ -292,6 +292,16 @@ export function HistoricalSnapshotsModal({
                         <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
                           FRA: <strong className={fra >= 80 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}>{fra}%</strong>
                         </span>
+                        {safeNum(snapshot.metrics?.db_response_time_ms) > 0 && (
+                          <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
+                            Resp: <strong className="text-foreground">{safeNum(snapshot.metrics?.db_response_time_ms).toFixed(1)}ms</strong>
+                          </span>
+                        )}
+                        {safeNum(snapshot.metrics?.total_db_size_gb) > 0 && (
+                          <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
+                            Size: <strong className="text-foreground">{safeNum(snapshot.metrics?.total_db_size_gb).toFixed(1)}GB</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
 

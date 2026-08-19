@@ -24,6 +24,7 @@ import {
   Users,
   XCircle,
   Zap,
+  TrendingUp,
   Loader2
 } from "lucide-react";
 import {
@@ -369,6 +370,10 @@ function normalizeMetrics(raw: unknown): DashboardMetrics | null {
     datapump_exports:          datapumpExports,
     password_expiring_users:   passwordExpiringUsers,
     failed_login_count:        safeNum(r.failed_login_count ?? r.FAILED_LOGIN_COUNT),
+    db_response_time_ms:       field(r, "db_response_time_ms") != null ? safeNum(field(r, "db_response_time_ms")) : undefined,
+    total_db_size_gb:          field(r, "total_db_size_gb") != null ? safeNum(field(r, "total_db_size_gb")) : undefined,
+    avg_active_sessions_1hr:   field(r, "avg_active_sessions_1hr") != null ? safeNum(field(r, "avg_active_sessions_1hr")) : undefined,
+    peak_active_sessions_1hr:  field(r, "peak_active_sessions_1hr") != null ? safeNum(field(r, "peak_active_sessions_1hr")) : undefined,
     fra:               fra ?? { name: "", fra_size_gb: 0, used_gb: 0, reclaimable_gb: 0, pct_used: 0 },
     ora_errors:        oraErrors,
     captured_at:       r.captured_at ? safeStr(r.captured_at) : undefined,
@@ -1251,98 +1256,135 @@ export function DashboardOverview() {
             />
           </div>
 
-          {/* ── SECTION 3: COMPUTE RESOURCES ───────────────────────────── */}
-          <div className="grid gap-4 md:grid-cols-3">
-            {/* CPU */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Cpu className="h-4 w-4 text-cyan-300" />
-                  CPU Utilization
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-center">
-                  <div className="relative flex h-32 w-32 items-center justify-center">
-                    <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120">
-                      <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(142,163,184,0.12)" strokeWidth="12" />
-                      <circle
-                        cx="60" cy="60" r="48" fill="none"
-                        stroke={pctStroke(safeNum(osRes?.cpu_usage_pct))}
-                        strokeWidth="12"
-                        strokeDasharray={`${safeNum(osRes?.cpu_usage_pct) * 3.016} 301.6`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className={`text-2xl font-bold tabular-nums ${pctColor(safeNum(osRes?.cpu_usage_pct))}`}>
-                        {safeNum(osRes?.cpu_usage_pct).toFixed(1)}%
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">CPU</span>
-                    </div>
-                  </div>
-                </div>
-                <div className={`rounded-lg border px-3 py-2 text-center text-xs font-medium ${pctColor(safeNum(osRes?.cpu_usage_pct))} border-current/20 bg-current/5`}>
-                  {safeNum(osRes?.cpu_usage_pct) < 60 ? "Normal load" : safeNum(osRes?.cpu_usage_pct) < 80 ? "Moderate load" : "High CPU pressure"}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Memory */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <HardDrive className="h-4 w-4 text-violet-300" />
-                  OS Memory
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {memPctOnly ? (
-                  /* n8n returned only a percentage (stdout) — show circular gauge */
-                  <div className="space-y-3">
+          {/* ── SECTION 3: COMPUTE RESOURCES & PERFORMANCE KPIs (with RMAN Backup History) ── */}
+          <div className="grid gap-5 xl:grid-cols-3">
+            <div className="space-y-5 xl:col-span-2">
+              {/* CPU & Memory */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* CPU */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <Cpu className="h-4 w-4 text-cyan-300" />
+                      CPU Utilization
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
                     <div className="flex items-center justify-center">
                       <div className="relative flex h-32 w-32 items-center justify-center">
                         <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120">
                           <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(142,163,184,0.12)" strokeWidth="12" />
-                          <circle cx="60" cy="60" r="48" fill="none"
-                            stroke={pctStroke(memPct)} strokeWidth="12"
-                            strokeDasharray={`${memPct * 3.016} 301.6`} strokeLinecap="round" />
+                          <circle
+                            cx="60" cy="60" r="48" fill="none"
+                            stroke={pctStroke(safeNum(osRes?.cpu_usage_pct))}
+                            strokeWidth="12"
+                            strokeDasharray={`${safeNum(osRes?.cpu_usage_pct) * 3.016} 301.6`}
+                            strokeLinecap="round"
+                          />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className={`text-2xl font-bold tabular-nums ${pctColor(memPct)}`}>{memPct.toFixed(1)}%</span>
-                          <span className="text-[10px] text-muted-foreground">used</span>
+                          <span className={`text-2xl font-bold tabular-nums ${pctColor(safeNum(osRes?.cpu_usage_pct))}`}>
+                            {safeNum(osRes?.cpu_usage_pct).toFixed(1)}%
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">CPU</span>
                         </div>
                       </div>
                     </div>
-                    <div className={`rounded-lg border px-3 py-2 text-center text-xs font-medium ${pctColor(memPct)} border-current/20 bg-current/5`}>
-                      {memPct < 70 ? "Memory pressure normal" : memPct < 85 ? "Memory under moderate pressure" : "High memory pressure"}
+                    <div className={`rounded-lg border px-3 py-2 text-center text-xs font-medium ${pctColor(safeNum(osRes?.cpu_usage_pct))} border-current/20 bg-current/5`}>
+                      {safeNum(osRes?.cpu_usage_pct) < 60 ? "Normal load" : safeNum(osRes?.cpu_usage_pct) < 80 ? "Moderate load" : "High CPU pressure"}
                     </div>
-                  </div>
-                ) : (
-                  /* Full GB breakdown available */
-                  <div className="space-y-3">
-                    <LinearGauge label="Memory Used" value={memUsedGb} max={memTotalGb || 64} unit=" GB" color={pctBarColor(memPct)} />
-                    <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/40 bg-secondary/30 p-3 text-center text-xs">
-                      <div>
-                        <p className="text-muted-foreground">Total</p>
-                        <p className="font-bold text-slate-200">{memTotalGb.toFixed(1)} GB</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Used</p>
-                        <p className={`font-bold ${pctColor(memPct)}`}>{memUsedGb.toFixed(1)} GB</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Free</p>
-                        <p className="font-bold text-emerald-300">{memFreeGb.toFixed(1)} GB</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
-            {/* RMAN Backup History */}
-            <Card>
+                {/* Memory */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <HardDrive className="h-4 w-4 text-violet-300" />
+                      OS Memory
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {memPctOnly ? (
+                      /* n8n returned only a percentage (stdout) — show circular gauge */
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-center">
+                          <div className="relative flex h-32 w-32 items-center justify-center">
+                            <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120">
+                              <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(142,163,184,0.12)" strokeWidth="12" />
+                              <circle cx="60" cy="60" r="48" fill="none"
+                                stroke={pctStroke(memPct)} strokeWidth="12"
+                                strokeDasharray={`${memPct * 3.016} 301.6`} strokeLinecap="round" />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                              <span className={`text-2xl font-bold tabular-nums ${pctColor(memPct)}`}>{memPct.toFixed(1)}%</span>
+                              <span className="text-[10px] text-muted-foreground">used</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`rounded-lg border px-3 py-2 text-center text-xs font-medium ${pctColor(memPct)} border-current/20 bg-current/5`}>
+                          {memPct < 70 ? "Memory pressure normal" : memPct < 85 ? "Memory under moderate pressure" : "High memory pressure"}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Full GB breakdown available */
+                      <div className="space-y-3">
+                        <LinearGauge label="Memory Used" value={memUsedGb} max={memTotalGb || 64} unit=" GB" color={pctBarColor(memPct)} />
+                        <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/40 bg-secondary/30 p-3 text-center text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Total</p>
+                            <p className="font-bold text-slate-200">{memTotalGb.toFixed(1)} GB</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Used</p>
+                            <p className={`font-bold ${pctColor(memPct)}`}>{memUsedGb.toFixed(1)} GB</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Free</p>
+                            <p className="font-bold text-emerald-300">{memFreeGb.toFixed(1)} GB</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* 4 DB Performance & Capacity Parameters */}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile
+                  icon={Database}
+                  label="Database Size"
+                  value={m.total_db_size_gb != null ? `${safeNum(m.total_db_size_gb).toFixed(2)} GB` : "—"}
+                  sub="Data, temp & redo log"
+                  variant="healthy"
+                />
+                <KpiTile
+                  icon={Clock}
+                  label="Avg Response Time"
+                  value={m.db_response_time_ms != null ? `${safeNum(m.db_response_time_ms).toFixed(2)} ms` : "—"}
+                  sub="Last 60 mins (SQL)"
+                  variant={m.db_response_time_ms == null ? "neutral" : safeNum(m.db_response_time_ms) > 100 ? "critical" : safeNum(m.db_response_time_ms) > 20 ? "warning" : "healthy"}
+                />
+                <KpiTile
+                  icon={Users}
+                  label="1h Avg Active Sessions"
+                  value={m.avg_active_sessions_1hr != null ? safeNum(m.avg_active_sessions_1hr).toFixed(2) : "0.00"}
+                  sub="DB time / sec (60m)"
+                  variant={m.avg_active_sessions_1hr == null ? "neutral" : safeNum(m.avg_active_sessions_1hr) > 10 ? "warning" : "healthy"}
+                />
+                <KpiTile
+                  icon={TrendingUp}
+                  label="1h Peak Active Sessions"
+                  value={m.peak_active_sessions_1hr != null ? safeNum(m.peak_active_sessions_1hr).toFixed(2) : "0.00"}
+                  sub="Peak DB time / sec (60m)"
+                  variant={m.peak_active_sessions_1hr == null ? "neutral" : safeNum(m.peak_active_sessions_1hr) > 20 ? "warning" : "healthy"}
+                />
+              </div>
+            </div>
+
+            {/* RMAN Backup History — Green Section */}
+            <Card className="flex flex-col h-full xl:col-start-3">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
                   <ArchiveRestore className="h-4 w-4 text-emerald-300" />
@@ -1350,10 +1392,10 @@ export function DashboardOverview() {
                   <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 jobs</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="max-h-[200px] overflow-y-auto pr-1 space-y-2">
+              <CardContent className="flex-1 min-h-0 flex flex-col">
+                <div className="max-h-[250px] xl:max-h-[265px] flex-1 overflow-y-auto pr-1 space-y-2">
                   {backups.length > 0 ? backups.map((b, i) => (
-                    <div key={i} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
+                    <div key={i} className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-2.5">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
                         {i + 1}
                       </div>
@@ -1377,8 +1419,10 @@ export function DashboardOverview() {
             </Card>
           </div>
 
+          {/* ── SECTION 4: OPERATIONS & DATA PUMP (Red Section) ───────────── */}
           <div className="grid gap-5 xl:grid-cols-3">
             <div className="space-y-5 xl:col-span-2">
+              {/* Operations & Security Status Cards */}
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <KpiTile
                   icon={AlertTriangle}
@@ -1412,6 +1456,7 @@ export function DashboardOverview() {
                 />
               </div>
 
+              {/* Monthly Archive Log & Password Expiry */}
               <div className="grid gap-5 lg:grid-cols-2">
                 <Card>
                   <CardHeader className="pb-3">
@@ -1462,6 +1507,7 @@ export function DashboardOverview() {
               </div>
             </div>
 
+            {/* Data Pump — Red Section */}
             <Card className="flex flex-col h-full xl:col-start-3">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-sm cursor-pointer" onClick={() => setDpHistoryModalOpen(true)}>
@@ -1479,7 +1525,7 @@ export function DashboardOverview() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex-1 min-h-0 flex flex-col">
-                <div className="max-h-[300px] xl:max-h-[295px] flex-1 overflow-y-auto pr-1 space-y-2">
+                <div className="max-h-[250px] xl:max-h-[265px] flex-1 overflow-y-auto pr-1 space-y-2">
                   {datapumpLoading ? (
                     <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin text-emerald-400" />
@@ -1494,7 +1540,7 @@ export function DashboardOverview() {
                         <div
                           key={`${job.id}-${i}`}
                           onClick={() => setDpHistoryModalOpen(true)}
-                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3 hover:bg-secondary/30 transition-colors cursor-pointer"
+                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-secondary/20 p-2.5 hover:bg-secondary/30 transition-colors cursor-pointer"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 bg-secondary/40 text-xs font-bold text-muted-foreground">
                             {i + 1}

@@ -392,6 +392,10 @@ const MOCK_DASHBOARD_METRICS = {
     { username: "APPS_READ", account_status: "OPEN", expiry_date: new Date(now + 1000 * 60 * 60 * 24 * 13).toISOString() }
   ],
   failed_login_count: 4,
+  db_response_time_ms: 12.45,
+  total_db_size_gb: 214.83,
+  avg_active_sessions_1hr: 2.34,
+  peak_active_sessions_1hr: 8.76,
   fra: { name: "+FRA", fra_size_gb: 500, used_gb: 231.4, reclaimable_gb: 48.2, pct_used: 46.3 },
   ora_errors: [
     { originating_timestamp: new Date(now - 1000 * 60 * 8).toISOString(),   message_text: "ORA-01652: unable to extend temp segment by 128 in tablespace TEMP" },

@@ -72,6 +72,10 @@ const MOCK_METRICS: DashboardMetrics = {
     { username: "APPS_READ", account_status: "OPEN", expiry_date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 13).toISOString() }
   ],
   failed_login_count: 4,
+  db_response_time_ms: 12.45,
+  total_db_size_gb: 214.83,
+  avg_active_sessions_1hr: 2.34,
+  peak_active_sessions_1hr: 8.76,
   fra: { name: "+FRA", fra_size_gb: 500, used_gb: 231.4, reclaimable_gb: 48.2, pct_used: 46.3 },
   ora_errors: [
     { originating_timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString(),   message_text: "ORA-01652: unable to extend temp segment by 128 in tablespace TEMP" },
@@ -107,6 +111,10 @@ function generateMockSnapshots(db: string, environmentLabel: string = "PROD"): D
       },
       active_sessions: o.active,
       blocking_sessions: o.blockers > 0 ? MOCK_METRICS.blocking_sessions : [],
+      db_response_time_ms: Number((8.5 + (index * 2.3) % 15).toFixed(2)),
+      total_db_size_gb: Number((214.83 + index * 0.15).toFixed(2)),
+      avg_active_sessions_1hr: Number((1.2 + (o.active / 16)).toFixed(2)),
+      peak_active_sessions_1hr: Number((2.8 + (o.active / 6)).toFixed(2)),
       fra: {
         ...MOCK_METRICS.fra,
         pct_used: o.fraPct,
