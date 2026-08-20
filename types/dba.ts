@@ -466,6 +466,7 @@ export interface DatabaseTarget {
   db_version?: string;
   location?: string;
   db_port?: number;
+  enable_access?: boolean;
 }
 
 export type SecurityPostureProcessingStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";

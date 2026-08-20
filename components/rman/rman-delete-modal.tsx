@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArchiveX,
   CheckCircle2,
   Clock,
   Copy,
@@ -281,8 +280,8 @@ DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${n}';`;
                   Target: {selectedDb}
                 </span>
               </div>
-              <div className="relative rounded-xl border border-border/80 bg-zinc-950 p-3.5 font-mono text-xs text-emerald-400 shadow-inner">
-                <pre className="overflow-x-auto whitespace-pre leading-relaxed">
+              <div className="relative rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] dark:bg-zinc-950 dark:border-border/80 p-3.5 font-mono text-xs text-emerald-950 dark:text-emerald-400 shadow-inner">
+                <pre className="overflow-x-auto whitespace-pre leading-relaxed font-mono">
                   {rmanScript}
                 </pre>
               </div>
@@ -359,7 +358,7 @@ DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${n}';`;
               )}
 
               {/* Terminal Monospace Log Viewer */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3.5 font-mono text-xs text-zinc-200 shadow-inner">
+              <div className="keep-dark rounded-xl border border-zinc-800 bg-zinc-950 p-3.5 font-mono text-xs text-zinc-200 shadow-inner">
                 <div className="mb-2 flex items-center justify-between border-b border-zinc-800 pb-1.5 text-[11px] text-zinc-400">
                   <span>RMAN Console Output</span>
                   <span>{selectedDb}</span>

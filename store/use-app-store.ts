@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, DataPumpJobStatus, DataPumpOperation, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
 import { markAllNotificationsReadApi, markNotificationReadApi } from "@/services/api";
+import { pickRandomEligibleDb } from "@/lib/db-selector-helper";
 
 interface AppState {
   user?: UserSession;
@@ -57,7 +58,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       user: undefined,
-      selectedDb: process.env.NEXT_PUBLIC_DEFAULT_DB || "",
+      selectedDb: "",
       databases: [],
       requestHistory: [],
       auditLogs: [],
@@ -76,14 +77,27 @@ export const useAppStore = create<AppState>()(
       setSelectedDb: (selectedDb) => set({ selectedDb }),
       setDatabases: (databases) =>
         set((state) => {
-          const configuredDefault = process.env.NEXT_PUBLIC_DEFAULT_DB || "";
-          const nextDefault =
-            databases.find((db) => db.name === configuredDefault)?.name ||
-            databases[0]?.name ||
-            "";
-          const selectedDb = databases.some((db) => db.name === state.selectedDb)
-            ? state.selectedDb
-            : nextDefault;
+          const isFreshLogin =
+            typeof window !== "undefined" &&
+            sessionStorage.getItem("dba_fresh_login_autoselect") === "true";
+
+          const currentDbTarget = databases.find((db) => db.name === state.selectedDb);
+          const isCurrentValidAndEnabled =
+            !!currentDbTarget &&
+            currentDbTarget.enable_access !== false &&
+            (currentDbTarget.status || "").trim().toLowerCase() !== "decommissioned" &&
+            (currentDbTarget.status || "").trim().toLowerCase() !== "decomissioned" &&
+            (currentDbTarget.status || "").trim().toLowerCase() !== "inactive";
+
+          let selectedDb = state.selectedDb;
+
+          if (isFreshLogin || !isCurrentValidAndEnabled || !state.selectedDb) {
+            selectedDb = pickRandomEligibleDb(databases);
+
+            if (isFreshLogin && selectedDb && typeof window !== "undefined") {
+              sessionStorage.removeItem("dba_fresh_login_autoselect");
+            }
+          }
 
           return { databases, selectedDb };
         }),

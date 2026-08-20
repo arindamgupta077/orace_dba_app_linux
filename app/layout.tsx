@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { AppProviders } from "@/components/providers/app-providers";
 import "./globals.css";
 
@@ -8,12 +7,7 @@ export const metadata: Metadata = {
   description: "Enterprise Oracle database administration and operations portal."
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>
-        <Script id="strip-bis-skin-checked" strategy="beforeInteractive">
-          {`(() => {
+const STRIP_BIS_SKIN_SCRIPT = `(() => {
   const ATTR = "bis_skin_checked";
   const cleanNode = (node) => {
     if (!(node instanceof Element)) return;
@@ -36,16 +30,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     attributes: true,
     attributeFilter: [ATTR]
   });
-})();`}
-        </Script>
-        {/*
-          No-flash theme bootstrap: apply the saved theme class to <html>
-          before React hydrates so the very first paint matches the
-          user's preference (stored in localStorage by ThemeProvider).
-          Defaults to "light" when no preference exists yet.
-        */}
-        <Script id="apply-theme-pre-hydration" strategy="beforeInteractive">
-          {`(function(){
+})();`;
+
+const APPLY_THEME_SCRIPT = `(function(){
   try {
     var p = window.location.pathname;
     var isAuthPage = p === "/login" || p === "/forgot-password" || p === "/reset-password" || p === "/first-login-reset";
@@ -58,8 +45,16 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     document.documentElement.classList.remove("dark");
     document.documentElement.style.colorScheme = "light";
   }
-})();`}
-        </Script>
+})();`;
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: STRIP_BIS_SKIN_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: APPLY_THEME_SCRIPT }} />
+      </head>
+      <body suppressHydrationWarning>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

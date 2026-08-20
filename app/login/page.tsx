@@ -139,6 +139,9 @@ export default function LoginPage() {
 
       loginSucceededRef.current = true;
       setUser(response.user);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("dba_fresh_login_autoselect", "true");
+      }
       toast.success("Login successful");
       router.push(postLoginPath(response.user.role));
     } catch (error) {

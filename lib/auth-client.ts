@@ -26,12 +26,19 @@ export async function clearAuthAndRedirect(reason?: SessionExpiredReason): Promi
     // Best-effort cookie clear.
   }
 
-  // Clear Zustand user state.
+  // Clear Zustand user state and selected DB.
   try {
     const { useAppStore } = await import("@/store/use-app-store");
     useAppStore.getState().setUser(undefined);
+    useAppStore.getState().setSelectedDb("");
   } catch {
     // Ignore — store may not be initialised yet.
+  }
+
+  try {
+    sessionStorage.removeItem("dba_fresh_login_autoselect");
+  } catch {
+    // Ignore if sessionStorage unavailable.
   }
 
   // Broadcast logout to all other tabs so they redirect too.

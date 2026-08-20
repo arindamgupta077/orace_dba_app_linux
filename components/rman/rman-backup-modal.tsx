@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Code2,
+  Check,
+  Copy,
   HardDrive,
   Play,
   Terminal,
@@ -99,13 +100,23 @@ export function RmanBackupModal({ open, onOpenChange }: RmanBackupModalProps) {
   const user = useAppStore((s) => s.user);
 
   const [params, setParams] = useState<RmanBackupParams>(DEFAULT_PARAMS);
+  const [copied, setCopied] = useState(false);
 
   /* Reset on open */
   useEffect(() => {
     if (open) {
       setParams(DEFAULT_PARAMS);
+      setCopied(false);
     }
   }, [open]);
+
+  const handleCopyScript = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(generatedRmanScript);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const setParam = <K extends keyof RmanBackupParams>(key: K, value: RmanBackupParams[K]) =>
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -269,15 +280,36 @@ ${ctrlBackup}${channelsRelease}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Terminal className="h-3.5 w-3.5 text-amber-500" />
+                  <Terminal className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                   Live Generated RMAN Script Preview:
                 </Label>
-                <span className="text-[10px] font-mono text-muted-foreground">
-                  Target: {selectedDb}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    Target: {selectedDb}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyScript}
+                    className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
-              <div className="relative rounded-xl border border-border/80 bg-zinc-950 p-3.5 font-mono text-xs text-amber-300 shadow-inner">
-                <pre className="overflow-x-auto whitespace-pre leading-relaxed">
+              <div className="relative rounded-xl border border-amber-500/20 bg-amber-500/[0.04] dark:bg-zinc-950 dark:border-border/80 p-3.5 font-mono text-xs text-amber-950 dark:text-amber-300 shadow-inner">
+                <pre className="overflow-x-auto whitespace-pre leading-relaxed font-mono">
                   {generatedRmanScript}
                 </pre>
               </div>
