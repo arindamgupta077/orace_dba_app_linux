@@ -249,7 +249,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarContent />
       </aside>
       <div className={cn(
-        "min-w-0 transition-all duration-300 ease-in-out",
+        "min-w-0 transition-all duration-300 ease-in-out print:pl-0",
         isSidebarVisible ? "lg:pl-72" : "lg:pl-0"
       )}>
         <header className="sticky top-0 z-30 border-b border-border/70 bg-background/75 backdrop-blur-xl print:hidden">

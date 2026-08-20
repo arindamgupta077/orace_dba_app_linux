@@ -441,7 +441,7 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
         status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
         started_at: new Date().toISOString(),
         ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
-        message: result.ai_summary || (isStillRunning ? "Import running on server (waiting for n8n callback...)" : "Import completed"),
+        message: result.ai_summary || (isStillRunning ? "Import running on server (waiting for agent callback...)" : "Import completed"),
         dump_file: fullPayload.params.DUMPFILE as string,
         params: actionParams
       });
@@ -466,6 +466,7 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
         msg.toLowerCase().includes("504") ||
         msg.toLowerCase().includes("502") ||
         msg.toLowerCase().includes("500") ||
+        msg.toLowerCase().includes("agent") ||
         msg.toLowerCase().includes("n8n");
 
       if (isAsyncOrTimeout) {
@@ -476,11 +477,11 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
           db: selectedDb,
           status: "running",
           started_at: new Date().toISOString(),
-          message: "In progress — waiting for n8n callback…",
+          message: "In progress — waiting for agent callback…",
           params: actionParams
         });
         toast.info("IMPDP import running", {
-          description: "Import job is executing on the database server. Status will update upon n8n callback."
+          description: "Import job is executing on the database server. Status will update upon agent callback."
         });
       } else {
         setStatus("error");
@@ -1034,7 +1035,7 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {dropUser
-                              ? "⚠️ n8n will DROP USER CASCADE for all SCHEMAS before importing"
+                              ? "⚠️ Agent will DROP USER CASCADE for all SCHEMAS before importing"
                               : "Import will run directly without dropping existing users"}
                           </p>
                         </div>

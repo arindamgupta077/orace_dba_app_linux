@@ -73,7 +73,7 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, action]);
 
-  // Extract raw log text safely from n8n response
+  // Extract raw log text safely from agent response
   const rawLogText = useMemo(() => {
     if (!response) return "";
     return (
@@ -143,7 +143,7 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
                   </Badge>
                 </div>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  {description} — Fetched directly from Oracle server via n8n automation
+                  {description} — Fetched directly from Oracle server via agent automation
                 </DialogDescription>
               </div>
             </div>
@@ -267,7 +267,7 @@ export function LogViewerModal({ open, onOpenChange, action, title, description 
           {isLoading && (
             <div className="flex-1 flex flex-col items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-8 text-cyan-200">
               <Loader2 className="h-8 w-8 animate-spin text-cyan-400 mb-3" />
-              <p className="font-semibold text-base">Fetching log file from n8n…</p>
+              <p className="font-semibold text-base">Fetching log file from agent…</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Connecting via SSH to {selectedDb} server to extract {logfileParam || "latest log"}
               </p>

@@ -27,14 +27,14 @@ export function SchemaPicker({ selected, onChange, className }: SchemaPickerProp
     try {
       const result = await executeDBAAction("schema_list", selectedDb, {});
 
-      // Prefer raw_data.schemas (string[]) if n8n populates it directly
+      // Prefer raw_data.schemas (string[]) if agent populates it directly
       const rawSchemas = result?.raw_data?.schemas as string[] | undefined;
       if (rawSchemas && rawSchemas.length > 0) {
         setSchemas(rawSchemas);
         return;
       }
 
-      // Fallback: n8n returns rows as [{USERNAME: "HR"}, ...] inside raw_data.rows
+      // Fallback: agent returns rows as [{USERNAME: "HR"}, ...] inside raw_data.rows
       const rawRows = result?.raw_data?.rows as Array<Record<string, unknown>> | undefined;
       if (rawRows && rawRows.length > 0) {
         const names = rawRows
@@ -46,7 +46,7 @@ export function SchemaPicker({ selected, onChange, className }: SchemaPickerProp
 
       setSchemas([]);
     } catch {
-      setError("Failed to load schemas. Check n8n connection.");
+      setError("Failed to load schemas. Check agent connection.");
     } finally {
       setLoading(false);
     }

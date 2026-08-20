@@ -167,7 +167,7 @@ export function ActiveJobsBanner({ onJobClick }: ActiveJobsBannerProps) {
                   <span className="font-bold text-foreground truncate text-[11.5px]">{job.db}</span>
                   <span className="font-mono text-muted-foreground/80 text-[10.5px] shrink-0">{job.id}</span>
                   <span className="text-[10.5px] text-muted-foreground truncate hidden sm:inline">
-                    · {job.status === "running" ? "In progress — waiting for n8n callback…" : job.message || (job.status === "error" ? "Job failed" : "Completed")}
+                    · {job.status === "running" ? "In progress — waiting for agent callback…" : job.message || (job.status === "error" ? "Job failed" : "Completed")}
                   </span>
                 </div>
 

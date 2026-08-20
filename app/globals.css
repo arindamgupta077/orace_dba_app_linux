@@ -751,6 +751,10 @@ body::selection {
 
 /* ============================================================
    PRINT STYLES FOR PDF EXPORT
+   Always force pure white mode theme with high-contrast text,
+   clean white card backgrounds, visible gauge tracks, and
+   readable charts/gauges even when the active user session
+   is in dark mode theme.
    ============================================================ */
 @media print {
   @page {
@@ -758,11 +762,36 @@ body::selection {
     margin: 10mm 8mm;
   }
 
-  html, body {
+  :root,
+  .dark,
+  html,
+  body {
+    color-scheme: light !important;
     background: #ffffff !important;
     color: #0f172a !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+
+    /* Force all CSS variable tokens to pure light theme values */
+    --background: 0 0% 100% !important;
+    --foreground: 222 47% 11% !important;
+    --card: 0 0% 100% !important;
+    --card-foreground: 222 47% 11% !important;
+    --popover: 0 0% 100% !important;
+    --popover-foreground: 222 47% 11% !important;
+    --secondary: 215 25% 95% !important;
+    --secondary-foreground: 222 40% 18% !important;
+    --muted: 215 25% 95% !important;
+    --muted-foreground: 215 16% 38% !important;
+    --accent: 192 85% 38% !important;
+    --accent-foreground: 0 0% 100% !important;
+    --destructive: 0 72% 45% !important;
+    --destructive-foreground: 0 0% 100% !important;
+    --border: 215 20% 88% !important;
+    --input: 215 20% 90% !important;
+    --surface-base: #ffffff !important;
+    --surface-tint: #f8fafc !important;
+    --grid-line: rgba(15, 23, 42, 0.06) !important;
   }
 
   /* Hide navigation, headers, sidebars, modals, action buttons */
@@ -776,12 +805,17 @@ body::selection {
     display: none !important;
   }
 
-  /* Reset main page container */
+  /* Reset main page container and remove any sidebar space offset */
   main {
     padding: 0 !important;
     margin: 0 !important;
     max-width: 100% !important;
     width: 100% !important;
+  }
+
+  [class*="lg:pl-72"],
+  [class*="pl-72"] {
+    padding-left: 0 !important;
   }
 
   /* Prevent interactive button borders, focus rings, shadows */
@@ -800,37 +834,101 @@ body::selection {
 
   /* Avoid page breaks inside cards, tables, SVG charts, gauge elements */
   .card,
+  .glass-panel,
   [class*="rounded-xl"],
+  [class*="rounded-lg"],
   tr,
   svg {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
-  /* Clean card background and borders for print output */
+  /* Clean card background and borders for print output (overrides dark gradients) */
+  .card,
+  .dark .card,
+  .glass-panel,
+  .dark .glass-panel,
   .bg-card,
-  [class*="bg-secondary"],
-  [class*="bg-slate-"] {
-    background-color: #ffffff !important;
+  .dark .bg-card,
+  [class*="bg-card"],
+  [class*="bg-slate-900"],
+  [class*="bg-slate-950"],
+  [class*="dark:bg-slate-900"],
+  [class*="dark:bg-slate-950"],
+  [class*="dark:from-slate-950"],
+  [class*="dark:to-slate-900"],
+  [class*="dark:from-slate-900"],
+  [class*="dark:to-slate-950"] {
+    background: #ffffff !important;
+    background-image: none !important;
     border-color: #e2e8f0 !important;
-  }
-
-  /* Ensure text colors are crisp dark slate for print readability */
-  p, span, h1, h2, h3, h4, th, td {
+    box-shadow: none !important;
+    backdrop-filter: none !important;
     color: #0f172a !important;
   }
 
-  .text-muted-foreground {
+  /* Secondary surface backgrounds (stat pill boxes, inner tables, info rows) */
+  [class*="bg-secondary"],
+  .dark [class*="bg-secondary"] {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  /* Progress bars & gauges: make background tracks soft grey instead of dark/invisible */
+  .bg-slate-800,
+  [class*="bg-slate-800"],
+  .dark [class*="bg-slate-800"],
+  .dark .bg-slate-800 {
+    background-color: #e2e8f0 !important;
+  }
+
+  svg circle[stroke="rgba(142,163,184,0.12)"] {
+    stroke: #e2e8f0 !important;
+  }
+
+  /* Ensure text colors are crisp dark slate for print readability */
+  p, span, h1, h2, h3, h4, h5, h6, th, td, div, label, li, a {
+    color: #0f172a !important;
+  }
+
+  .text-muted-foreground,
+  [class*="text-muted-foreground"],
+  .dark .text-muted-foreground {
     color: #475569 !important;
   }
 
-  /* Keep status badge colors clear in print */
-  .text-emerald-300, .text-emerald-400 { color: #047857 !important; }
-  .text-cyan-300, .text-cyan-400 { color: #0369a1 !important; }
-  .text-amber-300, .text-amber-400 { color: #b45309 !important; }
-  .text-red-300, .text-red-400 { color: #b91c1c !important; }
-  .text-purple-300, .text-purple-400 { color: #7e22ce !important; }
-  .text-violet-300, .text-violet-400 { color: #6d28d9 !important; }
+  /* Override light slate text colors for white paper contrast */
+  .text-slate-100,
+  .text-slate-200,
+  .text-slate-300,
+  .dark .text-slate-100,
+  .dark .text-slate-200,
+  .dark .text-slate-300,
+  [class*="text-slate-100"],
+  [class*="text-slate-200"],
+  [class*="text-slate-300"],
+  [class*="dark:text-slate-100"],
+  [class*="dark:text-slate-200"],
+  [class*="dark:text-slate-300"] {
+    color: #0f172a !important;
+  }
+
+  .text-slate-400,
+  .dark .text-slate-400,
+  [class*="text-slate-400"],
+  [class*="dark:text-slate-400"] {
+    color: #475569 !important;
+  }
+
+  /* Keep status badge & accent colors vivid and high-contrast in print */
+  .text-emerald-300, .text-emerald-400, .dark .text-emerald-300, .dark .text-emerald-400, [class*="text-emerald-300"], [class*="text-emerald-400"], [class*="dark:text-emerald-300"] { color: #047857 !important; }
+  .text-cyan-300, .text-cyan-400, .dark .text-cyan-300, .dark .text-cyan-400, [class*="text-cyan-300"], [class*="text-cyan-400"], [class*="dark:text-cyan-300"] { color: #0369a1 !important; }
+  .text-amber-300, .text-amber-400, .dark .text-amber-300, .dark .text-amber-400, [class*="text-amber-300"], [class*="text-amber-400"], [class*="dark:text-amber-300"] { color: #b45309 !important; }
+  .text-red-300, .text-red-400, .dark .text-red-300, .dark .text-red-400, [class*="text-red-300"], [class*="text-red-400"], [class*="dark:text-red-300"] { color: #b91c1c !important; }
+  .text-purple-300, .text-purple-400, .dark .text-purple-300, .dark .text-purple-400, [class*="text-purple-300"], [class*="text-purple-400"], [class*="dark:text-purple-300"] { color: #7e22ce !important; }
+  .text-violet-300, .text-violet-400, .dark .text-violet-300, .dark .text-violet-400, [class*="text-violet-300"], [class*="text-violet-400"], [class*="dark:text-violet-300"] { color: #6d28d9 !important; }
+  .text-rose-300, .text-rose-400, .dark .text-rose-300, .dark .text-rose-400, [class*="text-rose-300"], [class*="text-rose-400"], [class*="dark:text-rose-300"] { color: #be123c !important; }
+  .text-blue-300, .text-blue-400, .dark .text-blue-300, .dark .text-blue-400, [class*="text-blue-300"], [class*="text-blue-400"], [class*="dark:text-blue-300"] { color: #1d4ed8 !important; }
 }
 
 

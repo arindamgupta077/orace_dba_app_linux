@@ -214,7 +214,7 @@ export function DataPumpDashboard() {
             section="expdp"
             subtitle="Action"
             title="Export"
-            description="Configure and trigger an Oracle EXPDP export. Dynamically builds the expdp command with your selected parameters and executes it on the database server via n8n SSH automation. Supports schema filtering, compression, parallelism, and automatic dump transfer."
+            description="Configure and trigger Oracle EXPDP exports with dynamic parameters, executing via agentic SSH automation. Supports schema filtering, compression, parallelism, dump transfer, and automated export management."
             features={[
               { icon: Zap, label: "Dynamic command builder" },
               { icon: Server, label: "SSH remote execution" },
@@ -236,7 +236,7 @@ export function DataPumpDashboard() {
             section="expdp"
             subtitle="Report"
             title="Check Latest Export Log"
-            description="Retrieve and display the latest EXPDP log file directly from the Oracle server. n8n reads the log via SSH and streams the full content back to the application for review. Useful for verifying export completeness and diagnosing issues."
+            description="Retrieve and display the latest EXPDP log file directly from the Oracle server. Agent reads the log via SSH and streams the full content back to the application for review. Useful for verifying export completeness and diagnosing issues."
             features={[
               { icon: Clock, label: "Latest log only" },
               { icon: Database, label: "Full log display" },
@@ -273,7 +273,7 @@ export function DataPumpDashboard() {
               section="impdp"
               subtitle="Action"
               title="Import"
-              description="Launch a guided 2-step import wizard. Step 1 auto-fetches the latest dump file from the server for confirmation. Step 2 configures all IMPDP parameters including remap schema, tablespace, content type, and optional pre-import user drop. Supports templates for repeated imports."
+              description="Launch a guided 2-step import wizard: auto-fetch the latest dump for confirmation, then configure IMPDP parameters like schema/tablespace remapping, content type, and optional user drop. Supports reusable import templates."
               features={[
                 { icon: FileInput, label: "Auto-fetch latest dump" },
                 { icon: Zap, label: "2-step wizard" },
@@ -295,7 +295,7 @@ export function DataPumpDashboard() {
               section="impdp"
               subtitle="Report"
               title="Check Latest Import Log"
-              description="Retrieve and display the latest IMPDP log file from the Oracle server. n8n reads the log via SSH and streams it back for review. Helps diagnose import errors, object conflicts, and schema remapping results."
+              description="Retrieve and display the latest IMPDP log file from the Oracle server. Agent reads the log via SSH and streams it back for review. Helps diagnose import errors, object conflicts, and schema remapping results."
               features={[
                 { icon: Clock, label: "Latest log only" },
                 { icon: Database, label: "Full log display" },

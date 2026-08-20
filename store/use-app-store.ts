@@ -253,7 +253,7 @@ export const useAppStore = create<AppState>()(
             )) ? "running" : (job.status || old.status);
 
             let newMessage = job.message || old.message;
-            if (isFinished && (!newMessage || newMessage === "In progress — waiting for n8n callback…")) {
+            if (isFinished && (!newMessage || newMessage === "In progress — waiting for n8n callback…" || newMessage === "In progress — waiting for agent callback…")) {
               newMessage = job.status === "error" ? "Job failed" : "Completed successfully";
             }
 

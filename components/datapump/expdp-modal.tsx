@@ -388,7 +388,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
         status: isStillRunning ? "running" : (result.status === "success" ? "success" : "error"),
         started_at: new Date().toISOString(),
         ...(isStillRunning ? {} : { completed_at: new Date().toISOString() }),
-        message: result.ai_summary || (isStillRunning ? "Export running on server (waiting for n8n callback...)" : "Export completed"),
+        message: result.ai_summary || (isStillRunning ? "Export running on server (waiting for agent callback...)" : "Export completed"),
         dump_file: (result.raw_data as Record<string, unknown>)?.dump_file as string | undefined,
         transfer_status: (result.raw_data as Record<string, unknown>)?.transfer_status as string | undefined,
         params: actionParams
@@ -414,6 +414,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
         msg.toLowerCase().includes("504") ||
         msg.toLowerCase().includes("502") ||
         msg.toLowerCase().includes("500") ||
+        msg.toLowerCase().includes("agent") ||
         msg.toLowerCase().includes("n8n");
 
       if (isAsyncOrTimeout) {
@@ -424,11 +425,11 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
           db: selectedDb,
           status: "running",
           started_at: new Date().toISOString(),
-          message: "In progress — waiting for n8n callback…",
+          message: "In progress — waiting for agent callback…",
           params: actionParams
         });
         toast.info("EXPDP export running", {
-          description: "Export job is executing on the database server. Status will update upon n8n callback."
+          description: "Export job is executing on the database server. Status will update upon agent callback."
         });
       } else {
         setStatus("error");
@@ -923,7 +924,7 @@ export function ExpdpModal({ open, onOpenChange }: ExpdpModalProps) {
 
                 {/* Info banner */}
                 <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
-                  <p className="text-xs font-semibold text-amber-300">ℹ️ n8n execution flow:</p>
+                  <p className="text-xs font-semibold text-amber-300">ℹ️ Agent execution flow:</p>
                   <p className="mt-1 text-xs text-muted-foreground font-mono leading-5">
                     Build EXPDP command → SSH to DB server ({selectedDb}) → Execute expdp
                     {dumpTransfer ? ` → SCP dump to ${transferServer}` : ""} → Callback to app → Status update
