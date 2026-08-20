@@ -47,7 +47,14 @@ import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-moda
 import { HistoricalSnapshotsModal } from "@/components/dashboard/historical-snapshots-modal";
 import { DashboardHistoricalTrends } from "@/components/dashboard/dashboard-historical-trends";
 import { JobHistoryModal } from "@/components/datapump/job-history-modal";
-import { useDbaAction } from "@/hooks/use-dba-action";
+import { saveSessionData } from "@/components/general-admin/storage-helpers";
+import {
+  getCachedDashboardMetrics,
+  getCachedDashboardRefreshedAt,
+  getCachedDashboardRefreshedBy,
+  isDashboardRefreshing,
+  triggerDashboardRefresh
+} from "@/services/dashboard-refresh-service";
 import { cn, formatAppDateTime } from "@/lib/utils";
 import { fetchDataPumpJobsApi, fetchDashboardHistory } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
@@ -56,7 +63,8 @@ import type {
   DashboardArchiveLogMonthRow,
   DashboardHistoryRow,
   DashboardMetrics,
-  DashboardTablespaceRow
+  DashboardTablespaceRow,
+  NotificationPayload
 } from "@/types/dba";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -497,7 +505,7 @@ function TablespaceBarChart({ rows }: { rows: DashboardTablespaceRow[] }) {
   }));
 
   return (
-    <div className="h-[220px]">
+    <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 48, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(142,163,184,0.12)" />
@@ -643,16 +651,23 @@ export function DashboardOverview() {
   const selectedDb = useAppStore((s) => s.selectedDb);
   const databases = useAppStore((s) => s.databases);
   const user = useAppStore((s) => s.user);
-  const { runAction } = useDbaAction();
 
   // Client users with no assigned databases see a dedicated message — no data fetched.
   const isClientWithNoDatabases = user?.role === "client" && databases.length === 0;
 
-  const [metrics, setMetrics]               = useState<DashboardMetrics | null>(null);
-  const [refreshedAt, setRefreshedAt]       = useState<string | null>(null);
-  const [refreshedBy, setRefreshedBy]       = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(() => {
+    return selectedDb ? getCachedDashboardMetrics(selectedDb) : null;
+  });
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(() => {
+    return selectedDb ? getCachedDashboardRefreshedAt(selectedDb) : null;
+  });
+  const [refreshedBy, setRefreshedBy] = useState<string | null>(() => {
+    return selectedDb ? getCachedDashboardRefreshedBy(selectedDb) : null;
+  });
   const [loading, setLoading]               = useState(true);
-  const [refreshing, setRefreshing]         = useState(false);
+  const [refreshing, setRefreshing]         = useState(() => {
+    return isDashboardRefreshing(selectedDb);
+  });
   const [error, setError]                   = useState<string | null>(null);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
@@ -694,19 +709,38 @@ export function DashboardOverview() {
   // The JSON stored in the CLOB is normalised before being placed in state so
   // both UPPERCASE (Oracle default) and lowercase keys are handled.
   const loadHistory = useCallback(async (db: string) => {
+    if (!db) return;
     setLoading(true);
     setError(null);
     try {
       const res = await fetchDashboardHistory(db);
       if (res.has_data && res.metrics) {
-        setMetrics(normalizeMetrics(res.metrics) ?? res.metrics);
+        const norm = normalizeMetrics(res.metrics) ?? res.metrics;
+        setMetrics(norm);
         setRefreshedAt(res.refresh_timestamp);
         setRefreshedBy(res.refreshed_by);
+        saveSessionData(`dashboard_metrics_${db}`, norm);
+        saveSessionData(`dashboard_refreshed_at_${db}`, res.refresh_timestamp);
+        saveSessionData(`dashboard_refreshed_by_${db}`, res.refreshed_by);
       } else {
-        setMetrics(null);
+        const cached = getCachedDashboardMetrics(db);
+        if (cached) {
+          setMetrics(cached);
+          setRefreshedAt(getCachedDashboardRefreshedAt(db));
+          setRefreshedBy(getCachedDashboardRefreshedBy(db));
+        } else {
+          setMetrics(null);
+        }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load dashboard.");
+      const cached = getCachedDashboardMetrics(db);
+      if (cached) {
+        setMetrics(cached);
+        setRefreshedAt(getCachedDashboardRefreshedAt(db));
+        setRefreshedBy(getCachedDashboardRefreshedBy(db));
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to load dashboard.");
+      }
     } finally {
       setLoading(false);
     }
@@ -743,40 +777,100 @@ export function DashboardOverview() {
     if (isClientWithNoDatabases) return;
     if (prevDb.current !== selectedDb) {
       prevDb.current = selectedDb;
-      setMetrics(null);
+      const cached = selectedDb ? getCachedDashboardMetrics(selectedDb) : null;
+      setMetrics(cached);
+      setRefreshedAt(selectedDb ? getCachedDashboardRefreshedAt(selectedDb) : null);
+      setRefreshedBy(selectedDb ? getCachedDashboardRefreshedBy(selectedDb) : null);
       setActiveSnapshot(null);
     }
+    setRefreshing(isDashboardRefreshing(selectedDb));
     loadHistory(selectedDb);
     loadServerSchedule(selectedDb);
     loadDatapumpJobHistory(selectedDb);
   }, [selectedDb, loadHistory, loadServerSchedule, loadDatapumpJobHistory, isClientWithNoDatabases]);
 
-  // Trigger n8n refresh_dashboard workflow.
-  // After n8n responds, normalise its raw_data (same UPPERCASE key issue applies).
+  // Listen to background refresh events and notifications
+  useEffect(() => {
+    if (isClientWithNoDatabases || !selectedDb) return;
+
+    const handleNotification = (e: Event) => {
+      const customEv = e as CustomEvent<NotificationPayload>;
+      const detail = customEv.detail;
+      if (!detail) return;
+      const type = detail.type || (detail as unknown as Record<string, unknown>).alertType;
+      const targetDb = String(detail.db || "").trim().toUpperCase();
+      const currentDb = selectedDb.trim().toUpperCase();
+
+      if (targetDb && targetDb === currentDb) {
+        if (type === "refresh_dashboard") {
+          void loadHistory(selectedDb);
+        }
+      }
+    };
+
+    const handleRefreshStart = (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string }>;
+      if (customEv.detail?.db && customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()) {
+        setRefreshing(true);
+        setError(null);
+        setActiveSnapshot(null);
+      }
+    };
+
+    const handleRefreshComplete = (e: Event) => {
+      const customEv = e as CustomEvent<{
+        db?: string;
+        metrics?: DashboardMetrics | null;
+        refreshedAt?: string | null;
+        refreshedBy?: string | null;
+      }>;
+      if (customEv.detail?.db && customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()) {
+        setRefreshing(false);
+        if (customEv.detail.metrics) {
+          setMetrics(customEv.detail.metrics);
+        }
+        if (customEv.detail.refreshedAt) {
+          setRefreshedAt(customEv.detail.refreshedAt);
+        }
+        setRefreshedBy(customEv.detail.refreshedBy ?? null);
+        void loadDatapumpJobHistory(selectedDb);
+      }
+    };
+
+    const handleRefreshError = (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string; error?: string }>;
+      if (customEv.detail?.db && customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()) {
+        setRefreshing(false);
+        setError(customEv.detail.error || "Refresh failed.");
+      }
+    };
+
+    window.addEventListener("dba-notification", handleNotification);
+    window.addEventListener("dba-dashboard-refresh-start", handleRefreshStart);
+    window.addEventListener("dba-dashboard-refresh-complete", handleRefreshComplete);
+    window.addEventListener("dba-dashboard-refresh-error", handleRefreshError);
+
+    return () => {
+      window.removeEventListener("dba-notification", handleNotification);
+      window.removeEventListener("dba-dashboard-refresh-start", handleRefreshStart);
+      window.removeEventListener("dba-dashboard-refresh-complete", handleRefreshComplete);
+      window.removeEventListener("dba-dashboard-refresh-error", handleRefreshError);
+    };
+  }, [selectedDb, loadHistory, loadDatapumpJobHistory, isClientWithNoDatabases]);
+
+  // Trigger n8n refresh_dashboard workflow via background service.
   const handleRefresh = useCallback(async () => {
+    if (!selectedDb) return;
     setRefreshing(true);
     setError(null);
     setActiveSnapshot(null);
     try {
-      loadDatapumpJobHistory(selectedDb);
-      const response = await runAction("refresh_dashboard", {}, selectedDb);
-      if (response) {
-        const fresh = normalizeMetrics(response.raw_data);
-        if (fresh) {
-          setMetrics(fresh);
-          setRefreshedAt(fresh.captured_at ?? new Date().toISOString());
-          setRefreshedBy(null);
-        } else {
-          // n8n already saved to Oracle — re-query to get the canonical row
-          await loadHistory(selectedDb);
-        }
-      }
+      void loadDatapumpJobHistory(selectedDb);
+      await triggerDashboardRefresh(selectedDb, user?.username);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Refresh failed.");
-    } finally {
-      setRefreshing(false);
     }
-  }, [runAction, selectedDb, loadHistory, loadDatapumpJobHistory]);
+  }, [selectedDb, loadDatapumpJobHistory, user?.username]);
 
   const scrollToSection = useCallback((sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({
@@ -961,6 +1055,29 @@ export function DashboardOverview() {
               <Database className="h-4.5 w-4.5 text-cyan-500 shrink-0" />
               <span>{selectedDb}</span>
             </span>
+            {/* Server-side schedule badge — hidden for client role */}
+            {user?.role !== "client" && serverSchedule && (
+              <button
+                type="button"
+                onClick={() => setScheduleModalOpen(true)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors hover:opacity-80 ml-1 ${
+                  serverSchedule.is_active
+                    ? "border-violet-400/40 bg-violet-400/10 text-violet-700 dark:text-violet-300"
+                    : "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-400"
+                }`}
+                title="Server-side scheduled refresh — runs even when browser is closed"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                {serverSchedule.is_active ? "Scheduled" : "Paused"}
+                {serverSchedule.is_active && (
+                  <span className="opacity-70">
+                    {serverSchedule.interval_min < 60
+                      ? `· ${serverSchedule.interval_min}m`
+                      : `· ${serverSchedule.interval_min / 60}h`}
+                  </span>
+                )}
+              </button>
+            )}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             {dbTarget && (
@@ -1050,30 +1167,7 @@ export function DashboardOverview() {
           </p>
         </div>
 
-        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden sm:-mt-2">
-          {/* Server-side schedule badge — hidden for client role */}
-          {user?.role !== "client" && serverSchedule && (
-            <button
-              onClick={() => setScheduleModalOpen(true)}
-              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors hover:opacity-80 ${
-                serverSchedule.is_active
-                  ? "border-violet-400/40 bg-violet-400/10 text-violet-300"
-                  : "border-slate-400/30 bg-slate-400/10 text-slate-400"
-              }`}
-              title="Server-side scheduled refresh — runs even when browser is closed"
-            >
-              <Calendar className="h-3 w-3" />
-              {serverSchedule.is_active ? "Scheduled" : "Paused"}
-              {serverSchedule.is_active && (
-                <span className="opacity-70">
-                  {serverSchedule.interval_min < 60
-                    ? `· ${serverSchedule.interval_min}m`
-                    : `· ${serverSchedule.interval_min / 60}h`}
-                </span>
-              )}
-            </button>
-          )}
-
+        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden">
           <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
@@ -1612,7 +1706,7 @@ export function DashboardOverview() {
           {/* ── SECTION 4: STORAGE ─────────────────────────────────────── */}
           <div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]">
             {/* Tablespace Chart */}
-            <Card id="tablespace-utilization" className="scroll-mt-24">
+            <Card id="tablespace-utilization" className="scroll-mt-24 flex flex-col h-full">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <Database className="h-4 w-4 text-cyan-300" />
@@ -1620,11 +1714,11 @@ export function DashboardOverview() {
                   <span className="ml-auto text-xs font-normal text-muted-foreground">{tablespaces.length} tablespace{tablespaces.length !== 1 ? "s" : ""}</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex-1 min-h-0 flex flex-col space-y-4">
                 {tablespaces.length > 0 ? (
                   <>
                     <TablespaceBarChart rows={tablespaces} />
-                    <div className="space-y-2">
+                    <div className="max-h-[280px] xl:max-h-[320px] flex-1 overflow-y-auto pr-1 space-y-2">
                       {tablespaces.map((t, i) => {
                         const pct  = safeNum(t.pct_used);
                         const used = safeNum(t.used_mb);
@@ -1651,7 +1745,7 @@ export function DashboardOverview() {
             </Card>
 
             {/* Critical ORA Errors */}
-            <Card>
+            <Card className="flex flex-col h-full">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-red-300" />
@@ -1659,22 +1753,24 @@ export function DashboardOverview() {
                   <span className="ml-auto text-xs font-normal text-muted-foreground">Last 5 from alert log</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {oraErrors.length > 0 ? oraErrors.map((e, i) => (
-                  <div key={i} className="rounded-lg border border-red-400/20 bg-red-500/5 p-3">
-                    <p className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {formatAppDateTime(e.originating_timestamp)}
-                    </p>
-                    <p className="font-mono text-xs leading-relaxed text-red-300 break-all">{e.message_text}</p>
-                  </div>
-                )) : (
-                  <div className="flex flex-col items-center gap-2 py-8">
-                    <CheckCircle2 className="h-8 w-8 text-emerald-400/60" />
-                    <p className="text-sm font-medium text-emerald-300">No critical ORA errors</p>
-                    <p className="text-xs text-muted-foreground">Alert log is clean.</p>
-                  </div>
-                )}
+              <CardContent className="flex-1 min-h-0 flex flex-col">
+                <div className="max-h-[540px] xl:max-h-[580px] flex-1 overflow-y-auto pr-1 space-y-2">
+                  {oraErrors.length > 0 ? oraErrors.map((e, i) => (
+                    <div key={i} className="rounded-lg border border-red-400/20 bg-red-500/5 p-3">
+                      <p className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        {formatAppDateTime(e.originating_timestamp)}
+                      </p>
+                      <p className="font-mono text-xs leading-relaxed text-red-300 break-all">{e.message_text}</p>
+                    </div>
+                  )) : (
+                    <div className="flex flex-col items-center justify-center gap-2 py-8 flex-1">
+                      <CheckCircle2 className="h-8 w-8 text-emerald-400/60" />
+                      <p className="text-sm font-medium text-emerald-300">No critical ORA errors</p>
+                      <p className="text-xs text-muted-foreground">Alert log is clean.</p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

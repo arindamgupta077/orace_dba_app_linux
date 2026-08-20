@@ -7,6 +7,15 @@ WHENEVER SQLERROR EXIT FAILURE ROLLBACK;
 -- Lifecycle: DOWN → ACKNOWLEDGED → RESOLVED
 -- Note: When the latest incident_status for a database is 'DOWN' or 'ACKNOWLEDGED',
 -- the global database selector displays a red status indicator dot.
+-- Automation:
+--   1. Whenever a "DOWN" incident is received for a database in this table,
+--      the application automatically triggers the "refresh_dashboard" n8n workflow
+--      (with a 1-hour cooldown window for repeated 1-minute DOWN reports)
+--      to capture and store an initial snapshot in DASHBOARD_HISTORY.
+--   2. Whenever the incident status transitions to "RESOLVED" (via check-status
+--      confirming UP or external RESOLVED webhook), the cooldown is reset and
+--      the "refresh_dashboard" workflow is automatically triggered again to
+--      capture the restored database metrics in DASHBOARD_HISTORY.
 -- ============================================================
 
 DECLARE

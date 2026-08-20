@@ -6,7 +6,6 @@ import { SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES } from "@/lib/
 import { getServerEnv } from "@/lib/server/env";
 import {
   claimOutdatedSecurityPostureNotifications,
-  getDatabaseTargetByName,
   getActiveSchedules,
   insertAuditLog,
   markSecurityPostureOutdatedWebhookSent,
@@ -15,7 +14,7 @@ import {
   type DashboardSchedule,
 } from "@/lib/server/repository";
 import { triggerSecurityPostureOutdatedNotification } from "@/lib/server/security-posture";
-import type { DbaRequestPayload } from "@/types/dba";
+import { triggerDashboardRefresh } from "@/lib/server/dashboard-refresh";
 
 // ─── State ───────────────────────────────────────────────────────────────────
 //
@@ -86,64 +85,18 @@ async function triggerRefresh(schedule: DashboardSchedule): Promise<void> {
     return;
   }
 
-  const env = getServerEnv();
+  console.log(
+    `[scheduler] Firing refresh_dashboard for ${schedule.db_name} (schedule id=${schedule.id}, interval=${schedule.interval_min}m)`
+  );
 
-  if (!env.webhookUrl) {
-    console.warn(
-      `[scheduler] Skipping refresh for ${schedule.db_name}: DBA_WEBHOOK_URL not configured.`
-    );
-    return;
-  }
+  const result = await triggerDashboardRefresh({
+    dbName: schedule.db_name,
+    requestedBy: "scheduler",
+    reason: `Scheduled refresh for ${schedule.db_name} (interval=${schedule.interval_min}m).`,
+    metadata: { schedule_id: schedule.id, interval_min: schedule.interval_min }
+  });
 
-  const dbTarget = await getDatabaseTargetByName(schedule.db_name);
-
-  const payload: DbaRequestPayload = {
-    action: "refresh_dashboard",
-    db: schedule.db_name,
-    params: {},
-    requested_by: "scheduler",
-    environment: dbTarget?.env_label,
-    os: dbTarget?.os,
-    db_type: dbTarget?.db_type,
-  };
-
-  let status: "success" | "error" = "success";
-
-  try {
-    console.log(
-      `[scheduler] Firing refresh_dashboard for ${schedule.db_name} (schedule id=${schedule.id}, interval=${schedule.interval_min}m)`
-    );
-
-    const response = await fetch(env.webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {}),
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000), // 2-minute timeout
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText);
-      throw new Error(`n8n webhook returned ${response.status}: ${text}`);
-    }
-
-    console.log(`[scheduler] refresh_dashboard completed for ${schedule.db_name}`);
-  } catch (err) {
-    status = "error";
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[scheduler] refresh_dashboard failed for ${schedule.db_name}: ${message}`);
-
-    await insertAuditLog({
-      actor: "scheduler",
-      action: "refresh_dashboard",
-      db: schedule.db_name,
-      status: "error",
-      detail: `Scheduled refresh failed: ${message}`,
-      metadata: { schedule_id: schedule.id, interval_min: schedule.interval_min },
-    }).catch(() => {});
-  }
+  const status = result.success ? "success" : "error";
 
   await updateScheduleRunMetadata({
     id: schedule.id,

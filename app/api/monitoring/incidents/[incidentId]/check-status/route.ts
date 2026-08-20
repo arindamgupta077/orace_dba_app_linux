@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  resetDownIncidentRefreshCooldown,
+  triggerDashboardRefresh
+} from "@/lib/server/dashboard-refresh";
 import { getServerEnv } from "@/lib/server/env";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import {
@@ -141,6 +145,7 @@ export async function POST(
       if (connectionResult === "UP") {
         // ── Resolve the incident ─────────────────────────────────────────
         const resolved = await updateMonitoringIncidentStatus(incidentId, "RESOLVED");
+        resetDownIncidentRefreshCooldown(incident.db_name);
 
         await insertAuditLog({
           actor: session.user.username,
@@ -176,6 +181,24 @@ export async function POST(
           message: `Database ${incident.db_name} is confirmed UP. Incident resolved by ${session.user.username}.`,
           timestamp: new Date().toISOString(),
           targetPath: "/general-admin"
+        });
+
+        // ── Automation: Automatically trigger refresh_dashboard on incident resolution ──
+        void triggerDashboardRefresh({
+          dbName: incident.db_name,
+          requestedBy: session.user.username || "automation:resolved",
+          reason: `Automated dashboard refresh triggered by incident resolution (${incidentId}) for ${incident.db_name}.`,
+          metadata: {
+            incident_id: incidentId,
+            incident_status: "RESOLVED",
+            resolved_by: session.user.username,
+            trigger: "incident_resolved"
+          }
+        }).catch((refreshErr) => {
+          console.error(
+            `[check-status] Automated refresh_dashboard error on resolution for ${incident.db_name}:`,
+            refreshErr instanceof Error ? refreshErr.message : refreshErr
+          );
         });
 
         return {

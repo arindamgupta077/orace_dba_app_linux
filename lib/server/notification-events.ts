@@ -220,6 +220,7 @@ export function alertTypeToTargetPath(alertType: string, sourceName?: string, al
   }
   if (t === "dba_shift") return "/dba-console/shift-management";
   if (t === "alert_log") return "/alerts";
+  if (t === "refresh_dashboard") return "/";
   return "/tablespaces";
 }
 
@@ -228,6 +229,10 @@ export function resolveNotificationType(alertType: string, sourceName?: string, 
   const s = (sourceName || "").trim().toLowerCase();
   const id = (alertId || "").trim().toLowerCase();
   const m = (message || "").toLowerCase();
+
+  if (t === "refresh_dashboard" || id.startsWith("refresh-")) {
+    return "refresh_dashboard";
+  }
 
   if (t === "impdp" || id.includes("impdp") || m.includes("impdp")) {
     return "impdp";

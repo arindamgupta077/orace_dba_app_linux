@@ -31,7 +31,6 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -203,9 +202,9 @@ export function MonitoringIncidentHistoryModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-6 gap-4 bg-background border-border/80 shadow-2xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-6 gap-3.5 overflow-hidden bg-background border-border/80 shadow-2xl">
         {/* Header */}
-        <DialogHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/60">
+        <DialogHeader className="shrink-0 flex flex-row items-center justify-between pb-3 border-b border-border/60">
           <div>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
               <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
@@ -230,7 +229,7 @@ export function MonitoringIncidentHistoryModal({
         </DialogHeader>
 
         {/* Metric Cards summary bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           <button
             onClick={() => setFilterStatus("ALL")}
             className={cn(
@@ -297,7 +296,7 @@ export function MonitoringIncidentHistoryModal({
         </div>
 
         {/* Filter & Search Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -365,7 +364,7 @@ export function MonitoringIncidentHistoryModal({
         </div>
 
         {/* Incident List */}
-        <ScrollArea className="flex-1 min-h-[320px] max-h-[460px] pr-3 -mr-3">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1.5 space-y-2.5 py-1">
           {loading && incidents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-sm text-muted-foreground gap-3">
               <Loader2 className="h-6 w-6 animate-spin text-cyan-400" />
@@ -391,7 +390,7 @@ export function MonitoringIncidentHistoryModal({
               )}
             </div>
           ) : (
-            <div className="space-y-2.5 pt-1 pr-1">
+            <div className="space-y-2.5">
               {paginatedIncidents.map((inc) => {
                 const durationStr = calculateDuration(inc.first_reported, inc.resolved_at);
 
@@ -490,10 +489,10 @@ export function MonitoringIncidentHistoryModal({
               })}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         {/* Footer / Pagination Controls */}
-        <div className="pt-3 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="shrink-0 pt-3 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
           {/* Status info */}
           <div className="text-muted-foreground text-xs font-medium">
             Showing <span className="font-semibold text-foreground">{filteredIncidents.length === 0 ? 0 : startIndex + 1}</span> to{" "}

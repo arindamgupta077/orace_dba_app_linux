@@ -289,6 +289,7 @@ export type NotificationItemType =
   | "dba_shift"
   | "approval_workflow"
   | "db_monitoring"
+  | "refresh_dashboard"
   | "datapump"
   | "expdp"
   | "impdp"
