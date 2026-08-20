@@ -33,6 +33,7 @@ function generateMockTrendSnapshots(db: string, hours: number | null, limit: num
     const tbsPct = 78 + ((idx * 13) % 18);
     const fraPct = 36 + ((idx * 17) % 58);
     const avgSessions = 1.4 + ((idx * 3) % 42) / 10;
+    const memPct = 52 + ((idx * 7) % 37);
     const timestamp = new Date(tsMs).toISOString();
 
     const metrics: DashboardMetrics = {
@@ -49,7 +50,8 @@ function generateMockTrendSnapshots(db: string, hours: number | null, limit: num
       os_resources: {
         cpu_usage_pct: 30 + ((idx * 11) % 55),
         total_memory_gb: 64,
-        free_memory_gb: 22.3
+        free_memory_gb: Number(((64 * (100 - memPct)) / 100).toFixed(1)),
+        memory_used_pct: memPct
       },
       sga_pga: {
         sga_target: "8G",

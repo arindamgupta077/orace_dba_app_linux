@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
 import {
   Activity,
-  ArchiveRestore,
   ArrowDownRight,
   ArrowUpRight,
   CheckCircle2,
   Clock,
+  Cpu,
   Database,
   HardDrive,
+  Info,
   Loader2,
+  MemoryStick,
   Minus,
   PlugZap,
   RefreshCw,
@@ -56,6 +58,8 @@ interface TrendPoint {
   tbsPct: number | null;
   tbsName: string;
   fraPct: number | null;
+  cpuPct: number | null;
+  memPct: number | null;
   connStatus: "SUCCESS" | "FAILED" | "UNKNOWN";
 }
 
@@ -90,11 +94,16 @@ const CHART = {
   axis: "#8ea3b8",
   grid: "rgba(142,163,184,0.12)",
   cursor: "rgba(142,163,184,0.06)",
+  // Darker tones for the fixed-size print/PDF chart copies (white paper background)
+  axisPrint: "#475569",
+  gridPrint: "rgba(71,85,105,0.18)",
   cyan: "#06b6d4",
   emerald: "#10b981",
   violet: "#a78bfa",
   amber: "#f59e0b",
-  red: "#ef4444"
+  red: "#ef4444",
+  orange: "#f97316",
+  blue: "#3b82f6"
 };
 
 // ─── Extraction & stats helpers ──────────────────────────────────────────────
@@ -117,6 +126,11 @@ function toTrendPoint(row: DashboardHistoryRow): TrendPoint {
   const fra = m?.fra;
   const fraPct = fra && safeNum(fra.fra_size_gb) > 0 ? safeNum(fra.pct_used) : null;
 
+  const os = m?.os_resources;
+  // memory_used_pct is optional in the normalized payload (older snapshots may
+  // not carry it) — keep it as null so the chart shows a gap instead of a fake 0.
+  const memPct = os?.memory_used_pct != null ? safeNum(os.memory_used_pct) : null;
+
   const conn = (m?.db_health?.connection_test ?? "UNKNOWN").toUpperCase();
 
   return {
@@ -131,6 +145,8 @@ function toTrendPoint(row: DashboardHistoryRow): TrendPoint {
     tbsPct,
     tbsName,
     fraPct,
+    cpuPct: os != null ? safeNum(os.cpu_usage_pct) : null,
+    memPct,
     connStatus: conn === "SUCCESS" || conn === "FAILED" ? conn : "UNKNOWN"
   };
 }
@@ -297,7 +313,7 @@ function ConnectionKpiCard({ stats }: { stats: ConnStats }) {
     <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
       <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
         <PlugZap className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate text-[11px] font-semibold">Connection Success</span>
+        <span className="truncate text-[11px] font-semibold">Database Availability</span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className={cn("text-lg font-bold leading-none tabular-nums", successRateClass(stats.rate))}>
@@ -312,9 +328,9 @@ function ConnectionKpiCard({ stats }: { stats: ConnStats }) {
                 ? "border-red-400/30 bg-red-500/10 text-red-600 dark:text-red-300"
                 : "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-300"
           )}
-          title="Connection test result on the latest snapshot"
+          title="Database up status on the latest snapshot (remote connection test)"
         >
-          {stats.latest}
+          {stats.latest === "SUCCESS" ? "UP" : stats.latest === "FAILED" ? "DOWN" : "UNKNOWN"}
         </span>
       </div>
       <p className="mt-1 truncate text-[11px] text-muted-foreground">
@@ -323,7 +339,7 @@ function ConnectionKpiCard({ stats }: { stats: ConnStats }) {
             <span className="font-semibold tabular-nums">
               {stats.success}/{stats.total}
             </span>{" "}
-            ok · Best streak <span className="font-semibold tabular-nums">{stats.bestStreak}</span>
+            up · Best streak <span className="font-semibold tabular-nums">{stats.bestStreak}</span>
           </>
         ) : (
           "No data"
@@ -424,6 +440,26 @@ function PerfTooltip({ active, payload }: { active?: boolean; payload?: TooltipP
   );
 }
 
+function OsTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayloadItem[] }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  if (!p) return null;
+  return (
+    <TooltipShell point={p}>
+      <TooltipMetricRow
+        color={CHART.orange}
+        label="CPU Utilization"
+        value={p.cpuPct != null ? fmtPct(p.cpuPct) : "Not captured"}
+      />
+      <TooltipMetricRow
+        color={CHART.blue}
+        label="OS Memory Utilization"
+        value={p.memPct != null ? fmtPct(p.memPct) : "Not captured"}
+      />
+    </TooltipShell>
+  );
+}
+
 // ─── Chart scaffolding ───────────────────────────────────────────────────────
 
 function ChartCard({
@@ -460,6 +496,325 @@ function ChartNoData({ message }: { message: string }) {
   );
 }
 
+// ─── Reusable trend charts ───────────────────────────────────────────────────
+// Render fluid (ResponsiveContainer) for the on-screen tabs, or at a fixed pixel
+// size for the print/PDF report — ResponsiveContainer cannot measure containers
+// hidden with display:none, so print copies must use explicit width/height.
+
+interface TrendChartProps {
+  data: TrendPoint[];
+  xDomain: [number, number];
+  range: DashboardTrendsRange;
+  fixedSize?: { width: number; height: number };
+}
+
+function DbSizeTrendChart({ data, xDomain, range, fixedSize }: TrendChartProps) {
+  const axis = fixedSize ? CHART.axisPrint : CHART.axis;
+  const grid = fixedSize ? CHART.gridPrint : CHART.grid;
+  const gradId = fixedSize ? "trendSizeFillPrint" : "trendSizeFill";
+
+  const chart = (
+    <AreaChart
+      data={data}
+      margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+      {...(fixedSize != null ? { width: fixedSize.width, height: fixedSize.height } : {})}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={CHART.cyan} stopOpacity={0.3} />
+          <stop offset="100%" stopColor={CHART.cyan} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+      <XAxis
+        dataKey="ts"
+        type="number"
+        scale="time"
+        domain={xDomain}
+        tickFormatter={(v: number) => formatTick(v, range)}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        minTickGap={48}
+      />
+      <YAxis
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        width={60}
+        domain={["auto", "auto"]}
+        tickFormatter={(v: number) => `${v.toFixed(1)} GB`}
+      />
+      <Tooltip
+        content={<DbSizeTooltip />}
+        cursor={{ stroke: "rgba(142,163,184,0.3)", strokeDasharray: "4 4" }}
+      />
+      <Area
+        type="monotone"
+        dataKey="dbSizeGb"
+        name="Database Size"
+        stroke={CHART.cyan}
+        strokeWidth={2}
+        fill={`url(#${gradId})`}
+        dot={false}
+        activeDot={{ r: 4, strokeWidth: 0 }}
+        connectNulls={false}
+      />
+    </AreaChart>
+  );
+
+  if (fixedSize != null) return chart;
+  return <ResponsiveContainer width="100%" height="100%">{chart}</ResponsiveContainer>;
+}
+
+function UtilizationTrendChart({ data, xDomain, range, fixedSize }: TrendChartProps) {
+  const axis = fixedSize ? CHART.axisPrint : CHART.axis;
+  const grid = fixedSize ? CHART.gridPrint : CHART.grid;
+
+  const chart = (
+    <ComposedChart
+      data={data}
+      margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+      {...(fixedSize != null ? { width: fixedSize.width, height: fixedSize.height } : {})}
+    >
+      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+      <XAxis
+        dataKey="ts"
+        type="number"
+        scale="time"
+        domain={xDomain}
+        tickFormatter={(v: number) => formatTick(v, range)}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        minTickGap={48}
+      />
+      <YAxis
+        domain={[0, 100]}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        width={44}
+        tickFormatter={(v: number) => `${Math.round(v)}%`}
+      />
+      <ReferenceLine
+        y={80}
+        stroke={CHART.violet}
+        strokeDasharray="5 3"
+        label={{ value: "80%", position: "insideRight", fill: CHART.violet, fontSize: 9, dy: -6 }}
+      />
+      <ReferenceLine
+        y={85}
+        stroke={CHART.amber}
+        strokeDasharray="5 3"
+        label={{ value: "85%", position: "insideRight", fill: CHART.amber, fontSize: 9, dy: -6 }}
+      />
+      <ReferenceLine
+        y={90}
+        stroke={CHART.red}
+        strokeDasharray="5 3"
+        label={{ value: "90%", position: "insideRight", fill: CHART.red, fontSize: 9, dy: -6 }}
+      />
+      <Tooltip
+        content={<UtilTooltip />}
+        cursor={{ stroke: "rgba(142,163,184,0.3)", strokeDasharray: "4 4" }}
+      />
+      <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
+      <Line
+        type="monotone"
+        dataKey="tbsPct"
+        name="Max Tablespace %"
+        stroke={CHART.emerald}
+        strokeWidth={2}
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+      <Line
+        type="monotone"
+        dataKey="fraPct"
+        name="FRA %"
+        stroke={CHART.violet}
+        strokeWidth={2}
+        strokeDasharray="6 3"
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+    </ComposedChart>
+  );
+
+  if (fixedSize != null) return chart;
+  return <ResponsiveContainer width="100%" height="100%">{chart}</ResponsiveContainer>;
+}
+
+function PerfTrendChart({ data, xDomain, range, fixedSize }: TrendChartProps) {
+  const axis = fixedSize ? CHART.axisPrint : CHART.axis;
+  const grid = fixedSize ? CHART.gridPrint : CHART.grid;
+
+  const chart = (
+    <ComposedChart
+      data={data}
+      margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
+      {...(fixedSize != null ? { width: fixedSize.width, height: fixedSize.height } : {})}
+    >
+      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+      <XAxis
+        dataKey="ts"
+        type="number"
+        scale="time"
+        domain={xDomain}
+        tickFormatter={(v: number) => formatTick(v, range)}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        minTickGap={48}
+      />
+      <YAxis
+        yAxisId="ms"
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        width={52}
+        domain={[0, (dataMax: number) => Math.ceil(Math.max(10, dataMax || 0) * 1.15)]}
+        tickFormatter={(v: number) => `${Math.round(v)} ms`}
+      />
+      <YAxis
+        yAxisId="sessions"
+        orientation="right"
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        width={36}
+        allowDecimals={false}
+        domain={[0, (dataMax: number) => Math.ceil(Math.max(1, dataMax || 0) * 1.2)]}
+      />
+      <Tooltip
+        content={<PerfTooltip />}
+        cursor={{ fill: CHART.cursor }}
+      />
+      <Legend wrapperStyle={{ fontSize: 11 }} />
+      <Bar
+        yAxisId="sessions"
+        dataKey="peakSessions"
+        name="Peak Active Sessions (1h)"
+        fill="rgba(167,139,250,0.4)"
+        radius={[3, 3, 0, 0]}
+        maxBarSize={10}
+      />
+      <Line
+        yAxisId="sessions"
+        type="monotone"
+        dataKey="avgSessions"
+        name="Avg Active Sessions (1h)"
+        stroke={CHART.emerald}
+        strokeWidth={2}
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+      <Line
+        yAxisId="ms"
+        type="monotone"
+        dataKey="responseMs"
+        name="Avg Response Time (ms)"
+        stroke={CHART.cyan}
+        strokeWidth={2}
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+    </ComposedChart>
+  );
+
+  if (fixedSize != null) return chart;
+  return <ResponsiveContainer width="100%" height="100%">{chart}</ResponsiveContainer>;
+}
+
+function OsUtilizationTrendChart({ data, xDomain, range, fixedSize }: TrendChartProps) {
+  const axis = fixedSize ? CHART.axisPrint : CHART.axis;
+  const grid = fixedSize ? CHART.gridPrint : CHART.grid;
+
+  const chart = (
+    <ComposedChart
+      data={data}
+      margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+      {...(fixedSize != null ? { width: fixedSize.width, height: fixedSize.height } : {})}
+    >
+      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+      <XAxis
+        dataKey="ts"
+        type="number"
+        scale="time"
+        domain={xDomain}
+        tickFormatter={(v: number) => formatTick(v, range)}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        minTickGap={48}
+      />
+      <YAxis
+        domain={[0, 100]}
+        stroke={axis}
+        fontSize={10}
+        tickLine={false}
+        axisLine={false}
+        width={44}
+        tickFormatter={(v: number) => `${Math.round(v)}%`}
+      />
+      <ReferenceLine
+        y={80}
+        stroke={CHART.amber}
+        strokeDasharray="5 3"
+        label={{ value: "80%", position: "insideRight", fill: CHART.amber, fontSize: 9, dy: -6 }}
+      />
+      <ReferenceLine
+        y={90}
+        stroke={CHART.red}
+        strokeDasharray="5 3"
+        label={{ value: "90%", position: "insideRight", fill: CHART.red, fontSize: 9, dy: -6 }}
+      />
+      <Tooltip
+        content={<OsTooltip />}
+        cursor={{ stroke: "rgba(142,163,184,0.3)", strokeDasharray: "4 4" }}
+      />
+      <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
+      <Line
+        type="monotone"
+        dataKey="cpuPct"
+        name="CPU Utilization %"
+        stroke={CHART.orange}
+        strokeWidth={2}
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+      <Line
+        type="monotone"
+        dataKey="memPct"
+        name="OS Memory Utilization %"
+        stroke={CHART.blue}
+        strokeWidth={2}
+        strokeDasharray="6 3"
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+      />
+    </ComposedChart>
+  );
+
+  if (fixedSize != null) return chart;
+  return <ResponsiveContainer width="100%" height="100%">{chart}</ResponsiveContainer>;
+}
+
 function SuccessGauge({ pct }: { pct: number }) {
   const safePct = Math.min(100, Math.max(0, pct));
   const color = safePct >= 99 ? CHART.emerald : safePct >= 90 ? CHART.amber : CHART.red;
@@ -484,6 +839,282 @@ function SuccessGauge({ pct }: { pct: number }) {
           {safePct.toFixed(1)}%
         </span>
         <span className="text-[10px] text-muted-foreground">success rate</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Print/PDF report ────────────────────────────────────────────────────────
+// Print-only rendering of ALL three trend sections (the interactive tabs are
+// print:hidden since only the active tab would otherwise export). Charts render
+// at fixed pixel sizes so they appear correctly in the printed PDF regardless of
+// the on-screen tab state. Uses explicit light-theme classes because the global
+// print CSS flattens the dark portal theme to white paper.
+
+function PrintSectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h4 className="border-b border-slate-300 pb-1 text-sm font-bold tracking-wide text-slate-900">
+      {children}
+    </h4>
+  );
+}
+
+function PrintChartFrame({
+  title,
+  footnote,
+  children
+}: {
+  title: string;
+  footnote?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-300 p-2">
+      <p className="mb-1 text-xs font-semibold text-slate-700">{title}</p>
+      {children}
+      {footnote && <p className="mt-1 text-[10px] text-slate-500">{footnote}</p>}
+    </div>
+  );
+}
+
+function TrendsPrintReport({
+  selectedDb,
+  rangeLabel,
+  range,
+  points,
+  healthyPoints,
+  excludedCount,
+  xDomain,
+  osXDomain,
+  sizeGrowth,
+  hasSizeData,
+  hasUtilData,
+  hasPerfData,
+  hasOsData,
+  connStats,
+  seriesStats
+}: {
+  selectedDb: string;
+  rangeLabel: string;
+  range: DashboardTrendsRange;
+  points: TrendPoint[];
+  healthyPoints: TrendPoint[];
+  excludedCount: number;
+  xDomain: [number, number];
+  osXDomain: [number, number];
+  sizeGrowth: number | null;
+  hasSizeData: boolean;
+  hasUtilData: boolean;
+  hasPerfData: boolean;
+  hasOsData: boolean;
+  connStats: ConnStats;
+  seriesStats: Array<{ label: string; stats: SeriesStats; format: (v: number) => string }>;
+}) {
+  const first = points[0];
+  const last = points[points.length - 1];
+  const rangeFilter = RANGE_OPTIONS.find((o) => o.value === range);
+
+  return (
+    <div className="hidden space-y-5 print:block">
+      {/* ── Print report header (filtered timeline context) ─────────── */}
+      <div className="rounded-xl border border-slate-300 p-4 text-slate-900">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-2.5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wider text-rose-600">
+              ITSS DBA PORTAL
+            </p>
+            <h3 className="text-base font-bold tracking-tight text-slate-900">
+              Historical Performance &amp; Capacity Trends
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Database Target: <span className="font-bold text-slate-900">{selectedDb}</span>
+            </p>
+          </div>
+          <div className="text-right text-xs text-slate-600">
+            <p>
+              Timeframe Filter: <span className="font-semibold text-slate-900">{rangeLabel}</span>
+            </p>
+            <p>
+              Snapshots Analyzed: <span className="font-semibold tabular-nums text-slate-900">{points.length}</span>
+            </p>
+            {first && last && (
+              <p>
+                Period: {formatAppDateTime(first.timestamp)} → {formatAppDateTime(last.timestamp)}
+              </p>
+            )}
+            <p>Report Generated: {new Date().toLocaleString("en-IN")}</p>
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+          {excludedCount > 0 ? (
+            <>
+              Note: <span className="font-semibold tabular-nums">{excludedCount}</span> snapshot
+              {excludedCount === 1 ? "" : "s"} with a FAILED remote connection
+              {excludedCount === 1 ? " is" : "s are"} excluded from the Capacity &amp; Storage and
+              Response Time / Sessions trends; CPU &amp; OS Memory Utilization and Database
+              Availability include every snapshot.
+            </>
+          ) : (
+            <>All snapshots in the selected timeframe had a successful remote connection test.</>
+          )}
+        </p>
+      </div>
+
+      {/* ── Summary statistics for the filtered timeline ─────────────── */}
+      <div className="break-inside-avoid">
+        <PrintSectionHeading>Summary — Current vs Average vs Peak</PrintSectionHeading>
+        <table className="mt-2 w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-slate-300 text-left text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-4 font-semibold">Metric</th>
+              <th className="py-1.5 px-3 text-right font-semibold">Current</th>
+              <th className="py-1.5 px-3 text-right font-semibold">Average</th>
+              <th className="py-1.5 pl-3 text-right font-semibold">Peak</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-slate-200">
+              <td className="py-1.5 pr-4 font-medium text-slate-700">Database Availability</td>
+              <td className="py-1.5 px-3 text-right font-bold tabular-nums text-slate-900">
+                {connStats.rate != null ? `${connStats.rate.toFixed(1)}%` : "—"}
+              </td>
+              <td className="py-1.5 px-3 text-right tabular-nums text-slate-600" colSpan={2}>
+                {connStats.success}/{connStats.total} snapshots up · best streak {connStats.bestStreak}
+              </td>
+            </tr>
+            {seriesStats.map(({ label, stats, format }) => (
+              <tr key={label} className="border-b border-slate-200 last:border-b-0">
+                <td className="py-1.5 pr-4 font-medium text-slate-700">{label}</td>
+                <td className="py-1.5 px-3 text-right font-bold tabular-nums text-slate-900">
+                  {stats.current != null ? format(stats.current) : "—"}
+                </td>
+                <td className="py-1.5 px-3 text-right tabular-nums text-slate-600">
+                  {stats.avg != null ? format(stats.avg) : "—"}
+                </td>
+                <td className="py-1.5 pl-3 text-right tabular-nums text-slate-600">
+                  {stats.peak != null ? format(stats.peak) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Section 1: Capacity & Storage ─────────────────────────────── */}
+      <div className="space-y-3 break-inside-avoid">
+        <PrintSectionHeading>1. Capacity &amp; Storage Trend</PrintSectionHeading>
+        {hasSizeData ? (
+          <PrintChartFrame
+            title={`Database Size Growth${sizeGrowth != null ? ` — ${sizeGrowth >= 0 ? "+" : ""}${sizeGrowth.toFixed(2)} GB over range` : ""}`}
+            footnote="Metric: total_db_size_gb per snapshot"
+          >
+            <DbSizeTrendChart data={healthyPoints} xDomain={xDomain} range={range} fixedSize={{ width: 700, height: 230 }} />
+          </PrintChartFrame>
+        ) : (
+          <p className="text-xs text-slate-500">No usable database size values in this timeframe.</p>
+        )}
+        {hasUtilData ? (
+          <PrintChartFrame
+            title="Tablespace & FRA Utilization"
+            footnote="Thresholds — tablespace warn 85% / critical 90% · FRA warn 80% / critical 90%"
+          >
+            <UtilizationTrendChart data={healthyPoints} xDomain={xDomain} range={range} fixedSize={{ width: 700, height: 230 }} />
+          </PrintChartFrame>
+        ) : (
+          <p className="text-xs text-slate-500">No usable tablespace or FRA utilization values in this timeframe.</p>
+        )}
+      </div>
+
+      {/* ── Section 2: Performance & Latency ──────────────────────────── */}
+      <div className="space-y-3 break-inside-avoid">
+        <PrintSectionHeading>2. Performance &amp; Latency Trend</PrintSectionHeading>
+        {hasPerfData ? (
+          <PrintChartFrame
+            title="Avg Response Time (ms) vs 1h Avg / Peak Active Sessions"
+            footnote="Left axis: db_response_time_ms · Right axis: session count"
+          >
+            <PerfTrendChart data={healthyPoints} xDomain={xDomain} range={range} fixedSize={{ width: 700, height: 280 }} />
+          </PrintChartFrame>
+        ) : (
+          <p className="text-xs text-slate-500">
+            No usable response time or active session metrics in this timeframe.
+          </p>
+        )}
+        {hasOsData ? (
+          <PrintChartFrame
+            title="CPU & OS Memory Utilization"
+            footnote="Metrics: os_resources cpu_usage_pct / memory_used_pct · Includes all snapshots (host OS metrics stay valid when remote connection fails) · Thresholds — warn 80% / critical 90%"
+          >
+            <OsUtilizationTrendChart data={points} xDomain={osXDomain} range={range} fixedSize={{ width: 700, height: 230 }} />
+          </PrintChartFrame>
+        ) : (
+          <p className="text-xs text-slate-500">
+            No usable CPU or OS memory utilization values in this timeframe.
+          </p>
+        )}
+      </div>
+
+      {/* ── Section 3: Remote Connection & Availability ───────────────── */}
+      <div className="space-y-3 break-inside-avoid">
+        <PrintSectionHeading>3. Remote Connection &amp; Availability Trend</PrintSectionHeading>
+        <div className="flex items-center gap-8 rounded-lg border border-slate-300 p-3">
+          <SuccessGauge pct={connStats.rate ?? 0} />
+          <div className="grid flex-1 grid-cols-[auto_1fr] gap-x-8 gap-y-1 text-xs text-slate-600">
+            <span>Snapshots Tested</span>
+            <span className="font-bold tabular-nums text-slate-900">{connStats.total}</span>
+            <span>Successful</span>
+            <span className="font-bold tabular-nums text-emerald-700">{connStats.success}</span>
+            <span>Failed</span>
+            <span className="font-bold tabular-nums text-red-700">{connStats.failed}</span>
+            <span>Unknown</span>
+            <span className="font-bold tabular-nums text-slate-900">{connStats.unknown}</span>
+            <span>Success Rate</span>
+            <span className="font-bold tabular-nums text-slate-900">
+              {connStats.rate != null ? `${connStats.rate.toFixed(1)}%` : "—"}
+            </span>
+            <span>Best Success Streak</span>
+            <span className="font-bold tabular-nums text-slate-900">{connStats.bestStreak}</span>
+            <span>Last Failure</span>
+            <span className="font-semibold text-slate-900">
+              {connStats.lastFailure ? formatAppDateTime(connStats.lastFailure.timestamp) : "None in window"}
+            </span>
+          </div>
+        </div>
+        <div className="rounded-lg border border-slate-300 p-3">
+          <p className="mb-2 text-xs font-semibold text-slate-700">
+            Connection Status Timeline — chronological, one segment per snapshot
+          </p>
+          <div className="flex flex-wrap gap-[2px]">
+            {points.map((p) => (
+              <span
+                key={p.id}
+                className={cn(
+                  "h-4 w-2.5 rounded-[2px]",
+                  p.connStatus === "SUCCESS"
+                    ? "bg-emerald-500"
+                    : p.connStatus === "FAILED"
+                      ? "bg-red-500"
+                      : "bg-zinc-500"
+                )}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-600">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 bg-emerald-500" /> SUCCESS
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 bg-red-500" /> FAILED
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 bg-zinc-500" /> UNKNOWN
+            </span>
+            <span className="ml-auto">
+              Timeframe: {rangeFilter?.label ?? range} · {points.length} snapshot
+              {points.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -521,34 +1152,62 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
     loadTrends(selectedDb, range);
   }, [selectedDb, range, loadTrends, reloadKey]);
 
-  const sizeStats = useMemo(() => computeSeriesStats(points.map((p) => p.dbSizeGb)), [points]);
-  const responseStats = useMemo(() => computeSeriesStats(points.map((p) => p.responseMs)), [points]);
-  const avgSessStats = useMemo(() => computeSeriesStats(points.map((p) => p.avgSessions)), [points]);
-  const peakSessStats = useMemo(() => computeSeriesStats(points.map((p) => p.peakSessions)), [points]);
-  const tbsStats = useMemo(() => computeSeriesStats(points.map((p) => p.tbsPct)), [points]);
-  const fraStats = useMemo(() => computeSeriesStats(points.map((p) => p.fraPct)), [points]);
+  // Snapshots captured while the remote connection test FAILED are excluded from
+  // the Capacity & Storage and Response Time / Sessions trends — the monitoring
+  // queries could not reach the database, so those values are unreliable.
+  // CPU & OS memory utilization (host OS metrics) and the Remote Connection
+  // availability trend (Tab 3) still include every snapshot.
+  const healthyPoints = useMemo(
+    () => points.filter((p) => p.connStatus !== "FAILED"),
+    [points]
+  );
+  const excludedCount = points.length - healthyPoints.length;
+
+  const sizeStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.dbSizeGb)), [healthyPoints]);
+  const responseStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.responseMs)), [healthyPoints]);
+  const avgSessStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.avgSessions)), [healthyPoints]);
+  const peakSessStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.peakSessions)), [healthyPoints]);
+  const tbsStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.tbsPct)), [healthyPoints]);
+  const fraStats = useMemo(() => computeSeriesStats(healthyPoints.map((p) => p.fraPct)), [healthyPoints]);
+  // CPU & OS memory come from the DB host OS — valid even when remote connection failed.
+  const cpuStats = useMemo(() => computeSeriesStats(points.map((p) => p.cpuPct)), [points]);
+  const memStats = useMemo(() => computeSeriesStats(points.map((p) => p.memPct)), [points]);
   const connStats = useMemo(() => computeConnStats(points), [points]);
 
-  const hasSizeData = points.some((p) => p.dbSizeGb != null);
-  const hasUtilData = points.some((p) => p.tbsPct != null || p.fraPct != null);
-  const hasPerfData = points.some(
+  const hasSizeData = healthyPoints.some((p) => p.dbSizeGb != null);
+  const hasUtilData = healthyPoints.some((p) => p.tbsPct != null || p.fraPct != null);
+  const hasPerfData = healthyPoints.some(
     (p) => p.responseMs != null || p.avgSessions != null || p.peakSessions != null
   );
+  const hasOsData = points.some((p) => p.cpuPct != null || p.memPct != null);
 
   const latestTbsName = useMemo(() => {
-    for (let i = points.length - 1; i >= 0; i--) {
-      if (points[i].tbsPct != null) return points[i].tbsName || undefined;
+    for (let i = healthyPoints.length - 1; i >= 0; i--) {
+      if (healthyPoints[i].tbsPct != null) return healthyPoints[i].tbsName || undefined;
     }
     return undefined;
-  }, [points]);
+  }, [healthyPoints]);
 
   const sizeGrowth = useMemo(() => {
-    const vals = points.map((p) => p.dbSizeGb).filter((v): v is number => v != null);
+    const vals = healthyPoints.map((p) => p.dbSizeGb).filter((v): v is number => v != null);
     if (vals.length < 2) return null;
     return vals[vals.length - 1] - vals[0];
-  }, [points]);
+  }, [healthyPoints]);
 
   const xDomain = useMemo((): [number, number] => {
+    if (healthyPoints.length === 0) {
+      const now = Date.now();
+      return [now - 3600_000, now];
+    }
+    const min = healthyPoints[0].ts;
+    const max = healthyPoints[healthyPoints.length - 1].ts;
+    const pad = Math.max((max - min) * 0.02, 60_000);
+    return [min - pad, max + pad];
+  }, [healthyPoints]);
+
+  // Full-timeline X-axis domain — used by the CPU / OS memory chart which
+  // includes FAILED-connection snapshots.
+  const osXDomain = useMemo((): [number, number] => {
     if (points.length === 0) {
       const now = Date.now();
       return [now - 3600_000, now];
@@ -565,7 +1224,7 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
 
   return (
     <Card id="historical-trends" className="scroll-mt-24">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 print:hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="shrink-0 rounded-lg border border-purple-400/20 bg-purple-400/10 p-2.5">
@@ -677,8 +1336,9 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
           </div>
         ) : (
           <>
-            {/* ── Summary KPI badges ─────────────────────────────────── */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {/* ── Summary KPI badges (screen — print uses summary table) ── */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 print:hidden">
+              <ConnectionKpiCard stats={connStats} />
               <TrendKpiCard
                 icon={Database}
                 label="Database Size"
@@ -721,18 +1381,38 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
                 sublabel={latestTbsName ? `top: ${latestTbsName}` : undefined}
               />
               <TrendKpiCard
-                icon={ArchiveRestore}
-                label="FRA Utilization"
-                stats={fraStats}
+                icon={Cpu}
+                label="CPU Utilization"
+                stats={cpuStats}
                 format={fmtPct}
                 direction="lower-is-better"
-                iconClass="text-violet-600 dark:text-violet-400"
+                iconClass="text-orange-600 dark:text-orange-400"
               />
-              <ConnectionKpiCard stats={connStats} />
+              <TrendKpiCard
+                icon={MemoryStick}
+                label="OS Memory Utilization"
+                stats={memStats}
+                format={fmtPct}
+                direction="lower-is-better"
+                iconClass="text-blue-600 dark:text-blue-400"
+              />
             </div>
 
-            {/* ── Trend tabs ─────────────────────────────────────────── */}
-            <Tabs defaultValue="capacity" className="w-full">
+            {excludedCount > 0 && (
+              <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300 print:hidden">
+                <Info className="mt-px h-3 w-3 shrink-0" />
+                <span>
+                  <span className="font-semibold tabular-nums">{excludedCount}</span> snapshot
+                  {excludedCount === 1 ? "" : "s"} with a FAILED remote connection
+                  {excludedCount === 1 ? " is" : "s are"} excluded from the Capacity &amp; Storage and
+                  Response Time / Sessions trends — CPU &amp; OS Memory Utilization and Database
+                  Availability still include every snapshot.
+                </span>
+              </p>
+            )}
+
+            {/* ── Trend tabs (screen only — print uses TrendsPrintReport) ── */}
+            <Tabs defaultValue="capacity" className="w-full print:hidden">
               <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
                 <TabsTrigger value="capacity" className="gap-1.5 text-xs">
                   <HardDrive className="h-3.5 w-3.5" />
@@ -772,56 +1452,10 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
                   >
                     {hasSizeData ? (
                       <div className="h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                            <defs>
-                              <linearGradient id="trendSizeFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={CHART.cyan} stopOpacity={0.3} />
-                                <stop offset="100%" stopColor={CHART.cyan} stopOpacity={0.02} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART.grid} />
-                            <XAxis
-                              dataKey="ts"
-                              type="number"
-                              scale="time"
-                              domain={xDomain}
-                              tickFormatter={(v: number) => formatTick(v, range)}
-                              stroke={CHART.axis}
-                              fontSize={10}
-                              tickLine={false}
-                              axisLine={false}
-                              minTickGap={48}
-                            />
-                            <YAxis
-                              stroke={CHART.axis}
-                              fontSize={10}
-                              tickLine={false}
-                              axisLine={false}
-                              width={60}
-                              domain={["auto", "auto"]}
-                              tickFormatter={(v: number) => `${v.toFixed(1)} GB`}
-                            />
-                            <Tooltip
-                              content={<DbSizeTooltip />}
-                              cursor={{ stroke: "rgba(142,163,184,0.3)", strokeDasharray: "4 4" }}
-                            />
-                            <Area
-                              type="monotone"
-                              dataKey="dbSizeGb"
-                              name="Database Size"
-                              stroke={CHART.cyan}
-                              strokeWidth={2}
-                              fill="url(#trendSizeFill)"
-                              dot={false}
-                              activeDot={{ r: 4, strokeWidth: 0 }}
-                              connectNulls={false}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                        <DbSizeTrendChart data={healthyPoints} xDomain={xDomain} range={range} />
                       </div>
                     ) : (
-                      <ChartNoData message="No total_db_size_gb values were captured in the selected timeframe." />
+                      <ChartNoData message="No usable total_db_size_gb values in this timeframe. Snapshots with a FAILED remote connection are excluded from capacity trends." />
                     )}
                   </ChartCard>
 
@@ -831,79 +1465,10 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
                   >
                     {hasUtilData ? (
                       <div className="h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART.grid} />
-                            <XAxis
-                              dataKey="ts"
-                              type="number"
-                              scale="time"
-                              domain={xDomain}
-                              tickFormatter={(v: number) => formatTick(v, range)}
-                              stroke={CHART.axis}
-                              fontSize={10}
-                              tickLine={false}
-                              axisLine={false}
-                              minTickGap={48}
-                            />
-                            <YAxis
-                              domain={[0, 100]}
-                              stroke={CHART.axis}
-                              fontSize={10}
-                              tickLine={false}
-                              axisLine={false}
-                              width={44}
-                              tickFormatter={(v: number) => `${Math.round(v)}%`}
-                            />
-                            <ReferenceLine
-                              y={80}
-                              stroke={CHART.violet}
-                              strokeDasharray="5 3"
-                              label={{ value: "80%", position: "insideRight", fill: CHART.violet, fontSize: 9, dy: -6 }}
-                            />
-                            <ReferenceLine
-                              y={85}
-                              stroke={CHART.amber}
-                              strokeDasharray="5 3"
-                              label={{ value: "85%", position: "insideRight", fill: CHART.amber, fontSize: 9, dy: -6 }}
-                            />
-                            <ReferenceLine
-                              y={90}
-                              stroke={CHART.red}
-                              strokeDasharray="5 3"
-                              label={{ value: "90%", position: "insideRight", fill: CHART.red, fontSize: 9, dy: -6 }}
-                            />
-                            <Tooltip
-                              content={<UtilTooltip />}
-                              cursor={{ stroke: "rgba(142,163,184,0.3)", strokeDasharray: "4 4" }}
-                            />
-                            <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
-                            <Line
-                              type="monotone"
-                              dataKey="tbsPct"
-                              name="Max Tablespace %"
-                              stroke={CHART.emerald}
-                              strokeWidth={2}
-                              dot={false}
-                              activeDot={{ r: 4 }}
-                              connectNulls={false}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="fraPct"
-                              name="FRA %"
-                              stroke={CHART.violet}
-                              strokeWidth={2}
-                              strokeDasharray="6 3"
-                              dot={false}
-                              activeDot={{ r: 4 }}
-                              connectNulls={false}
-                            />
-                          </ComposedChart>
-                        </ResponsiveContainer>
+                        <UtilizationTrendChart data={healthyPoints} xDomain={xDomain} range={range} />
                       </div>
                     ) : (
-                      <ChartNoData message="No tablespace or FRA utilization values were captured in the selected timeframe." />
+                      <ChartNoData message="No usable tablespace or FRA utilization values in this timeframe. Snapshots with a FAILED remote connection are excluded from capacity trends." />
                     )}
                     <p className="mt-2 text-[11px] text-muted-foreground">
                       Thresholds — tablespace warn 85% / critical 90% · FRA warn 80% / critical 90%
@@ -920,83 +1485,27 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
                 >
                   {hasPerfData ? (
                     <div className="h-[280px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={points} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART.grid} />
-                          <XAxis
-                            dataKey="ts"
-                            type="number"
-                            scale="time"
-                            domain={xDomain}
-                            tickFormatter={(v: number) => formatTick(v, range)}
-                            stroke={CHART.axis}
-                            fontSize={10}
-                            tickLine={false}
-                            axisLine={false}
-                            minTickGap={48}
-                          />
-                          <YAxis
-                            yAxisId="ms"
-                            stroke={CHART.axis}
-                            fontSize={10}
-                            tickLine={false}
-                            axisLine={false}
-                            width={52}
-                            domain={[0, (dataMax: number) => Math.ceil(Math.max(10, dataMax || 0) * 1.15)]}
-                            tickFormatter={(v: number) => `${Math.round(v)} ms`}
-                          />
-                          <YAxis
-                            yAxisId="sessions"
-                            orientation="right"
-                            stroke={CHART.axis}
-                            fontSize={10}
-                            tickLine={false}
-                            axisLine={false}
-                            width={36}
-                            allowDecimals={false}
-                            domain={[0, (dataMax: number) => Math.ceil(Math.max(1, dataMax || 0) * 1.2)]}
-                          />
-                          <Tooltip
-                            content={<PerfTooltip />}
-                            cursor={{ fill: CHART.cursor }}
-                          />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
-                          <Bar
-                            yAxisId="sessions"
-                            dataKey="peakSessions"
-                            name="Peak Active Sessions (1h)"
-                            fill="rgba(167,139,250,0.4)"
-                            radius={[3, 3, 0, 0]}
-                            maxBarSize={10}
-                          />
-                          <Line
-                            yAxisId="sessions"
-                            type="monotone"
-                            dataKey="avgSessions"
-                            name="Avg Active Sessions (1h)"
-                            stroke={CHART.emerald}
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4 }}
-                            connectNulls={false}
-                          />
-                          <Line
-                            yAxisId="ms"
-                            type="monotone"
-                            dataKey="responseMs"
-                            name="Avg Response Time (ms)"
-                            stroke={CHART.cyan}
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4 }}
-                            connectNulls={false}
-                          />
-                        </ComposedChart>
-                      </ResponsiveContainer>
+                      <PerfTrendChart data={healthyPoints} xDomain={xDomain} range={range} />
                     </div>
                   ) : (
-                    <ChartNoData message="No response time or active session metrics were captured in the selected timeframe." />
+                    <ChartNoData message="No usable response time or active session metrics in this timeframe. Snapshots with a FAILED remote connection are excluded from performance trends." />
                   )}
+                </ChartCard>
+
+                <ChartCard
+                  title="CPU & OS Memory Utilization"
+                  subtitle="os_resources cpu_usage_pct and memory_used_pct with warning / critical thresholds (includes all snapshots — host OS metrics stay valid when remote connection fails)"
+                >
+                  {hasOsData ? (
+                    <div className="h-[240px]">
+                      <OsUtilizationTrendChart data={points} xDomain={osXDomain} range={range} />
+                    </div>
+                  ) : (
+                    <ChartNoData message="No CPU or OS memory utilization values were captured in this timeframe." />
+                  )}
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Thresholds — CPU &amp; OS memory warn 80% / critical 90%
+                  </p>
                 </ChartCard>
               </TabsContent>
 
@@ -1077,6 +1586,34 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
                 </div>
               </TabsContent>
             </Tabs>
+
+            {/* ── Print/PDF report — all 3 sections with the filtered timeline ── */}
+            <TrendsPrintReport
+              selectedDb={selectedDb}
+              rangeLabel={RANGE_OPTIONS.find((o) => o.value === range)?.label ?? range}
+              range={range}
+              points={points}
+              healthyPoints={healthyPoints}
+              excludedCount={excludedCount}
+              xDomain={xDomain}
+              osXDomain={osXDomain}
+              sizeGrowth={sizeGrowth}
+              hasSizeData={hasSizeData}
+              hasUtilData={hasUtilData}
+              hasPerfData={hasPerfData}
+              hasOsData={hasOsData}
+              connStats={connStats}
+              seriesStats={[
+                { label: "Database Size (GB)", stats: sizeStats, format: fmtGb },
+                { label: "Avg Response Time (ms)", stats: responseStats, format: fmtMs },
+                { label: "Avg Active Sessions (1h)", stats: avgSessStats, format: fmtCount },
+                { label: "Peak Active Sessions (1h)", stats: peakSessStats, format: fmtCount },
+                { label: "Max Tablespace Utilization (%)", stats: tbsStats, format: fmtPct },
+                { label: "FRA Utilization (%)", stats: fraStats, format: fmtPct },
+                { label: "CPU Utilization (%)", stats: cpuStats, format: fmtPct },
+                { label: "OS Memory Utilization (%)", stats: memStats, format: fmtPct }
+              ]}
+            />
           </>
         )}
       </CardContent>
