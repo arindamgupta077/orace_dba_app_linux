@@ -117,7 +117,7 @@ DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${n}';`;
   };
 
   const isArchivelog = currentMode === "archivelog";
-  const title = isArchivelog ? "Delete Archivelog" : "Delete Backup";
+  const title = isArchivelog ? "Delete Old Archivelog" : "Delete Old Backup";
   const desc = isArchivelog
     ? "Crosscheck and delete expired archive logs, and delete archive logs completed before SYSDATE - N days."
     : "Crosscheck and delete expired backups and copies, and delete backups completed before SYSDATE - N days.";
@@ -180,7 +180,7 @@ DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${n}';`;
                 )}
               >
                 <Flame className={cn("h-4 w-4", isArchivelog ? "text-red-500" : "text-muted-foreground")} />
-                <span>Delete Archivelog</span>
+                <span>Delete Old Archivelog</span>
               </button>
 
               <button
@@ -198,7 +198,7 @@ DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${n}';`;
                 )}
               >
                 <Trash2 className={cn("h-4 w-4", !isArchivelog ? "text-rose-500" : "text-muted-foreground")} />
-                <span>Delete Backup</span>
+                <span>Delete Old Backup</span>
               </button>
             </div>
           </div>

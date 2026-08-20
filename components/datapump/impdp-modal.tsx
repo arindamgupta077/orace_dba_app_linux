@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Code2,
   Database,
   Edit3,
   FileInput,
@@ -244,7 +243,7 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
   const [dropUser, setDropUser] = useState(true);
 
   // UI state
-  const [tab, setTab] = useState<"form" | "json" | "templates">("form");
+  const [tab, setTab] = useState<"form" | "templates">("form");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [response, setResponse] = useState<DbaResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -731,13 +730,10 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
         ) : (
           /* ── Step 2: Configure import ── */
           <div className="space-y-4">
-            <Tabs value={tab} onValueChange={(v) => setTab(v as "form" | "json" | "templates")}>
-              <TabsList className="grid w-full grid-cols-3">
+            <Tabs value={tab} onValueChange={(v) => setTab(v as "form" | "templates")}>
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="form" className="gap-1.5">
                   <Layers className="h-3.5 w-3.5" /> Form
-                </TabsTrigger>
-                <TabsTrigger value="json" className="gap-1.5">
-                  <Code2 className="h-3.5 w-3.5" /> JSON Preview
                 </TabsTrigger>
                 <TabsTrigger value="templates" className="gap-1.5">
                   <BookTemplate className="h-3.5 w-3.5" /> Templates
@@ -1059,14 +1055,6 @@ export function ImpdpModal({ open, onOpenChange }: ImpdpModalProps) {
                     <Save className="h-3.5 w-3.5" /> Save Template
                   </Button>
                 </div>
-              </TabsContent>
-
-              {/* ── JSON Preview ── */}
-              <TabsContent value="json" className="mt-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Payload → n8n Webhook</p>
-                <pre className="keep-dark max-h-96 overflow-auto rounded-xl border border-border/60 bg-black/50 p-4 text-[11px] leading-5 text-cyan-100 font-mono">
-                  {JSON.stringify(fullPayload, null, 2)}
-                </pre>
               </TabsContent>
 
               {/* ── Templates ── */}

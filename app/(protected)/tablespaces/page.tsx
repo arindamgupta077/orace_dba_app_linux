@@ -139,6 +139,7 @@ export default function TablespacesPage() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         onComplete={setResponse}
+        hidePayload
       />
 
       {/* Standalone datafile extend modal triggered from the action card */}

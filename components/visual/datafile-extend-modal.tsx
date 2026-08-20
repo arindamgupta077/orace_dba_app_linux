@@ -346,6 +346,104 @@ function resolveStepFromAlert(alert: AlertNotification): {
   };
 }
 
+function parseStructuredExecutionValue(value: unknown) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (!/^[{[]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function formatExecutionLabel(key: string) {
+  const normalized = key.trim().toLowerCase();
+  const overrides: Record<string, string> = {
+    after_usage_pct: "After usage %",
+    post_usage_rows: "Post-usage rows",
+    oracle_execute_result: "Oracle execute result",
+    tablespace_name: "Tablespace",
+    usage_pct: "Usage %",
+    total_gb: "Total GB",
+    free_gb: "Free GB",
+    rows_affected: "Rows affected",
+    sql_output: "SQL output"
+  };
+  if (overrides[normalized]) return overrides[normalized];
+  return normalized
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => {
+      if (word === "db" || word === "gb" || word === "pct" || word === "sql" || word === "os") return word.toUpperCase();
+      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function renderStructuredExecutionValue(value: unknown) {
+  const parsed = parseStructuredExecutionValue(value);
+  if (parsed == null || parsed === "") return null;
+
+  if (typeof parsed === "string") {
+    return (
+      <pre className="keep-dark max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
+        {parsed}
+      </pre>
+    );
+  }
+
+  if (Array.isArray(parsed)) {
+    const rows = parsed.filter(isRecord);
+    if (rows.length && rows.length === parsed.length) {
+      const cols: string[] = [];
+      rows.forEach((r) => Object.keys(r).forEach((k) => { if (!cols.includes(k)) cols.push(k); }));
+      return (
+        <div className="overflow-auto rounded-md border border-border/70">
+          <table className="w-full min-w-[480px] text-left text-xs">
+            <thead className="bg-secondary/60 text-muted-foreground">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c} className="px-3 py-2 font-medium">{formatExecutionLabel(c)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx} className="border-t border-border/60">
+                  {cols.map((c) => (
+                    <td key={c} className="px-3 py-2 text-slate-100">{String(row[c] ?? "-")}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  if (isRecord(parsed)) {
+    const entries = Object.entries(parsed).filter(([, v]) => v == null || typeof v !== "object");
+    if (entries.length) {
+      return (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {entries.map(([k, v]) => (
+            <div key={k} className="rounded-md border border-border/60 bg-secondary/20 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{formatExecutionLabel(k)}</p>
+              <p className="mt-1 break-words text-sm font-medium text-slate-100">{String(v ?? "-")}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
+
+  return null;
+}
+
 // ─── Progress Stepper ────────────────────────────────────────────────────────
 
 const PROGRESS_STEPS: { label: string; steps: WorkflowStep[] }[] = [
@@ -437,10 +535,8 @@ export function DatafileExtendModal({
   onWorkflowComplete
 }: DatafileExtendModalProps) {
   const selectedDb = useAppStore((state) => state.selectedDb);
-  const databases = useAppStore((state) => state.databases);
   const user = useAppStore((state) => state.user);
   const username = user?.username || "arindam";
-  const dbTarget = databases.find((db) => db.name === selectedDb);
   const triggerTablespaceRefresh = useAppStore((state) => state.triggerTablespaceRefresh);
 
   const [step, setStep] = useState<WorkflowStep>("idle");
@@ -796,45 +892,25 @@ export function DatafileExtendModal({
     switch (step) {
       case "idle":
         return (
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="space-y-3">
-              <p className="text-sm font-medium">This workflow will:</p>
-              <ol className="space-y-2 text-sm text-muted-foreground">
-                {[
-                  "Fetch all tablespace names from v$tablespace",
-                  "Let you select the tablespace and size to extend",
-                  "Query all datafiles for the selected tablespace",
-                  "Use AI (Google Gemini) to generate the ALTER TABLESPACE SQL",
-                  "Present the SQL for your review — edit if needed",
-                  "Execute the approved SQL on the Oracle database"
-                ].map((item, i) => (
-                  <li key={i} className="flex items-start gap-2.5">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-cyan-400/40 bg-cyan-400/10 font-mono text-xs text-cyan-300">
-                      {i + 1}
-                    </span>
-                    {item}
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <div className="space-y-2">
-              <Label>Request Payload</Label>
-              <pre className="keep-dark rounded-md border border-border/70 bg-black/40 p-4 text-xs leading-relaxed text-cyan-100">
-                {JSON.stringify(
-                  {
-                    action: "datafile_extend",
-                    db: selectedDb,
-                    requested_by: username,
-                    user_id: user?.userId,
-                    environment: dbTarget?.env_label,
-                    os: dbTarget?.os,
-                    db_type: dbTarget?.db_type
-                  },
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
+          <div className="space-y-4">
+            <p className="text-sm font-medium text-slate-200">This workflow will:</p>
+            <ol className="grid gap-2.5 sm:grid-cols-2 text-sm text-muted-foreground">
+              {[
+                "Fetch all tablespace names from v$tablespace",
+                "Let you select the tablespace and size to extend",
+                "Query all datafiles for the selected tablespace",
+                "Use AI (Google Gemini) to generate the ALTER TABLESPACE SQL",
+                "Present the SQL for your review — edit if needed",
+                "Execute the approved SQL on the Oracle database"
+              ].map((item, i) => (
+                <li key={i} className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-secondary/20 p-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-cyan-400/40 bg-cyan-400/10 font-mono text-xs text-cyan-300">
+                    {i + 1}
+                  </span>
+                  <span className="text-slate-300 leading-snug">{item}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         );
 
@@ -1009,12 +1085,7 @@ export function DatafileExtendModal({
         );
 
       case "success": {
-        const dbResult =
-          executionResult?.database_result != null
-            ? typeof executionResult.database_result === "string"
-              ? executionResult.database_result
-              : JSON.stringify(executionResult.database_result, null, 2)
-            : null;
+        const hasDbResult = executionResult?.database_result != null && executionResult.database_result !== "";
         return (
           <div className="space-y-4">
             <div className="flex items-center gap-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-4">
@@ -1034,15 +1105,13 @@ export function DatafileExtendModal({
                 </pre>
               </div>
             )}
-            {dbResult && (
+            {hasDbResult && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-1.5">
                   <SquareTerminal className="h-4 w-4" />
                   Database Result
                 </Label>
-                <pre className="keep-dark max-h-32 overflow-auto rounded-md border border-border/70 bg-black/40 p-3 font-mono text-xs text-slate-100">
-                  {dbResult}
-                </pre>
+                {renderStructuredExecutionValue(executionResult?.database_result)}
               </div>
             )}
             {typeof executionResult?.sql_output === "string" && executionResult.sql_output && (

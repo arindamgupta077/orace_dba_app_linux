@@ -100,7 +100,7 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   },
   {
     action: "delete_archivelog",
-    title: "Delete Archivelog",
+    title: "Delete Old Archivelog",
     description: "Crosscheck and delete expired archive logs, and delete archive logs completed before SYSDATE - N days via RMAN.",
     category: "backup",
     destructive: true,
@@ -111,7 +111,7 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
   },
   {
     action: "delete_backup",
-    title: "Delete RMAN Backup",
+    title: "Delete Old Backup",
     description: "Crosscheck and delete expired backups and copies, and delete backups completed before SYSDATE - N days via RMAN.",
     category: "backup",
     destructive: true,

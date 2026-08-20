@@ -47,7 +47,7 @@ export function RmanDashboard() {
             className="h-8 gap-1.5 border-red-500/30 bg-red-500/10 text-xs font-semibold text-red-600 hover:border-red-500/50 hover:bg-red-500/20 dark:text-red-300"
           >
             <Flame className="h-3.5 w-3.5 text-red-500" />
-            Delete Archivelog
+            Delete Old Archivelog
           </Button>
 
           <Button
@@ -61,7 +61,7 @@ export function RmanDashboard() {
             className="h-8 gap-1.5 border-rose-500/30 bg-rose-500/10 text-xs font-semibold text-rose-600 hover:border-rose-500/50 hover:bg-rose-500/20 dark:text-rose-300"
           >
             <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-            Delete Backup
+            Delete Old Backup
           </Button>
         </div>
       </PageHeader>

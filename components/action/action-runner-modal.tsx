@@ -29,6 +29,7 @@ interface ActionRunnerModalProps {
   onOpenChange: (open: boolean) => void;
   onComplete?: (response: DbaResponse) => void;
   initialParams?: Record<string, unknown>;
+  hidePayload?: boolean;
 }
 
 function defaultParams(fields: DbaParameterField[], initialParams?: Record<string, unknown>) {
@@ -165,7 +166,7 @@ function TablespaceResultTable({ rows }: { rows: TablespaceRow[] }) {
 /* Main modal                                                           */
 /* ------------------------------------------------------------------ */
 
-export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, initialParams }: ActionRunnerModalProps) {
+export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, initialParams, hidePayload = false }: ActionRunnerModalProps) {
   const selectedDb = useAppStore((state) => state.selectedDb);
   const databases = useAppStore((state) => state.databases);
   const user = useAppStore((state) => state.user);
@@ -189,7 +190,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
   }, [definition, initialParams, open, setResponse]);
 
   const payloadPreview = useMemo(() => {
-    if (!definition) return "";
+    if (!definition || hidePayload) return "";
     const dbTarget = databases.find((db) => db.name === selectedDb);
     return JSON.stringify(
       {
@@ -205,7 +206,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
       null,
       2
     );
-  }, [databases, definition, params, selectedDb, user?.username, user?.userId]);
+  }, [databases, definition, hidePayload, params, selectedDb, user?.username, user?.userId]);
 
   if (!definition) return null;
 
@@ -287,10 +288,13 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-5xl w-full min-w-0 overflow-y-auto">
+      <DialogContent className={cn("max-h-[92vh] w-full min-w-0 overflow-y-auto", hidePayload && !showTablespaceResult ? "max-w-xl" : "max-w-5xl")}>
         <DialogHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{definition.title}</DialogTitle>
+            <StatusBadge status={canExecute(definition.action) ? "healthy" : "critical"}>
+              {canExecute(definition.action) ? "Allowed" : "RBAC Denied"}
+            </StatusBadge>
             {definition.destructive ? <StatusBadge status="critical">Approval Required</StatusBadge> : null}
           </div>
           <DialogDescription>{definition.description}</DialogDescription>
@@ -300,6 +304,46 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
           {/* ── Tablespace result replaces the form after execution ── */}
           {showTablespaceResult ? (
             <TablespaceCheckResult rows={dbRows} loading={fetchingDb} />
+          ) : hidePayload ? (
+            /* ── Single-column params layout without raw JSON preview ── */
+            <div className="space-y-4">
+              {definition.params.length ? (
+                definition.params.map((field) => (
+                  <div key={field.name} className="space-y-2">
+                    {field.type !== "checkbox" ? (
+                      <Label>
+                        {field.label}
+                        {field.required ? <span className="text-red-300"> *</span> : null}
+                      </Label>
+                    ) : null}
+                    {renderField(field)}
+                    {field.help ? <p className="text-xs text-muted-foreground">{field.help}</p> : null}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-md border border-border/70 bg-background/40 p-4 text-sm text-muted-foreground">
+                  No parameters required.
+                </div>
+              )}
+
+              {definition.destructive ? (
+                <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-4">
+                  <div className="flex gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-300" />
+                    <div>
+                      <p className="font-medium text-red-100">Controlled execution</p>
+                      <p className="mt-1 text-sm text-red-100/75">
+                        This operation will be submitted for Slack approval and tracked through n8n before execution.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="mt-4 flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="h-4 w-4 accent-red-500" />
+                    I confirm this request is approved for submission.
+                  </label>
+                </div>
+              ) : null}
+            </div>
           ) : (
             /* ── Standard params + JSON preview layout ── */
             <div className="grid gap-4 md:grid-cols-2">
