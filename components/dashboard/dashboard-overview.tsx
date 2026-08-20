@@ -700,6 +700,9 @@ export function DashboardOverview() {
   });
   const [justRefreshed, setJustRefreshed]   = useState(false);
   const justRefreshedTimerRef               = useRef<NodeJS.Timeout | null>(null);
+  const [isReloading, setIsReloading]       = useState(false);
+  const [reloadKey, setReloadKey]           = useState(0);
+  const reloadTimerRef                      = useRef<NodeJS.Timeout | null>(null);
   const [error, setError]                   = useState<string | null>(null);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
@@ -711,11 +714,14 @@ export function DashboardOverview() {
   const [datapumpLoading, setDatapumpLoading]               = useState(false);
   const [dpHistoryModalOpen, setDpHistoryModalOpen]         = useState(false);
 
-  // Clean up acknowledgement timer on unmount
+  // Clean up acknowledgement and reload animation timers on unmount
   useEffect(() => {
     return () => {
       if (justRefreshedTimerRef.current) {
         clearTimeout(justRefreshedTimerRef.current);
+      }
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
       }
     };
   }, []);
@@ -916,6 +922,16 @@ export function DashboardOverview() {
         setJustRefreshed(false);
       }, 4000);
 
+      // Trigger whole-dashboard visual reload animation
+      setReloadKey((prev) => prev + 1);
+      setIsReloading(true);
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+      }
+      reloadTimerRef.current = setTimeout(() => {
+        setIsReloading(false);
+      }, 850);
+
       toast.success("Dashboard refreshed successfully", {
         description: `Live metrics and health status updated for ${selectedDb.toUpperCase()}.`,
         duration: 4000,
@@ -1065,7 +1081,27 @@ export function DashboardOverview() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-w-0 max-w-full space-y-3.5">
+    <div
+      key={reloadKey}
+      className={cn(
+        "min-w-0 max-w-full space-y-3.5 relative",
+        isReloading && "animate-dashboard-reload"
+      )}
+    >
+      {/* ── Visual Reload Sweep Animation ─────────────────────────────────── */}
+      {isReloading && (
+        <>
+          <div className="fixed top-0 left-0 right-0 z-50 h-[3px] overflow-hidden bg-transparent pointer-events-none">
+            <div className="h-full w-full bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 animate-[scan_0.85s_ease-in-out_infinite]" />
+          </div>
+          <div
+            className="pointer-events-none absolute inset-0 z-30 overflow-hidden rounded-2xl"
+            aria-hidden="true"
+          >
+            <div className="h-44 w-full bg-gradient-to-b from-cyan-400/0 via-cyan-400/15 dark:via-cyan-400/20 to-transparent animate-dashboard-sweep" />
+          </div>
+        </>
+      )}
 
       {/* ── PRINT-ONLY REPORT HEADER ─────────────────────────────────────── */}
       <div className="hidden print:block rounded-xl border border-slate-300 bg-slate-50 p-5 mb-6 text-slate-900 shadow-none">

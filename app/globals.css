@@ -228,6 +228,69 @@ body::selection {
   }
 }
 
+/* ============================================================
+   DASHBOARD RELOAD REFRESH ANIMATIONS
+   Creates the seamless visual sensation of the entire dashboard
+   smoothly re-hydrating / reloading upon manual refresh.
+   ============================================================ */
+@keyframes dashboard-reload-fade {
+  0% {
+    opacity: 0.35;
+    transform: translateY(8px) scale(0.995);
+    filter: blur(1.5px);
+  }
+  55% {
+    opacity: 0.88;
+    filter: blur(0.4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes dashboard-reload-sweep {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.85;
+  }
+  75% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(500%);
+    opacity: 0;
+  }
+}
+
+@keyframes dashboard-reload-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(35, 211, 238, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(35, 211, 238, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(35, 211, 238, 0);
+  }
+}
+
+.animate-dashboard-reload {
+  animation: dashboard-reload-fade 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-dashboard-sweep {
+  animation: dashboard-reload-sweep 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.animate-reload-pulse {
+  animation: dashboard-reload-pulse 1s cubic-bezier(0, 0, 0.2, 1) 1;
+}
+
 .xterm {
   height: 100%;
   padding: 8px 12px;
