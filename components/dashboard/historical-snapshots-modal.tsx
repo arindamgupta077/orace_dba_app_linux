@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardSnapshotHistory } from "@/services/api";
+import { normalizeMetrics } from "@/components/dashboard/dashboard-utils";
 import type { DashboardHistoryRow, DashboardMetrics } from "@/types/dba";
 
 function safeNum(val: unknown): number {
@@ -32,11 +33,12 @@ function safeNum(val: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function getSnapshotHealth(metrics: DashboardMetrics | null): {
+function getSnapshotHealth(metricsInput: DashboardMetrics | null): {
   status: "healthy" | "warning" | "critical";
   label: string;
   color: string;
 } {
+  const metrics = normalizeMetrics(metricsInput) ?? metricsInput;
   if (!metrics) {
     return {
       status: "healthy",
@@ -49,10 +51,14 @@ function getSnapshotHealth(metrics: DashboardMetrics | null): {
   const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
 
   const dbHealth = metrics.db_health;
-  const isDbStatusOk = dbHealth?.open_mode?.toUpperCase().includes("READ WRITE") ?? false;
+  const openModeUpper = (dbHealth?.open_mode ?? "").toUpperCase();
+  const isDbStatusOk = !openModeUpper || openModeUpper.includes("READ WRITE") || openModeUpper === "OPEN" || openModeUpper.includes("READ ONLY");
+
   const listenerUpper = (dbHealth?.listener_status ?? "").toUpperCase();
-  const isListenerOk = listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING";
-  const isRemoteConnOk = dbHealth?.connection_test === "SUCCESS";
+  const isListenerOk = !listenerUpper || listenerUpper === "UNKNOWN" || listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING";
+
+  const connUpper = (dbHealth?.connection_test ?? "").toUpperCase();
+  const isRemoteConnOk = !connUpper || connUpper === "UNKNOWN" || connUpper === "SUCCESS";
 
   const osRes = metrics.os_resources;
   const cpuPct = safeNum(osRes?.cpu_usage_pct);
@@ -231,12 +237,15 @@ export function HistoricalSnapshotsModal({
           ) : (
             <div className="space-y-2.5">
               {filteredSnapshots.map((snapshot) => {
-                const health = getSnapshotHealth(snapshot.metrics);
+                const normMetrics = normalizeMetrics(snapshot.metrics) ?? snapshot.metrics;
+                const health = getSnapshotHealth(normMetrics);
                 const isSelected = activeSnapshotId === snapshot.id;
-                const cpu = snapshot.metrics?.os_resources?.cpu_usage_pct ?? 0;
-                const active = snapshot.metrics?.active_sessions ?? 0;
-                const blockers = snapshot.metrics?.blocking_sessions?.length ?? 0;
-                const fra = snapshot.metrics?.fra?.pct_used ?? 0;
+                const cpu = safeNum(normMetrics?.os_resources?.cpu_usage_pct);
+                const active = safeNum(normMetrics?.active_sessions);
+                const blockers = normMetrics?.blocking_sessions?.length ?? 0;
+                const fra = safeNum(normMetrics?.fra?.pct_used);
+                const respTime = safeNum(normMetrics?.db_response_time_ms);
+                const dbSize = safeNum(normMetrics?.total_db_size_gb);
 
                 return (
                   <div
@@ -292,14 +301,14 @@ export function HistoricalSnapshotsModal({
                         <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
                           FRA: <strong className={fra >= 80 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}>{fra}%</strong>
                         </span>
-                        {safeNum(snapshot.metrics?.db_response_time_ms) > 0 && (
+                        {respTime > 0 && (
                           <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
-                            Resp: <strong className="text-foreground">{safeNum(snapshot.metrics?.db_response_time_ms).toFixed(1)}ms</strong>
+                            Resp: <strong className="text-foreground">{respTime.toFixed(1)}ms</strong>
                           </span>
                         )}
-                        {safeNum(snapshot.metrics?.total_db_size_gb) > 0 && (
+                        {dbSize > 0 && (
                           <span className="rounded-md border border-border bg-muted/60 px-2 py-0.5 text-foreground">
-                            Size: <strong className="text-foreground">{safeNum(snapshot.metrics?.total_db_size_gb).toFixed(1)}GB</strong>
+                            Size: <strong className="text-foreground">{dbSize.toFixed(1)}GB</strong>
                           </span>
                         )}
                       </div>

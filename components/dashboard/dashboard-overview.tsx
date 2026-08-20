@@ -816,10 +816,12 @@ export function DashboardOverview() {
 
   const maxTablespacePct = Math.max(0, ...tablespaces.map((t) => safeNum(t.pct_used)));
   const cpuPct = safeNum(osRes?.cpu_usage_pct);
-  const isDbStatusOk = !m || (dbHealth?.open_mode?.includes("READ WRITE") ?? false);
+  const openModeUpper = (dbHealth?.open_mode ?? "").toUpperCase();
+  const isDbStatusOk = !m || !openModeUpper || openModeUpper.includes("READ WRITE") || openModeUpper === "OPEN" || openModeUpper.includes("READ ONLY");
   const listenerUpper = (dbHealth?.listener_status ?? "").toUpperCase();
-  const isListenerOk = !m || (listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING");
-  const isRemoteConnOk = !m || (dbHealth?.connection_test === "SUCCESS");
+  const isListenerOk = !m || !listenerUpper || listenerUpper === "UNKNOWN" || listenerUpper === "UP" || listenerUpper === "READY" || listenerUpper === "RUNNING";
+  const connUpper = (dbHealth?.connection_test ?? "").toUpperCase();
+  const isRemoteConnOk = !m || !connUpper || connUpper === "UNKNOWN" || connUpper === "SUCCESS";
 
   const isCritical = !!m && (
     maxTablespacePct > 95 ||
