@@ -14,7 +14,6 @@ import {
   FileDown,
   HardDrive,
   History,
-  Info,
   Layers,
   RefreshCw,
   RotateCcw,
@@ -1043,7 +1042,7 @@ export function DashboardOverview() {
               </span>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground pt-1.5">
             {refreshedAt
               ? <>Last snapshot: <span className="font-medium text-slate-300">{formatAppDateTime(refreshedAt)}</span>{refreshedBy ? <> by <span className="font-medium text-slate-300">{String(refreshedBy).toUpperCase()}</span></> : ""}</>
               : "No snapshot yet — click Refresh to collect metrics"
@@ -1051,7 +1050,7 @@ export function DashboardOverview() {
           </p>
         </div>
 
-        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden">
+        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden sm:-mt-2">
           {/* Server-side schedule badge — hidden for client role */}
           {user?.role !== "client" && serverSchedule && (
             <button
@@ -1077,13 +1076,14 @@ export function DashboardOverview() {
 
           <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
             <Button
+              variant="outline"
               size="sm"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="gap-2 bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-60"
+              onClick={() => scrollToSection("historical-trends")}
+              className="gap-1.5 border-purple-500/30 text-purple-600 dark:text-purple-300 hover:bg-purple-500/10"
+              title="Scroll to historical performance & capacity trends"
             >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "Collecting…" : "Refresh"}
+              <TrendingUp className="h-3.5 w-3.5" />
+              Historical Trends
             </Button>
 
             {/* Schedule button — hidden for client role */}
@@ -1117,14 +1117,16 @@ export function DashboardOverview() {
             </Button>
 
             <Button
-              variant="outline"
               size="sm"
-              onClick={() => scrollToSection("historical-trends")}
-              className="col-span-2 gap-1.5 border-purple-500/30 text-purple-600 dark:text-purple-300 hover:bg-purple-500/10"
-              title="Scroll to historical performance & capacity trends"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className={cn(
+                "gap-2 bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-60",
+                user?.role !== "client" && "col-span-2"
+              )}
             >
-              <TrendingUp className="h-3.5 w-3.5" />
-              Historical Trends
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Collecting…" : "Refresh"}
             </Button>
           </div>
         </div>
@@ -1782,25 +1784,21 @@ export function DashboardOverview() {
           )}
 
           {/* ── SECTION 7: SNAPSHOT INFO FOOTER ───────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">
-            <Info className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              {m?.captured_at && <>Data as of <span className="font-medium text-slate-300">{formatAppDateTime(m.captured_at)}</span>. </>}
-              All 22 monitoring queries executed in parallel
-              {serverSchedule?.is_active && (
-                <> &middot; <Calendar className="inline h-3 w-3 text-violet-400" />{" "}
-                  <span className="text-violet-300">Server scheduler active</span>
-                  {" "}— refreshes every{" "}
-                  <span className="font-medium text-slate-300">
-                    {serverSchedule.interval_min < 60
-                      ? `${serverSchedule.interval_min}m`
-                      : `${serverSchedule.interval_min / 60}h`}
-                  </span>
-                  {" "}even when browser is closed.
-                </>
-              )}
-            </span>
-          </div>
+          {serverSchedule?.is_active && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">
+              <Calendar className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+              <span>
+                <span className="font-medium text-violet-300">Server scheduler active</span>
+                {" "}— refreshes every{" "}
+                <span className="font-medium text-slate-300">
+                  {serverSchedule.interval_min < 60
+                    ? `${serverSchedule.interval_min}m`
+                    : `${serverSchedule.interval_min / 60}h`}
+                </span>
+                {" "}even when browser is closed.
+              </span>
+            </div>
+          )}
         </>
       )}
 
