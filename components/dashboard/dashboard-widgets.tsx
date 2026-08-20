@@ -436,7 +436,15 @@ export function FraDonut({ pct, usedGb, sizeGb }: { pct: number; usedGb: number;
 
 // ─── Empty states ────────────────────────────────────────────────────────────
 
-export function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: boolean }) {
+export function EmptyState({
+  onRefresh,
+  loading,
+  justRefreshed
+}: {
+  onRefresh: () => void;
+  loading: boolean;
+  justRefreshed?: boolean;
+}) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-secondary/20 py-20 text-center">
       <div className="mb-4 rounded-full border border-cyan-400/30 bg-cyan-400/10 p-4">
@@ -446,9 +454,30 @@ export function EmptyState({ onRefresh, loading }: { onRefresh: () => void; load
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">
         No data found for this database. Click Refresh to execute the monitoring queries via n8n and capture the first snapshot.
       </p>
-      <Button className="mt-6 gap-2" onClick={onRefresh} disabled={loading}>
-        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        {loading ? "Refreshing…" : "Refresh Now"}
+      <Button
+        className={cn(
+          "mt-6 gap-2 transition-all duration-200",
+          justRefreshed ? "bg-emerald-600 hover:bg-emerald-500 text-white" : ""
+        )}
+        onClick={onRefresh}
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Refreshing…
+          </>
+        ) : justRefreshed ? (
+          <>
+            <CheckCircle2 className="h-4 w-4 text-white animate-in zoom-in-50 duration-200" />
+            Refreshed!
+          </>
+        ) : (
+          <>
+            <RefreshCw className="h-4 w-4" />
+            Refresh Now
+          </>
+        )}
       </Button>
     </div>
   );

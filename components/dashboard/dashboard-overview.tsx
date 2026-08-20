@@ -47,6 +47,7 @@ import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-moda
 import { HistoricalSnapshotsModal } from "@/components/dashboard/historical-snapshots-modal";
 import { DashboardHistoricalTrends } from "@/components/dashboard/dashboard-historical-trends";
 import { JobHistoryModal } from "@/components/datapump/job-history-modal";
+import { toast } from "sonner";
 import { saveSessionData } from "@/components/general-admin/storage-helpers";
 import {
   getCachedDashboardMetrics,
@@ -613,7 +614,15 @@ function FraDonut({ pct, usedGb, sizeGb }: { pct: number; usedGb: number; sizeGb
   );
 }
 
-function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: boolean }) {
+function EmptyState({
+  onRefresh,
+  loading,
+  justRefreshed
+}: {
+  onRefresh: () => void;
+  loading: boolean;
+  justRefreshed?: boolean;
+}) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-secondary/20 py-20 text-center">
       <div className="mb-4 rounded-full border border-cyan-400/30 bg-cyan-400/10 p-4">
@@ -623,9 +632,30 @@ function EmptyState({ onRefresh, loading }: { onRefresh: () => void; loading: bo
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">
         No data found for this database. Click Refresh to execute the monitoring queries via n8n and capture the first snapshot.
       </p>
-      <Button className="mt-6 gap-2" onClick={onRefresh} disabled={loading}>
-        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        {loading ? "Refreshing…" : "Refresh Now"}
+      <Button
+        className={cn(
+          "mt-6 gap-2 transition-all duration-200",
+          justRefreshed ? "bg-emerald-600 hover:bg-emerald-500 text-white" : ""
+        )}
+        onClick={onRefresh}
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Refreshing…
+          </>
+        ) : justRefreshed ? (
+          <>
+            <CheckCircle2 className="h-4 w-4 text-white animate-in zoom-in-50 duration-200" />
+            Refreshed!
+          </>
+        ) : (
+          <>
+            <RefreshCw className="h-4 w-4" />
+            Refresh Now
+          </>
+        )}
       </Button>
     </div>
   );
@@ -668,6 +698,8 @@ export function DashboardOverview() {
   const [refreshing, setRefreshing]         = useState(() => {
     return isDashboardRefreshing(selectedDb);
   });
+  const [justRefreshed, setJustRefreshed]   = useState(false);
+  const justRefreshedTimerRef               = useRef<NodeJS.Timeout | null>(null);
   const [error, setError]                   = useState<string | null>(null);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [serverSchedule, setServerSchedule]       = useState<DashboardSchedule | null>(null);
@@ -678,6 +710,15 @@ export function DashboardOverview() {
   const [datapumpJobHistory, setDatapumpJobHistory]         = useState<DataPumpJob[]>([]);
   const [datapumpLoading, setDatapumpLoading]               = useState(false);
   const [dpHistoryModalOpen, setDpHistoryModalOpen]         = useState(false);
+
+  // Clean up acknowledgement timer on unmount
+  useEffect(() => {
+    return () => {
+      if (justRefreshedTimerRef.current) {
+        clearTimeout(justRefreshedTimerRef.current);
+      }
+    };
+  }, []);
 
   const dbTarget  = databases.find((db) => db.name === selectedDb);
   const prevDb    = useRef(selectedDb);
@@ -867,8 +908,24 @@ export function DashboardOverview() {
     try {
       void loadDatapumpJobHistory(selectedDb);
       await triggerDashboardRefresh(selectedDb, user?.username);
+      setJustRefreshed(true);
+      if (justRefreshedTimerRef.current) {
+        clearTimeout(justRefreshedTimerRef.current);
+      }
+      justRefreshedTimerRef.current = setTimeout(() => {
+        setJustRefreshed(false);
+      }, 4000);
+
+      toast.success("Dashboard refreshed successfully", {
+        description: `Live metrics and health status updated for ${selectedDb.toUpperCase()}.`,
+        duration: 4000,
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Refresh failed.");
+      const msg = e instanceof Error ? e.message : "Refresh failed.";
+      setError(msg);
+      toast.error("Dashboard refresh failed", {
+        description: msg,
+      });
     }
   }, [selectedDb, loadDatapumpJobHistory, user?.username]);
 
@@ -1159,12 +1216,18 @@ export function DashboardOverview() {
               </span>
             )}
           </div>
-          <p className="text-sm text-muted-foreground pt-1.5">
+          <div className="flex flex-wrap items-center gap-2 pt-1.5 text-sm text-muted-foreground">
             {refreshedAt
               ? <>Last snapshot: <span className="font-medium text-slate-300">{formatAppDateTime(refreshedAt)}</span>{refreshedBy ? <> by <span className="font-medium text-slate-300">{String(refreshedBy).toUpperCase()}</span></> : ""}</>
               : "No snapshot yet — click Refresh to collect metrics"
             }
-          </p>
+            {justRefreshed && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 dark:text-emerald-300 animate-in fade-in zoom-in-95 duration-300">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                Refreshed
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden">
@@ -1215,12 +1278,29 @@ export function DashboardOverview() {
               onClick={handleRefresh}
               disabled={refreshing}
               className={cn(
-                "gap-2 bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-60",
+                "gap-2 transition-all duration-200 disabled:opacity-60",
+                justRefreshed
+                  ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500/50"
+                  : "bg-cyan-600 text-white hover:bg-cyan-500",
                 user?.role !== "client" && "col-span-2"
               )}
             >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "Collecting…" : "Refresh"}
+              {refreshing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Collecting…
+                </>
+              ) : justRefreshed ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-white animate-in zoom-in-50 duration-200" />
+                  Refreshed!
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -1271,7 +1351,7 @@ export function DashboardOverview() {
 
       {/* ── EMPTY STATE ────────────────────────────────────────────────── */}
       {!m ? (
-        <EmptyState onRefresh={handleRefresh} loading={refreshing} />
+        <EmptyState onRefresh={handleRefresh} loading={refreshing} justRefreshed={justRefreshed} />
       ) : (
         <>
           {/* ── SECTION 1: DB HEALTH BANNER ────────────────────────────── */}
