@@ -490,6 +490,28 @@ export async function fetchDashboardSnapshotHistory(
   return requestJson<DashboardSnapshotHistoryResponse>(`/api/dashboard/history?${query.toString()}`);
 }
 
+export type DashboardTrendsRange = "24h" | "7d" | "30d" | "all";
+
+export interface DashboardTrendsResponse {
+  db_name: string;
+  range: string;
+  hours: number | null;
+  limit: number;
+  total: number;
+  /** Snapshots ordered chronologically (refresh_timestamp ASC). */
+  snapshots: DashboardHistoryRow[];
+}
+
+/** Fetch historical trend snapshots (chronological ASC) for the analytics section. */
+export async function fetchDashboardTrends(
+  db: string,
+  range: DashboardTrendsRange
+): Promise<DashboardTrendsResponse> {
+  const query = new URLSearchParams({ range });
+  if (db) query.set("db", db);
+  return requestJson<DashboardTrendsResponse>(`/api/dashboard/trends?${query.toString()}`);
+}
+
 
 // ============================================================
 // DBA Alert Log (dba_alert_log) — Section 1

@@ -46,6 +46,7 @@ import type { DashboardSchedule } from "@/components/dashboard/schedule-modal";
 import { FailedJobsModal } from "@/components/dashboard/failed-jobs-modal";
 import { InvalidObjectsModal } from "@/components/dashboard/invalid-objects-modal";
 import { HistoricalSnapshotsModal } from "@/components/dashboard/historical-snapshots-modal";
+import { DashboardHistoricalTrends } from "@/components/dashboard/dashboard-historical-trends";
 import { JobHistoryModal } from "@/components/datapump/job-history-modal";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { cn, formatAppDateTime } from "@/lib/utils";
@@ -1114,6 +1115,17 @@ export function DashboardOverview() {
               <History className="h-3.5 w-3.5" />
               Historical Snapshots
             </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => scrollToSection("historical-trends")}
+              className="col-span-2 gap-1.5 border-purple-500/30 text-purple-600 dark:text-purple-300 hover:bg-purple-500/10"
+              title="Scroll to historical performance & capacity trends"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              Historical Trends
+            </Button>
           </div>
         </div>
       </div>
@@ -1791,6 +1803,9 @@ export function DashboardOverview() {
           </div>
         </>
       )}
+
+      {/* ── SECTION 8: HISTORICAL PERFORMANCE & CAPACITY TRENDS ─────── */}
+      <DashboardHistoricalTrends selectedDb={selectedDb} />
 
       {/* ── Schedule Modal ──────────────────────────────────────────── */}
       <ScheduleModal

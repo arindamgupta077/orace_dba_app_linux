@@ -3761,6 +3761,84 @@ export async function getDashboardHistoryList(
   });
 }
 
+export async function getDashboardHistoryTrends(
+  dbName: string,
+  hours: number | null,
+  limit: number = 500
+): Promise<{ rows: DashboardHistoryRow[]; total: number }> {
+  return withOracleConnection(async (connection) => {
+    // Range window is computed DB-side with SYSTIMESTAMP so refresh_timestamp
+    // (DEFAULT CURRENT_TIMESTAMP) is compared against the database's own clock,
+    // avoiding any Node/Oracle timezone drift.
+    const rangeClause =
+      hours != null
+        ? "AND h.refresh_timestamp >= SYSTIMESTAMP - NUMTODSINTERVAL(:hours, 'HOUR')"
+        : "";
+    const baseBinds: Record<string, string | number> = hours != null ? { dbName, hours } : { dbName };
+
+    const countResult = await connection.execute<DbRow>(
+      `SELECT COUNT(*) AS total_cnt FROM dashboard_history h WHERE UPPER(h.db_name) = UPPER(:dbName) ${rangeClause}`,
+      baseBinds
+    );
+    const total = Number(countResult.rows?.[0]?.TOTAL_CNT ?? countResult.rows?.[0]?.total_cnt ?? 0);
+    if (total === 0) {
+      return { rows: [], total: 0 };
+    }
+
+    // Take the newest :limit rows, then re-sort ascending so the UI receives a
+    // chronological series (refresh_timestamp ASC).
+    const result = await connection.execute<DbRow>(
+      `SELECT * FROM (
+         SELECT
+           h.id,
+           h.db_name,
+           h.environment AS hist_environment,
+           h.os,
+           h.refreshed_by,
+           h.refresh_timestamp,
+           h.metrics_payload,
+           d.environment_label AS inv_environment_label,
+           d.environment AS inv_environment
+         FROM dashboard_history h
+         LEFT JOIN (
+           SELECT database_name, environment_label, environment
+           FROM (
+             SELECT database_name, environment_label, environment,
+                    ROW_NUMBER() OVER (PARTITION BY UPPER(database_name) ORDER BY id ASC) as rn
+             FROM database_inventory
+           ) WHERE rn = 1
+         ) d ON UPPER(d.database_name) = UPPER(h.db_name)
+         WHERE UPPER(h.db_name) = UPPER(:dbName) ${rangeClause}
+         ORDER BY h.refresh_timestamp DESC
+         FETCH FIRST :limit ROWS ONLY
+       )
+       ORDER BY refresh_timestamp ASC`,
+      { ...baseBinds, limit }
+    );
+
+    const rows = (result.rows ?? []).map((row) => {
+      const invLabel = row.INV_ENVIRONMENT_LABEL ?? row.inv_environment_label;
+      const invEnv = row.INV_ENVIRONMENT ?? row.inv_environment;
+      const histEnv = row.HIST_ENVIRONMENT ?? row.ENVIRONMENT ?? row.hist_environment ?? row.environment;
+      const envVal = invLabel || invEnv
+        ? normalizeEnvironmentLabel(invLabel, String(invEnv || ""))
+        : normalizeEnvironmentLabel(histEnv, String(histEnv || ""));
+
+      return {
+        id: Number(row.ID ?? row.id),
+        db_name: String(row.DB_NAME ?? row.db_name ?? dbName),
+        environment: envVal,
+        os: row.OS != null ? String(row.OS) : null,
+        refreshed_by: row.REFRESHED_BY != null ? String(row.REFRESHED_BY) : null,
+        refresh_timestamp: toIsoString(row.REFRESH_TIMESTAMP ?? row.refresh_timestamp),
+        metrics: parseJson<DashboardMetrics>(row.METRICS_PAYLOAD ?? row.metrics_payload) ?? null
+      };
+    });
+
+    return { rows, total };
+  });
+}
+
 
 // ============================================================
 // Performance Run All History â€” performance_run_all_hist
