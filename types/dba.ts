@@ -74,6 +74,8 @@ export type DbaAction =
   | "lock_check"
   | "backup_status"
   | "take_rman_backup"
+  | "delete_archivelog"
+  | "delete_backup"
   | "alert_log"
   | "check_alert_by_time"
   | "check_alert_by_lines"

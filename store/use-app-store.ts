@@ -120,7 +120,7 @@ export const useAppStore = create<AppState>()(
       canExecute: (action) => {
         const role = get().user?.role || "client";
         if (role === "dba_admin") return true;
-        if (role === "auditor") return !["kill_session", "datafile_extend", "stats_refresh", "take_rman_backup", "recompile_invalid"].includes(action);
+        if (role === "auditor") return !["kill_session", "datafile_extend", "stats_refresh", "take_rman_backup", "delete_archivelog", "delete_backup", "recompile_invalid"].includes(action);
         return action !== "datafile_extend";
       },
       addNotification: (item) =>

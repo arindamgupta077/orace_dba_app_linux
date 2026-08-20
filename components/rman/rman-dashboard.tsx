@@ -3,23 +3,30 @@
 import { useState } from "react";
 import {
   ArchiveRestore,
+  ArchiveX,
   Clock,
   Database,
+  Flame,
   HardDrive,
   Play,
   Search,
   Server,
   Shield,
+  Trash2,
   Zap
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { RmanBackupModal } from "@/components/rman/rman-backup-modal";
 import { RmanStatusModal } from "@/components/rman/rman-status-modal";
+import { RmanDeleteModal, type RmanDeleteMode } from "@/components/rman/rman-delete-modal";
 import { RmanJobsTracker } from "@/components/rman/rman-jobs-tracker";
 
 export function RmanDashboard() {
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteMode, setDeleteMode] = useState<RmanDeleteMode>("archivelog");
 
   return (
     <div>
@@ -27,7 +34,37 @@ export function RmanDashboard() {
         title="RMAN Backup Dashboard"
         description="On-demand RMAN backups with dynamic scripts and date-filtered backup history."
         icon={ArchiveRestore}
-      />
+      >
+        <div className="flex items-center gap-2">
+          <Button
+            id="btn-delete-archivelog"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setDeleteMode("archivelog");
+              setDeleteModalOpen(true);
+            }}
+            className="h-8 gap-1.5 border-red-500/30 bg-red-500/10 text-xs font-semibold text-red-600 hover:border-red-500/50 hover:bg-red-500/20 dark:text-red-300"
+          >
+            <Flame className="h-3.5 w-3.5 text-red-500" />
+            Delete Archivelog
+          </Button>
+
+          <Button
+            id="btn-delete-backup"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setDeleteMode("backup");
+              setDeleteModalOpen(true);
+            }}
+            className="h-8 gap-1.5 border-rose-500/30 bg-rose-500/10 text-xs font-semibold text-rose-600 hover:border-rose-500/50 hover:bg-rose-500/20 dark:text-rose-300"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+            Delete Backup
+          </Button>
+        </div>
+      </PageHeader>
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* ── Take RMAN Backup ─────────────────────────────────────── */}
@@ -156,6 +193,7 @@ export function RmanDashboard() {
       {/* Modals */}
       <RmanBackupModal open={backupModalOpen} onOpenChange={setBackupModalOpen} />
       <RmanStatusModal open={statusModalOpen} onOpenChange={setStatusModalOpen} />
+      <RmanDeleteModal open={deleteModalOpen} onOpenChange={setDeleteModalOpen} mode={deleteMode} />
     </div>
   );
 }

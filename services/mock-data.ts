@@ -515,12 +515,115 @@ export function createMockResponse(action: DbaAction, db: string, pendingApprova
       "\u001b[32mRecovery Manager: Release 19.0.0.0.0 - Production\u001b[0m",
       `connected to target database: ${db}`,
       `allocated channel count: ${channelCount}`,
-      `RMAN> backup ${params.compressed === false ? "" : "as compressed backupset "}${backupTarget} tag '${backupTag}';`,
-      params.include_archivelog === false || backupType === "ARCHIVELOG" ? "" : "RMAN> backup archivelog all not backed up 1 times;",
+      `RMAN> backup ${params.compressed === false ? "" : "as compressed backupset "}${backupTarget}${params.delete_all_input && backupType === "ARCHIVELOG" ? " delete all input" : ""} tag '${backupTag}';`,
+      params.include_archivelog === false || backupType === "ARCHIVELOG" ? "" : `RMAN> backup archivelog all not backed up 1 times${params.delete_all_input ? " delete all input" : ""};`,
       `Request ${requestId} accepted by n8n workflow`
     ]
       .filter(Boolean)
       .join("\n");
+  }
+
+  if (action === "delete_archivelog") {
+    const days = Number(params.days ?? params.day ?? 7);
+    base.db_status = "healthy";
+    base.ai_summary = `Archivelog cleanup completed successfully on ${db}. Expired archivelogs purged and archivelogs completed before SYSDATE-${days} deleted.`;
+    base.findings = [
+      {
+        title: "Archivelog cleanup executed",
+        detail: `Purged expired archivelogs and archive logs older than ${days} days on ${db}.`,
+        severity: "healthy",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Verify FRA Space",
+        detail: "Check Fast Recovery Area (FRA) space utilization after deletion.",
+        severity: "info",
+        action: "disk_utilization"
+      }
+    ];
+    base.raw_output = [
+      "\u001b[32mRecovery Manager: Release 19.0.0.0.0 - Production\u001b[0m",
+      `connected to target database: ${db}`,
+      "",
+      "RMAN> CROSSCHECK ARCHIVELOG ALL;",
+      "using channel ORA_DISK_1",
+      "validation succeeded for 42 archivelog objects",
+      "Crosschecked 42 objects",
+      "",
+      "RMAN> DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;",
+      "specification does not match any archived log in the repository",
+      "",
+      `RMAN> DELETE NOPROMPT ARCHIVELOG ALL COMPLETED BEFORE 'SYSDATE-${days}';`,
+      "allocated channel: ORA_DISK_1",
+      "channel ORA_DISK_1: SID=142 device type=DISK",
+      `List of Archived Log Copies for database with db_unique_name ${db}`,
+      "=====================================================================",
+      "Key     Thrd Seq     S Low Time            Name",
+      "------- ---- ------- - ------------------- -----------------------------------",
+      `1024    1    512     A ${new Date(Date.now() - (days + 1) * 86400000).toISOString().slice(0, 10)} /u01/app/oracle/fast_recovery_area/${db}/archivelog/o1_mf_1_512_x.arc`,
+      `1025    1    513     A ${new Date(Date.now() - (days + 1) * 86400000).toISOString().slice(0, 10)} /u01/app/oracle/fast_recovery_area/${db}/archivelog/o1_mf_1_513_y.arc`,
+      "deleted archived log",
+      `archived log file name=/u01/app/oracle/fast_recovery_area/${db}/archivelog/o1_mf_1_512_x.arc RECID=1024 STAMP=1182391001`,
+      `archived log file name=/u01/app/oracle/fast_recovery_area/${db}/archivelog/o1_mf_1_513_y.arc RECID=1025 STAMP=1182391055`,
+      "Deleted 2 objects",
+      "",
+      `Recovery Manager complete. [Request ID: ${requestId}]`
+    ].join("\n");
+  }
+
+  if (action === "delete_backup") {
+    const days = Number(params.days ?? params.day ?? 7);
+    base.db_status = "healthy";
+    base.ai_summary = `RMAN backup cleanup completed successfully on ${db}. Expired backups/copies purged and backups completed before SYSDATE-${days} deleted.`;
+    base.findings = [
+      {
+        title: "Backup cleanup executed",
+        detail: `Purged expired backups and backups older than ${days} days on ${db}.`,
+        severity: "healthy",
+        object_name: db
+      }
+    ];
+    base.recommendations = [
+      {
+        title: "Review RMAN Backup Status",
+        detail: "Confirm remaining valid backup sets in V$RMAN_BACKUP_JOB_DETAILS.",
+        severity: "info",
+        action: "backup_status"
+      }
+    ];
+    base.raw_output = [
+      "\u001b[32mRecovery Manager: Release 19.0.0.0.0 - Production\u001b[0m",
+      `connected to target database: ${db}`,
+      "",
+      "RMAN> CROSSCHECK BACKUP;",
+      "using channel ORA_DISK_1",
+      "crosschecked 18 backup pieces",
+      "",
+      "RMAN> CROSSCHECK COPY;",
+      "using channel ORA_DISK_1",
+      "specification does not match any datafile copy in the repository",
+      "",
+      "RMAN> DELETE NOPROMPT EXPIRED COPY;",
+      "specification does not match any datafile copy in the repository",
+      "",
+      "RMAN> DELETE NOPROMPT EXPIRED BACKUP;",
+      "specification does not match any backup piece in the repository",
+      "",
+      `RMAN> DELETE NOPROMPT BACKUP COMPLETED BEFORE 'SYSDATE-${days}';`,
+      "allocated channel: ORA_DISK_1",
+      "channel ORA_DISK_1: SID=145 device type=DISK",
+      "List of Backup Pieces",
+      "BP Key  BS Key  Pc# Cp# Status      Device Type Piece Name",
+      "------- ------- --- --- ----------- ----------- ----------------------",
+      `842     842     1   1   AVAILABLE   DISK        /u01/app/oracle/backup/${db}/bkp_full_1.bkp`,
+      "deleted backup piece",
+      `backup piece handle=/u01/app/oracle/backup/${db}/bkp_full_1.bkp RECID=842 STAMP=1182100021`,
+      "Deleted 1 objects",
+      "",
+      `Recovery Manager complete. [Request ID: ${requestId}]`
+    ].join("\n");
   }
 
   if (action === "disk_utilization") {

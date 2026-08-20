@@ -94,7 +94,30 @@ export const DBA_ACTIONS: DbaActionDefinition[] = [
       { name: "compressed",         label: "Use Compression",          type: "checkbox", defaultValue: true },
       { name: "channel_count",      label: "RMAN Channels",            type: "number",   defaultValue: 3 },
       { name: "Backup_for_standby", label: "Backup for Standby",       type: "checkbox", defaultValue: false },
-      { name: "backup_tag",         label: "Backup Tag (optional)",    type: "text",     placeholder: "ON_DEMAND_FULL" }
+      { name: "backup_tag",         label: "Backup Tag (optional)",    type: "text",     placeholder: "ON_DEMAND_FULL" },
+      { name: "delete_all_input",   label: "Delete All Input",         type: "checkbox", defaultValue: false }
+    ]
+  },
+  {
+    action: "delete_archivelog",
+    title: "Delete Archivelog",
+    description: "Crosscheck and delete expired archive logs, and delete archive logs completed before SYSDATE - N days via RMAN.",
+    category: "backup",
+    destructive: true,
+    icon: "Trash2",
+    params: [
+      { name: "days", label: "Completed Before (Days)", type: "number", required: true, defaultValue: 7, placeholder: "7" }
+    ]
+  },
+  {
+    action: "delete_backup",
+    title: "Delete RMAN Backup",
+    description: "Crosscheck and delete expired backups and copies, and delete backups completed before SYSDATE - N days via RMAN.",
+    category: "backup",
+    destructive: true,
+    icon: "Trash2",
+    params: [
+      { name: "days", label: "Completed Before (Days)", type: "number", required: true, defaultValue: 7, placeholder: "7" }
     ]
   },
   {

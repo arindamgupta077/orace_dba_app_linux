@@ -10,9 +10,19 @@ interface PageHeaderProps {
   onAction?: () => void;
   actionDisabled?: boolean;
   descriptionClassName?: string;
+  children?: React.ReactNode;
 }
 
-export function PageHeader({ title, description, icon: Icon, actionLabel, onAction, actionDisabled, descriptionClassName }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  description,
+  icon: Icon,
+  actionLabel,
+  onAction,
+  actionDisabled,
+  descriptionClassName,
+  children
+}: PageHeaderProps) {
   return (
     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div className="flex items-start gap-3">
@@ -24,7 +34,11 @@ export function PageHeader({ title, description, icon: Icon, actionLabel, onActi
           <p className={cn("mt-1 max-w-3xl text-sm text-muted-foreground", descriptionClassName)}>{description}</p>
         </div>
       </div>
-      {actionLabel && onAction ? (
+      {children ? (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {children}
+        </div>
+      ) : actionLabel && onAction ? (
         <Button onClick={onAction} disabled={actionDisabled}>
           {actionLabel}
         </Button>
