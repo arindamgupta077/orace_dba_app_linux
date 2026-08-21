@@ -2015,7 +2015,11 @@ export function DashboardOverview() {
       )}
 
       {/* ── SECTION 8: HISTORICAL PERFORMANCE & CAPACITY TRENDS ─────── */}
-      <DashboardHistoricalTrends selectedDb={selectedDb} />
+      <DashboardHistoricalTrends
+        selectedDb={selectedDb}
+        refreshKey={reloadKey}
+        lastRefreshedAt={refreshedAt}
+      />
 
       {/* ── Schedule Modal ──────────────────────────────────────────── */}
       <ScheduleModal

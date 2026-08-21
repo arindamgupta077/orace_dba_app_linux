@@ -82,16 +82,15 @@ export const useAppStore = create<AppState>()(
             sessionStorage.getItem("dba_fresh_login_autoselect") === "true";
 
           const currentDbTarget = databases.find((db) => db.name === state.selectedDb);
-          const isCurrentValidAndEnabled =
+          const isCurrentValid =
             !!currentDbTarget &&
-            currentDbTarget.enable_access !== false &&
             (currentDbTarget.status || "").trim().toLowerCase() !== "decommissioned" &&
             (currentDbTarget.status || "").trim().toLowerCase() !== "decomissioned" &&
             (currentDbTarget.status || "").trim().toLowerCase() !== "inactive";
 
           let selectedDb = state.selectedDb;
 
-          if (isFreshLogin || !isCurrentValidAndEnabled || !state.selectedDb) {
+          if (isFreshLogin || !isCurrentValid || !state.selectedDb) {
             selectedDb = pickRandomEligibleDb(databases);
 
             if (isFreshLogin && selectedDb && typeof window !== "undefined") {

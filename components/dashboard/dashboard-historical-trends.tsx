@@ -42,7 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeMetrics, safeNum } from "@/components/dashboard/dashboard-utils";
 import { cn, formatAppDateTime } from "@/lib/utils";
 import { fetchDashboardTrends, type DashboardTrendsRange } from "@/services/api";
-import type { DashboardHistoryRow } from "@/types/dba";
+import type { DashboardHistoryRow, NotificationPayload } from "@/types/dba";
 
 // ─── Types & constants ───────────────────────────────────────────────────────
 
@@ -1122,7 +1122,16 @@ function TrendsPrintReport({
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }) {
+export interface DashboardHistoricalTrendsProps {
+  selectedDb: string;
+  refreshKey?: number;
+  lastRefreshedAt?: string | null;
+}
+export function DashboardHistoricalTrends({
+  selectedDb,
+  refreshKey,
+  lastRefreshedAt
+}: DashboardHistoricalTrendsProps) {
   const [range, setRange] = useState<DashboardTrendsRange>("7d");
   const [points, setPoints] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1148,9 +1157,43 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
     }
   }, []);
 
+  // Fetch when selectedDb, range, internal reloadKey, or parent refreshKey/lastRefreshedAt changes
   useEffect(() => {
     loadTrends(selectedDb, range);
-  }, [selectedDb, range, loadTrends, reloadKey]);
+  }, [selectedDb, range, loadTrends, reloadKey, refreshKey, lastRefreshedAt]);
+
+  // Listen to background refresh events and push notifications for the selected DB
+  useEffect(() => {
+    if (!selectedDb) return;
+
+    const handleRefreshComplete = (e: Event) => {
+      const customEv = e as CustomEvent<{ db?: string }>;
+      if (customEv.detail?.db && customEv.detail.db.toUpperCase() === selectedDb.toUpperCase()) {
+        void loadTrends(selectedDb, range);
+      }
+    };
+
+    const handleNotification = (e: Event) => {
+      const customEv = e as CustomEvent<NotificationPayload>;
+      const detail = customEv.detail;
+      if (!detail) return;
+      const type = detail.type || (detail as unknown as Record<string, unknown>).alertType;
+      const targetDb = String(detail.db || "").trim().toUpperCase();
+      const currentDb = selectedDb.trim().toUpperCase();
+
+      if (targetDb && targetDb === currentDb && type === "refresh_dashboard") {
+        void loadTrends(selectedDb, range);
+      }
+    };
+
+    window.addEventListener("dba-dashboard-refresh-complete", handleRefreshComplete);
+    window.addEventListener("dba-notification", handleNotification);
+
+    return () => {
+      window.removeEventListener("dba-dashboard-refresh-complete", handleRefreshComplete);
+      window.removeEventListener("dba-notification", handleNotification);
+    };
+  }, [selectedDb, range, loadTrends]);
 
   // Snapshots captured while the remote connection test FAILED are excluded from
   // the Capacity & Storage and Response Time / Sessions trends — the monitoring
@@ -1249,6 +1292,12 @@ export function DashboardHistoricalTrends({ selectedDb }: { selectedDb: string }
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {loading && points.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 animate-pulse">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Updating trends…
+              </span>
+            )}
             <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 p-1">
               {RANGE_OPTIONS.map((opt) => (
                 <button

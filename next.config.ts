@@ -12,12 +12,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["oracledb"],
   reactStrictMode: true,
   poweredByHeader: false,
-  webpack: (config, { dev }) => {
-    if (!dev) {
-      config.cache = false;
-    }
-    return config;
-  },
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts", "framer-motion", "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-select", "@radix-ui/react-tabs"]
   }
