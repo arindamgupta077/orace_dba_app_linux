@@ -37,12 +37,12 @@ export function isDashboardRefreshing(db?: string | null): boolean {
   const key = getRefreshKey(db);
   if (activeRefreshes.has(key)) return true;
 
-  // Check session storage in case of recent navigation
+  // Check session storage in case of recent navigation (5-minute window)
   const saved = loadSessionData<{ refreshing: boolean; startedAt: number } | null>(
     `dashboard_refreshing_${db}`,
     null
   );
-  if (saved?.refreshing && Date.now() - saved.startedAt < 120_000) {
+  if (saved?.refreshing && Date.now() - saved.startedAt < 300_000) {
     return activeRefreshes.has(key);
   }
   return false;

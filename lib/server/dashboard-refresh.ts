@@ -16,6 +16,23 @@ import type { DbaRequestPayload, DbaResponse } from "@/types/dba";
 /** Cooldown duration for automated dashboard refresh on DOWN incidents: 1 hour (60 minutes) */
 export const DOWN_INCIDENT_REFRESH_COOLDOWN_MS = 60 * 60 * 1000;
 
+/** Default timeout for dashboard refresh webhook call: 5 minutes (300,000 ms) */
+export const DEFAULT_DASHBOARD_REFRESH_TIMEOUT_MINUTES = 5;
+
+export function getDashboardRefreshTimeoutMs(): number {
+  const rawMinutes = process.env.DASHBOARD_REFRESH_TIMEOUT_MINUTES?.trim();
+  if (rawMinutes) {
+    const min = Number(rawMinutes);
+    if (Number.isFinite(min) && min > 0) return min * 60_000;
+  }
+  const rawMs = process.env.DASHBOARD_REFRESH_TIMEOUT_MS?.trim();
+  if (rawMs) {
+    const ms = Number(rawMs);
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return DEFAULT_DASHBOARD_REFRESH_TIMEOUT_MINUTES * 60_000;
+}
+
 interface DashboardRefreshState {
   downIncidentRefreshTimestamps: Map<string, number>;
 }
@@ -261,6 +278,7 @@ export async function triggerDashboardRefresh(
   try {
     console.log(`[automation] Firing refresh_dashboard for ${dbName} (${reason || "automated trigger"})`);
 
+    const timeoutMs = getDashboardRefreshTimeoutMs();
     const response = await fetch(env.webhookUrl, {
       method: "POST",
       headers: {
@@ -268,7 +286,7 @@ export async function triggerDashboardRefresh(
         ...(env.webhookToken ? { "X-DBA-Token": env.webhookToken } : {})
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000) // 2-minute timeout
+      signal: AbortSignal.timeout(timeoutMs) // 5-minute default timeout
     });
 
     if (!response.ok) {
@@ -335,7 +353,47 @@ export async function triggerDashboardRefresh(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[automation] refresh_dashboard failed for ${dbName}: ${message}`);
+    console.error(`[automation] refresh_dashboard HTTP call ended with: ${message} for ${dbName}`);
+
+    // Fallback: check if n8n managed to insert the dashboard snapshot into Oracle
+    try {
+      const latest = await getLatestDashboardHistory(dbName);
+      if (latest?.refresh_timestamp) {
+        const snapshotTime = new Date(latest.refresh_timestamp).getTime();
+        if (Number.isFinite(snapshotTime) && snapshotTime >= startedAt - 15_000) {
+          console.log(
+            `[automation] Confirmed fresh snapshot exists in dashboard_history for ${dbName} despite HTTP error (${message})`
+          );
+          const durationMs = Date.now() - startedAt;
+          await insertAuditLog({
+            actor: requestedBy,
+            action: "refresh_dashboard",
+            db: dbName,
+            status: "success",
+            detail: reason || `Automated dashboard refresh completed for ${dbName} (snapshot confirmed in DB).`,
+            metadata: { ...metadata, note: `HTTP ended with ${message}, snapshot confirmed in DB`, duration_ms: durationMs }
+          }).catch(() => {});
+
+          emitGlobalNotification({
+            id: `REFRESH-${dbName}-${Date.now()}`,
+            type: "refresh_dashboard",
+            severity: "info",
+            db: dbName,
+            title: `Dashboard Refreshed: ${dbName}`,
+            message: `Automated dashboard refresh completed for ${dbName}.`,
+            timestamp: new Date().toISOString(),
+            targetPath: "/"
+          });
+
+          return {
+            success: true,
+            message: `Dashboard refresh completed for ${dbName} (verified via DB snapshot).`
+          };
+        }
+      }
+    } catch {
+      // Ignore fallback verification errors
+    }
 
     const durationMs = Date.now() - startedAt;
     await insertAuditLog({
