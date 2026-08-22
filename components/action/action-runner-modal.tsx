@@ -292,9 +292,7 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
         <DialogHeader>
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>{definition.title}</DialogTitle>
-            <StatusBadge status={canExecute(definition.action) ? "healthy" : "critical"}>
-              {canExecute(definition.action) ? "Allowed" : "RBAC Denied"}
-            </StatusBadge>
+            {!canExecute(definition.action) ? <StatusBadge status="critical">RBAC Denied</StatusBadge> : null}
             {definition.destructive ? <StatusBadge status="critical">Approval Required</StatusBadge> : null}
           </div>
           <DialogDescription>{definition.description}</DialogDescription>
@@ -389,9 +387,9 @@ export function ActionRunnerModal({ definition, open, onOpenChange, onComplete, 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Generated JSON Request</Label>
-                  <StatusBadge status={canExecute(definition.action) ? "healthy" : "critical"}>
-                    {canExecute(definition.action) ? "Allowed" : "RBAC Denied"}
-                  </StatusBadge>
+                  {!canExecute(definition.action) ? (
+                    <StatusBadge status="critical">RBAC Denied</StatusBadge>
+                  ) : null}
                 </div>
                 <pre className="keep-dark max-h-80 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">
                   {payloadPreview}

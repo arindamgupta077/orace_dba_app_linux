@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
   CheckCircle2,
   ClipboardList,
   FileEdit,
@@ -30,6 +31,8 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { useUserMgmt } from "@/hooks/use-user-mgmt";
+import { cn } from "@/lib/utils";
+import { TONE_STYLES, type CardTone } from "@/components/user-management/card-tones";
 import type { DbaResponse, ProfileParameterRow } from "@/types/dba";
 
 /* ── Types ─────────────────────────────────────────── */
@@ -91,30 +94,41 @@ const CREATE_PROFILE_PARAMS: ProfileParam[] = [
 
 /* ── Profile Cards ─────────────────────────────────── */
 
-const PROFILE_CARDS = [
+const PROFILE_CARDS: {
+  modal: ProfileModal;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: CardTone;
+  destructive?: boolean;
+}[] = [
   {
-    modal: "view_profiles" as ProfileModal,
+    modal: "view_profiles",
     label: "View All Profile Parameters",
     description: "Query DBA_PROFILES for all resource and password parameters.",
-    icon: ClipboardList
+    icon: ClipboardList,
+    tone: "cyan"
   },
   {
-    modal: "create_profile" as ProfileModal,
+    modal: "create_profile",
     label: "Create Profile",
     description: "Create a new Oracle profile with custom resource and password limits.",
-    icon: FilePlus
+    icon: FilePlus,
+    tone: "emerald"
   },
   {
-    modal: "alter_profile" as ProfileModal,
+    modal: "alter_profile",
     label: "Alter Profile",
     description: "Modify a specific resource or password parameter on an existing profile.",
-    icon: FileEdit
+    icon: FileEdit,
+    tone: "amber"
   },
   {
-    modal: "drop_profile" as ProfileModal,
+    modal: "drop_profile",
     label: "Drop Profile",
     description: "Permanently remove an Oracle profile from the database.",
     icon: FileX,
+    tone: "cyan",
     destructive: true
   }
 ];
@@ -178,7 +192,7 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
             {showRawOutput ? "Hide" : "View"} Execution Output Details
           </button>
           {showRawOutput && (
-            <pre className="rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
+            <pre className="keep-dark rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
               {result.raw_output}
             </pre>
           )}
@@ -473,22 +487,39 @@ export function ProfileManagementSection() {
     <div className="space-y-6">
       {/* Action cards grid */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {PROFILE_CARDS.map(({ modal, label, description, icon: Icon, destructive }) => (
+        {PROFILE_CARDS.map(({ modal, label, description, icon: Icon, tone, destructive }) => (
           <Card
             key={modal}
-            className="hover:border-border/80 transition-colors cursor-pointer group"
+            className={cn(
+              "group relative cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
+              destructive ? "hover:border-red-400/40 hover:shadow-red-500/10" : TONE_STYLES[tone].hover
+            )}
             onClick={() => openModal(modal)}
           >
-            <CardContent className="flex flex-col p-4 h-full">
+            <CardContent className="flex h-full flex-col p-4">
               <div className="flex items-start justify-between gap-2">
-                <span className={`rounded-md border p-2 ${destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"} group-hover:scale-105 transition-transform`}>
+                <span
+                  className={cn(
+                    "rounded-lg border p-2 transition-transform duration-200 group-hover:scale-110",
+                    destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : TONE_STYLES[tone].chip
+                  )}
+                >
                   <Icon className="h-4 w-4" />
                 </span>
-                {destructive && <Badge variant="outline" className="text-red-400 border-red-400/40 text-[10px]">Destructive</Badge>}
+                {destructive ? (
+                  <Badge variant="outline" className="border-red-400/40 text-[10px] text-red-400">Destructive</Badge>
+                ) : (
+                  <ArrowRight
+                    className={cn(
+                      "h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100",
+                      TONE_STYLES[tone].arrow
+                    )}
+                  />
+                )}
               </div>
               <div className="mt-3 flex-1">
                 <p className="text-sm font-semibold">{label}</p>
-                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
               </div>
             </CardContent>
           </Card>
@@ -497,9 +528,17 @@ export function ProfileManagementSection() {
 
       {/* View Profiles Result */}
       {profileRows.length > 0 && (
-        <div className="rounded-lg border border-border/60">
-          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/60">
-            <p className="text-sm font-semibold shrink-0">Profile Parameters</p>
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card/40 shadow-sm">
+          <div className="flex items-center justify-between gap-4 border-b border-border/60 bg-muted/20 px-4 py-3">
+            <div className="flex shrink-0 items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md border border-violet-400/30 bg-violet-400/10 text-violet-300">
+                <ClipboardList className="h-3.5 w-3.5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Profile Parameters</p>
+                <p className="text-[11px] text-muted-foreground">{profileRows.length} parameter{profileRows.length !== 1 ? "s" : ""} across {allProfileNames.length} profile{allProfileNames.length !== 1 ? "s" : ""}</p>
+              </div>
+            </div>
             <div className="flex items-center gap-3 min-w-0">
               <Select
                 value={profileFilter}
@@ -518,6 +557,7 @@ export function ProfileManagementSection() {
               <Button
                 variant="ghost"
                 size="sm"
+                className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
                 onClick={() => {
                   setViewProfilesResult(null);
                   setProfileFilter("__all");

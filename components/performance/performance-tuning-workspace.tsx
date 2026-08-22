@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
-import { Check, ChevronDown, ChevronUp, Clock, Database, Download, FileJson, Gauge, Hash, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, SlidersHorizontal, Sparkles, Trash2, TrendingUp, User, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clock, Database, Download, Gauge, Hash, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, SlidersHorizontal, Sparkles, Trash2, TrendingUp, User, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,8 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchDashboardTrends, fetchPerformanceAuditLogs, fetchPerformanceConfig, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, updatePerformanceConfig, type DashboardTrendsRange, type PerformanceRunAllHistoryResponse } from "@/services/api";
-import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
+import { fetchDashboardTrends, fetchPerformanceConfig, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, updatePerformanceConfig, type DashboardTrendsRange, type PerformanceRunAllHistoryResponse } from "@/services/api";
+import type { DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
   label: string;
@@ -383,7 +383,7 @@ function renderInlineMarkdown(text: string) {
 
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={`${part}-${index}`} className="rounded border border-border/60 bg-secondary/70 px-1.5 py-0.5 font-mono text-xs text-accent">
+        <code key={`${part}-${index}`} className="rounded border border-border/80 bg-secondary/80 px-1.5 py-0.5 font-mono text-xs text-cyan-700 dark:text-cyan-300">
           {part.slice(1, -1)}
         </code>
       );
@@ -391,7 +391,7 @@ function renderInlineMarkdown(text: string) {
 
     if (/^[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]$/u.test(normalizeEmoji(part))) {
       return (
-        <span key={`${part}-${index}`} className="mx-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-300/30 bg-amber-300/15 px-1 text-sm">
+        <span key={`${part}-${index}`} className="mx-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/15 px-1 text-sm text-amber-800 dark:text-amber-200">
           {part}
         </span>
       );
@@ -465,20 +465,6 @@ export function PerformanceTuningWorkspace() {
     }
   };
 
-  // ── Audit-log based card metadata ──────────────────────────────
-  // Keyed by action name; fetched from APP_AUDIT_LOGS via the performance audit API.
-  const [auditByAction, setAuditByAction] = useState<Record<string, AuditLogItem>>({});
-
-  const loadAuditMeta = useCallback(async () => {
-    if (!selectedDb) return;
-    try {
-      const data = await fetchPerformanceAuditLogs(selectedDb);
-      if (data?.items) setAuditByAction(data.items);
-    } catch {
-      // Non-critical — cards simply show "Never" when audit data is unavailable.
-    }
-  }, [selectedDb]);
-
   /**
    * Fetch the latest check_performance run from performance_run_all_hist
    * and convert it into the RunAllSource shape used by the result panel.
@@ -505,9 +491,8 @@ export function PerformanceTuningWorkspace() {
   // Load persisted RUN ALL history whenever the selected database changes.
   useEffect(() => {
     setAutoExpandSummary(false);
-    void loadAuditMeta();
     void loadHistoryFromDb();
-  }, [loadAuditMeta, loadHistoryFromDb]);
+  }, [loadHistoryFromDb]);
 
   const actions = useMemo(
     () =>
@@ -525,25 +510,6 @@ export function PerformanceTuningWorkspace() {
 
   const rows = getRows(mainRun.response, activeConfig);
   const schemas = getSchemas(schemaRun.response);
-
-  const payloadPreview = useMemo(() => {
-    if (!activeDefinition) return "";
-    const dbTarget = databases.find((db) => db.name === selectedDb);
-    return JSON.stringify(
-      {
-        action: activeDefinition.action,
-        db: selectedDb,
-        params,
-        requested_by: user?.username || "arindam",
-        user_id: user?.userId,
-        environment: dbTarget?.env_label,
-        os: dbTarget?.os,
-        db_type: dbTarget?.db_type
-      },
-      null,
-      2
-    );
-  }, [activeDefinition, databases, params, selectedDb, user?.userId, user?.username]);
 
   const openAction = (definition: DbaActionDefinition) => {
     mainRun.reset();
@@ -603,8 +569,6 @@ export function PerformanceTuningWorkspace() {
     if (!activeDefinition) return;
     try {
       await mainRun.runAction(activeDefinition.action, params, selectedDb);
-      // Refresh audit card metadata after a successful run so the card updates immediately.
-      void loadAuditMeta();
     } catch {
       // The hook owns the user-facing error state and toast.
     }
@@ -705,7 +669,6 @@ export function PerformanceTuningWorkspace() {
       setAutoExpandSummary(true);
       // Re-fetch the persisted row so the panel displays data from the DB.
       await loadHistoryFromDb();
-      void loadAuditMeta();
     } catch {
       // The hook owns the user-facing error state and toast.
     }
@@ -752,21 +715,68 @@ export function PerformanceTuningWorkspace() {
         <DashboardHistoricalTrends selectedDb={selectedDb} />
       </div>
 
+      {/* ── Compact Performance Action Cards ─────────────────────────── */}
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {actions.map(({ definition }) => {
+          const Icon = (Icons[definition.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
+          return (
+            <Card
+              key={definition.action}
+              className="group relative flex flex-col justify-between overflow-hidden border-border/70 bg-card transition-all duration-200 hover:-translate-y-0.5 hover:border-cyan-500/40 hover:shadow-md dark:bg-card/60 dark:hover:bg-card/90"
+            >
+              <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <CardContent className="flex h-full flex-col justify-between p-3.5">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="rounded-md border border-cyan-500/30 bg-cyan-500/10 p-1.5 text-cyan-700 transition-colors duration-200 group-hover:border-cyan-500/50 group-hover:bg-cyan-500/20 group-hover:text-cyan-800 dark:text-cyan-200 dark:group-hover:text-cyan-100">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    {definition.action === "invalid_obejcts" || definition.action === "session_list" ? (
+                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0 text-[10px] font-medium text-cyan-700 dark:text-cyan-300">
+                        Tools
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-2.5">
+                    <p className="text-sm font-semibold tracking-tight text-foreground transition-colors group-hover:text-cyan-700 dark:group-hover:text-cyan-200">
+                      {definition.title}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                      {definition.description}
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openAction(definition)}
+                  className="mt-3 h-8 w-full gap-1.5 text-xs font-medium border-border text-foreground transition-all duration-200 group-hover:border-cyan-500/50 group-hover:bg-cyan-500/10 group-hover:text-cyan-700 dark:group-hover:text-cyan-200"
+                >
+                  <Play className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-300" />
+                  Execute
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
       {/* ── Performance Tuning Actions Header with RUN ALL button & Trend Window Config ───── */}
       <div className="glass-panel mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl p-4">
         <div className="flex items-center gap-3">
-          <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200">
+          <span className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-2 text-cyan-700 dark:text-cyan-200">
             <Gauge className="h-5 w-5" />
           </span>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold tracking-tight">Performance Tuning Actions</h2>
-              <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-300">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">Performance Tuning Actions</h2>
+              <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-700 dark:text-cyan-300">
                 AI Agent Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
               </Badge>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Run focused Oracle performance checks or execute all diagnostic analyses simultaneously.
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground max-w-4xl">
+              Simultaneously executes all 8 diagnostic checks (Top SQL, CPU Usage, Wait Events, Long Operations, Invalid Objects, Session List, Lock Check, and Long Queries) via the backend workflow. The live SQL results, database inventory specifications (version, OS, DB type), and {trendDays}-day performance trend metrics are dispatched to the AI Agent to cross-correlate bottlenecks, identify root causes, and formulate an actionable remediation plan.
             </p>
           </div>
         </div>
@@ -780,10 +790,10 @@ export function PerformanceTuningWorkspace() {
                 setTempDays(trendDays);
                 setConfigModalOpen(true);
               }}
-              className="gap-1.5 border-border/80 text-xs text-muted-foreground transition-colors hover:border-amber-400/50 hover:text-foreground"
+              className="gap-1.5 border-border text-xs text-muted-foreground transition-colors hover:border-amber-500/50 hover:text-foreground"
               title="Configure trend history days sent to AI Agent (App Admin Only)"
             >
-              <Settings className="h-3.5 w-3.5 text-amber-400" />
+              <Settings className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
               Configure Window ({trendDays}d)
             </Button>
           )}
@@ -808,21 +818,21 @@ export function PerformanceTuningWorkspace() {
       </div>
 
       {runAll.status === "loading" ? (
-        <div className="scan-line mb-4 flex items-center gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-3.5 text-sm font-medium text-cyan-100">
-          <span className="rounded-md border border-cyan-300/30 bg-cyan-300/15 p-1.5">
+        <div className="scan-line mb-4 flex items-center gap-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3.5 text-sm font-medium text-cyan-900 dark:text-cyan-100">
+          <span className="rounded-md border border-cyan-500/30 bg-cyan-500/15 p-1.5 text-cyan-700 dark:text-cyan-300">
             <Loader2 className="h-4 w-4 animate-spin" />
           </span>
           Running all performance checks through AI Agent — results will be saved to database.
         </div>
       ) : historyLoading ? (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/50 bg-card/40 p-3.5 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-card/60 p-3.5 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin text-cyan-600 dark:text-cyan-300" />
           Loading last RUN ALL result from database…
         </div>
       ) : null}
 
       {runAll.error ? (
-        <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-400/30 bg-red-500/10 p-3.5 text-sm text-red-100">
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3.5 text-sm text-red-900 dark:text-red-100">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{runAll.error}</span>
         </div>
@@ -830,39 +840,13 @@ export function PerformanceTuningWorkspace() {
 
       {latestRunAll ? <RunAllResult source={latestRunAll} configs={PERFORMANCE_ACTIONS} defaultExpanded={autoExpandSummary} /> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {actions.map(({ definition }) => {
-          const Icon = (Icons[definition.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
-          const auditLog = auditByAction[definition.action] || null;
-          return (
-            <Card key={definition.action} className="group relative h-full overflow-hidden transition-transform duration-200 hover:-translate-y-0.5">
-              <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              <CardContent className="flex h-full flex-col p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200 transition-colors duration-200 group-hover:border-cyan-400/50 group-hover:bg-cyan-400/20 group-hover:text-cyan-100">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  {definition.action === "invalid_obejcts" || definition.action === "session_list" ? (
-                    <StatusBadge status="info">Tools</StatusBadge>
-                  ) : null}
-                </div>
-                <div className="mt-4 flex-1">
-                  <p className="font-semibold tracking-tight">{definition.title}</p>
-                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{definition.description}</p>
-                </div>
-                <PerformanceRunMeta auditLog={auditLog} />
-                <Button className="mt-4 w-full transition-colors duration-200 group-hover:border-cyan-400/40 group-hover:bg-cyan-400/10" variant="outline" onClick={() => openAction(definition)}>
-                  <Play className="h-4 w-4 text-cyan-300" />
-                  Execute
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogContent
+          className={cn(
+            "max-h-[90vh] overflow-y-auto transition-all duration-200",
+            mainRun.response || secondaryRun.response ? "w-full max-w-5xl" : "w-full max-w-lg sm:max-w-xl"
+          )}
+        >
           <DialogHeader>
             <DialogTitle>{activeDefinition?.title}</DialogTitle>
             <DialogDescription>{activeDefinition?.description}</DialogDescription>
@@ -870,125 +854,115 @@ export function PerformanceTuningWorkspace() {
 
           {activeDefinition ? (
             <form onSubmit={executeMainAction} className="space-y-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
-                  <div className="flex items-center gap-2 border-b border-border/50 pb-3">
-                    <span className="rounded-md border border-cyan-400/25 bg-cyan-400/10 p-1 text-cyan-300">
+              <div className="space-y-4 rounded-lg border border-border bg-card/60 p-4">
+                <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border border-cyan-500/25 bg-cyan-500/10 p-1 text-cyan-700 dark:text-cyan-300">
                       <SlidersHorizontal className="h-3.5 w-3.5" />
                     </span>
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parameters</p>
                   </div>
-                  {activeDefinition.params.length ? (
-                    activeDefinition.params.map((field) => (
-                      <div key={field.name} className="space-y-2">
-                        {field.type !== "checkbox" ? (
-                          <Label>
-                            {field.label}
-                            {field.required ? <span className="text-red-300"> *</span> : null}
-                          </Label>
-                        ) : null}
-                        {renderField(field)}
-                        {field.help ? <p className="text-xs text-muted-foreground">{field.help}</p> : null}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-md border border-dashed border-border/70 p-4 text-sm text-muted-foreground">No parameters required.</div>
-                  )}
+                  {!canExecute(activeDefinition.action) ? (
+                    <StatusBadge status="critical">RBAC Denied</StatusBadge>
+                  ) : null}
+                </div>
+                {activeDefinition.params.length ? (
+                  activeDefinition.params.map((field) => (
+                    <div key={field.name} className="space-y-2">
+                      {field.type !== "checkbox" ? (
+                        <Label>
+                          {field.label}
+                          {field.required ? <span className="text-red-500 dark:text-red-300"> *</span> : null}
+                        </Label>
+                      ) : null}
+                      {renderField(field)}
+                      {field.help ? <p className="text-xs text-muted-foreground">{field.help}</p> : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">No parameters required.</div>
+                )}
 
-                  {activeDefinition.action === "session_list" ? (
-                    <div className="space-y-3 rounded-md border border-red-400/25 bg-red-500/10 p-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-red-100">
-                        <Trash2 className="h-4 w-4" />
-                        Inactive session cleanup
+                {activeDefinition.action === "session_list" ? (
+                  <div className="space-y-3 rounded-md border border-red-500/30 bg-red-500/10 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-red-900 dark:text-red-100">
+                      <Trash2 className="h-4 w-4" />
+                      Inactive session cleanup
+                    </div>
+                    <label className="flex items-start gap-2 text-sm text-red-900/90 dark:text-red-100/85">
+                      <input
+                        type="checkbox"
+                        checked={killInactiveConfirmed}
+                        onChange={(event) => setKillInactiveConfirmed(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 accent-red-500"
+                      />
+                      Kill inactive USER sessions idle for more than 30 minutes, excluding SYS and SYSTEM.
+                    </label>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={!killInactiveConfirmed || secondaryRun.status === "loading" || !canExecute("kill_session")}
+                      onClick={killInactiveSessions}
+                    >
+                      {secondaryRun.status === "loading" && secondaryTitle === "Kill inactive sessions" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
+                      Kill inactive sessions
+                    </Button>
+                  </div>
+                ) : null}
+
+                {activeDefinition.action === "invalid_obejcts" ? (
+                  <div className="space-y-3 rounded-md border border-cyan-500/30 bg-cyan-500/10 p-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-56 flex-1 space-y-2">
+                        <Label>Schema</Label>
+                        <Select value={selectedSchema} onValueChange={setSelectedSchema} disabled={!schemas.length}>
+                          <SelectTrigger>
+                            <SelectValue placeholder={schemas.length ? "Select schema" : "Load schemas first"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {schemas.map((schema) => (
+                              <SelectItem key={schema} value={schema}>
+                                {schema}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <label className="flex items-start gap-2 text-sm text-red-100/85">
-                        <input
-                          type="checkbox"
-                          checked={killInactiveConfirmed}
-                          onChange={(event) => setKillInactiveConfirmed(event.target.checked)}
-                          className="mt-0.5 h-4 w-4 accent-red-500"
-                        />
-                        Kill inactive USER sessions idle for more than 30 minutes, excluding SYS and SYSTEM.
-                      </label>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        disabled={!killInactiveConfirmed || secondaryRun.status === "loading" || !canExecute("kill_session")}
-                        onClick={killInactiveSessions}
-                      >
-                        {secondaryRun.status === "loading" && secondaryTitle === "Kill inactive sessions" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-                        Kill inactive sessions
+                      <Button type="button" variant="outline" onClick={loadSchemas} disabled={schemaRun.status === "loading" || !canExecute("schema_list")}>
+                        {schemaRun.status === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                        Load schemas
+                      </Button>
+                      <Button type="button" variant="neon" onClick={recompileInvalidObjects} disabled={!selectedSchema || secondaryRun.status === "loading" || !canExecute("recompile_invalid")}>
+                        {secondaryRun.status === "loading" && secondaryTitle.startsWith("Recompile") ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                        Recompile invalid
                       </Button>
                     </div>
-                  ) : null}
-
-                  {activeDefinition.action === "invalid_obejcts" ? (
-                    <div className="space-y-3 rounded-md border border-cyan-400/25 bg-cyan-400/10 p-3">
-                      <div className="flex flex-wrap items-end gap-3">
-                        <div className="min-w-56 flex-1 space-y-2">
-                          <Label>Schema</Label>
-                          <Select value={selectedSchema} onValueChange={setSelectedSchema} disabled={!schemas.length}>
-                            <SelectTrigger>
-                              <SelectValue placeholder={schemas.length ? "Select schema" : "Load schemas first"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {schemas.map((schema) => (
-                                <SelectItem key={schema} value={schema}>
-                                  {schema}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <Button type="button" variant="outline" onClick={loadSchemas} disabled={schemaRun.status === "loading" || !canExecute("schema_list")}>
-                          {schemaRun.status === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                          Load schemas
-                        </Button>
-                        <Button type="button" variant="neon" onClick={recompileInvalidObjects} disabled={!selectedSchema || secondaryRun.status === "loading" || !canExecute("recompile_invalid")}>
-                          {secondaryRun.status === "loading" && secondaryTitle.startsWith("Recompile") ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                          Recompile invalid
-                        </Button>
-                      </div>
-                      {schemaRun.error ? <p className="text-sm text-red-200">{schemaRun.error}</p> : null}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2">
-                      <FileJson className="h-3.5 w-3.5 text-cyan-300" />
-                      Generated JSON Request
-                    </Label>
-                    <StatusBadge status={canExecute(activeDefinition.action) ? "healthy" : "critical"}>
-                      {canExecute(activeDefinition.action) ? "Allowed" : "RBAC Denied"}
-                    </StatusBadge>
+                    {schemaRun.error ? <p className="text-sm text-red-700 dark:text-red-200">{schemaRun.error}</p> : null}
                   </div>
-                  <pre className="keep-dark max-h-96 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-cyan-100">{payloadPreview}</pre>
-                </div>
+                ) : null}
               </div>
 
-              {mainRun.error ? <div className="rounded-md border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{mainRun.error}</div> : null}
+              {mainRun.error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-900 dark:text-red-100">{mainRun.error}</div> : null}
 
               {mainRun.response && activeConfig ? <PerformanceResult response={mainRun.response} rows={rows} config={activeConfig} /> : null}
 
               {secondaryRun.response ? (
-                <div className="rounded-lg border border-border/70 bg-background/35 p-4">
+                <div className="rounded-lg border border-border bg-card/60 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="font-semibold tracking-tight">{secondaryTitle}</p>
+                      <p className="font-semibold tracking-tight text-foreground">{secondaryTitle}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">Request {secondaryRun.response.request_id}</p>
                     </div>
                     <StatusBadge status={secondaryRun.response.status}>{secondaryRun.response.status}</StatusBadge>
                   </div>
-                  <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">
+                  <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs text-slate-100">
                     {responseMessage(secondaryRun.response)}
                   </pre>
                 </div>
               ) : null}
 
-              {secondaryRun.error ? <div className="rounded-md border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{secondaryRun.error}</div> : null}
+              {secondaryRun.error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-900 dark:text-red-100">{secondaryRun.error}</div> : null}
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
@@ -1007,10 +981,10 @@ export function PerformanceTuningWorkspace() {
       {/* ── App Admin Trend Days Configuration Modal ───────────────────── */}
       {user?.role === "app_admin" && (
         <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="w-full max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5 text-amber-400" />
+              <DialogTitle className="flex items-center gap-2 text-foreground">
+                <Settings className="h-5 w-5 text-amber-500 dark:text-amber-400" />
                 Configure RUN ALL Trend Window
               </DialogTitle>
               <DialogDescription>
@@ -1084,37 +1058,6 @@ export function PerformanceTuningWorkspace() {
   );
 }
 
-function PerformanceRunMeta({ auditLog }: { auditLog: AuditLogItem | null }) {
-  return (
-    <div className="mt-4 space-y-2 rounded-lg border border-border/60 bg-secondary/25 p-3 text-xs">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-          <Clock className="h-3 w-3" />
-          Last run
-        </span>
-        <span className="text-right font-medium text-slate-100">
-          {auditLog ? formatRunTime(auditLog.timestamp) : "Never"}
-        </span>
-      </div>
-      <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-2">
-        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-          <User className="h-3 w-3" />
-          Username
-        </span>
-        <span className="max-w-32 truncate text-right font-mono text-cyan-100">
-          {auditLog?.actor || "-"}
-        </span>
-      </div>
-      {auditLog?.detail ? (
-        <div className="space-y-0.5 border-t border-border/40 pt-2">
-          <span className="text-muted-foreground">Detail</span>
-          <p className="mt-0.5 line-clamp-2 break-words text-slate-300">{auditLog.detail}</p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function RunAllResult({
   source,
   configs,
@@ -1134,11 +1077,11 @@ function RunAllResult({
     <div className="glass-panel mb-5 space-y-5 rounded-xl p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200">
+          <span className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-2 text-cyan-700 dark:text-cyan-200">
             <Zap className="h-5 w-5" />
           </span>
           <div>
-            <p className="font-semibold tracking-tight">Latest RUN ALL result</p>
+            <p className="font-semibold tracking-tight text-foreground">Latest RUN ALL result</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Last run {formatRunTime(source.createdAt)} by {source.requestedBy || "-"} - Request {source.response.request_id}
             </p>
@@ -1147,10 +1090,10 @@ function RunAllResult({
         <StatusBadge status={source.response.status}>{source.response.status}</StatusBadge>
       </div>
 
-      <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 p-3.5">
+      <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/20 p-3.5">
           <div className="flex items-center gap-2.5">
-            <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 p-1.5 text-accent">
+            <span className="rounded-md border border-cyan-500/25 bg-cyan-500/10 p-1.5 text-cyan-700 dark:text-accent">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
@@ -1174,9 +1117,9 @@ function RunAllResult({
         {configs.map((config) => {
           const SummaryIcon = (Icons[getActionDefinition(config.action)?.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
           return (
-            <div key={config.action} className="rounded-lg border border-border/60 bg-card/60 p-3 transition-colors duration-200 hover:border-cyan-400/40">
+            <div key={config.action} className="rounded-lg border border-border/70 bg-card p-3 transition-colors duration-200 hover:border-cyan-500/40">
               <div className="flex items-center gap-2">
-                <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 p-1 text-cyan-300">
+                <span className="rounded-md border border-cyan-500/20 bg-cyan-500/10 p-1 text-cyan-700 dark:text-cyan-300">
                   <SummaryIcon className="h-3.5 w-3.5" />
                 </span>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{getActionDefinition(config.action)?.title || config.action}</p>
@@ -1190,7 +1133,7 @@ function RunAllResult({
       {source.response.findings.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {source.response.findings.slice(0, 4).map((finding, index) => (
-            <div key={finding.id || `${finding.title}-${index}`} className="rounded-lg border border-border/60 bg-card/60 p-3.5 transition-colors duration-200 hover:border-cyan-400/30">
+            <div key={finding.id || `${finding.title}-${index}`} className="rounded-lg border border-border/70 bg-card p-3.5 transition-colors duration-200 hover:border-cyan-500/30">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-foreground">{finding.title}</p>
                 <StatusBadge status={finding.severity}>{finding.severity}</StatusBadge>
@@ -1232,12 +1175,12 @@ function MarkdownSummary({ text }: { text: string }) {
       }
 
       elements.push(
-        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-md border border-cyan-400/25 bg-card/40">
+        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-md border border-border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
                 {headers.map((header, headerIndex) => (
-                  <TableHead key={`${header}-${headerIndex}`} className="whitespace-nowrap bg-cyan-400/10 text-accent">
+                  <TableHead key={`${header}-${headerIndex}`} className="whitespace-nowrap bg-muted/70 font-semibold text-foreground">
                     {renderInlineMarkdown(header)}
                   </TableHead>
                 ))}
@@ -1247,7 +1190,7 @@ function MarkdownSummary({ text }: { text: string }) {
               {rows.map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
                   {headers.map((_, cellIndex) => (
-                    <TableCell key={cellIndex} className="whitespace-nowrap">
+                    <TableCell key={cellIndex} className="whitespace-nowrap text-foreground">
                       {renderInlineMarkdown(row[cellIndex] || "")}
                     </TableCell>
                   ))}
@@ -1265,8 +1208,8 @@ function MarkdownSummary({ text }: { text: string }) {
       const level = heading[1].length;
       const className =
         level <= 2
-          ? "mt-4 rounded-md border-l-4 border-cyan-300 bg-cyan-300/10 px-3 py-2 text-base font-semibold text-foreground"
-          : "mt-3 rounded-md border-l-4 border-amber-300 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-foreground";
+          ? "mt-4 rounded-md border-l-4 border-cyan-500 bg-cyan-500/10 px-3 py-2 text-base font-semibold text-foreground"
+          : "mt-3 rounded-md border-l-4 border-amber-500 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-foreground";
       elements.push(
         <p key={`heading-${index}`} className={className}>
           {renderInlineMarkdown(heading[2])}
@@ -1283,7 +1226,7 @@ function MarkdownSummary({ text }: { text: string }) {
         index += 1;
       }
       elements.push(
-        <ul key={`ul-${index}`} className="my-2 list-disc space-y-1 rounded-md border border-border/50 bg-secondary/30 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:text-cyan-300">
+        <ul key={`ul-${index}`} className="my-2 list-disc space-y-1 rounded-md border border-border/60 bg-secondary/40 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:text-cyan-600 dark:marker:text-cyan-300">
           {items.map((item, itemIndex) => (
             <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -1299,7 +1242,7 @@ function MarkdownSummary({ text }: { text: string }) {
         index += 1;
       }
       elements.push(
-        <ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 rounded-md border border-border/50 bg-secondary/30 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:font-semibold marker:text-amber-300">
+        <ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 rounded-md border border-border/60 bg-secondary/40 py-3 pl-8 pr-3 text-sm leading-6 text-foreground marker:font-semibold marker:text-amber-600 dark:marker:text-amber-300">
           {items.map((item, itemIndex) => (
             <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
           ))}
@@ -1309,14 +1252,14 @@ function MarkdownSummary({ text }: { text: string }) {
     }
 
     elements.push(
-      <p key={`p-${index}`} className="rounded-md bg-secondary/20 px-3 py-2 text-sm leading-7 text-foreground">
+      <p key={`p-${index}`} className="rounded-md bg-secondary/30 px-3 py-2 text-sm leading-7 text-foreground">
         {renderInlineMarkdown(line)}
       </p>
     );
     index += 1;
   }
 
-  return <div className="space-y-2 rounded-md border border-border/60 bg-card/40 p-4">{elements}</div>;
+  return <div className="space-y-2 rounded-md border border-border/70 bg-card/60 p-4">{elements}</div>;
 }
 
 function RunAllTables({
@@ -1344,11 +1287,11 @@ function RunAllTables({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="rounded-md border border-cyan-400/25 bg-cyan-400/10 p-1.5 text-cyan-200">
+          <span className="rounded-md border border-cyan-500/25 bg-cyan-500/10 p-1.5 text-cyan-700 dark:text-cyan-200">
             <Database className="h-4 w-4" />
           </span>
           <div>
-            <p className="font-semibold tracking-tight">Detailed SQL outputs</p>
+            <p className="font-semibold tracking-tight text-foreground">Detailed SQL outputs</p>
             <p className="mt-0.5 text-xs text-muted-foreground">Full row output returned by AI Agent for each performance check.</p>
           </div>
         </div>
@@ -1360,11 +1303,11 @@ function RunAllTables({
         ) : null}
       </div>
       <Tabs defaultValue={defaultValue}>
-        <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-lg border border-border/60 bg-secondary/50 p-1.5">
+        <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-lg border border-border/70 bg-secondary/60 p-1.5">
           {tableConfigs.map(({ config, rows }) => (
             <TabsTrigger key={config.action} value={config.action} className="gap-1.5 rounded-md text-xs">
               {getActionDefinition(config.action)?.title || config.action}
-              <span className="rounded-full border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-muted-foreground">
+              <span className="rounded-full border border-border bg-background/80 px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-muted-foreground">
                 {rows.length}
               </span>
             </TabsTrigger>
@@ -1435,10 +1378,10 @@ function HistoricalOutputsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-full max-w-5xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-slate-100">
-            <History className="h-5 w-5 text-cyan-400" />
+          <DialogTitle className="flex items-center gap-2 text-foreground">
+            <History className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
             Historical SQL Outputs — {dbName}
           </DialogTitle>
           <DialogDescription>
@@ -1448,18 +1391,18 @@ function HistoricalOutputsModal({
 
         {loading ? (
           <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin text-cyan-400" />
+            <Loader2 className="mr-2 h-5 w-5 animate-spin text-cyan-600 dark:text-cyan-400" />
             Loading historical runs for {dbName}...
           </div>
         ) : error ? (
-          <div className="rounded-md border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">{error}</div>
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-900 dark:text-red-100">{error}</div>
         ) : historyRuns.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
             No historical run records found for {dbName}.
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card/60 p-3">
               <div className="space-y-1.5 min-w-72">
                 <Label className="text-xs text-muted-foreground">Select Execution Snapshot</Label>
                 <Select value={selectedRunId} onValueChange={setSelectedRunId}>
@@ -1478,20 +1421,20 @@ function HistoricalOutputsModal({
 
               {activeRun ? (
                 <div className="flex flex-wrap items-center gap-2.5 text-xs">
-                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <Hash className="h-3.5 w-3.5 text-cyan-300" />
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-2">
+                    <Hash className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-300" />
                     <span className="text-muted-foreground">Run ID:</span>
-                    <span className="font-mono font-medium text-cyan-100">#{activeRun.run_id}</span>
+                    <span className="font-mono font-medium text-cyan-700 dark:text-cyan-100">#{activeRun.run_id}</span>
                   </div>
-                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <Clock className="h-3.5 w-3.5 text-amber-300" />
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-2">
+                    <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-300" />
                     <span className="text-muted-foreground">Ran At:</span>
-                    <span className="font-mono font-medium text-amber-100">{formatIstTimestamp(activeRun.created_at)}</span>
+                    <span className="font-mono font-medium text-amber-800 dark:text-amber-100">{formatIstTimestamp(activeRun.created_at)}</span>
                   </div>
-                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <User className="h-3.5 w-3.5 text-slate-300" />
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-2">
+                    <User className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-muted-foreground">Executed By:</span>
-                    <span className="font-mono font-medium text-slate-100">{activeRun.refreshed_by || "-"}</span>
+                    <span className="font-mono font-medium text-foreground">{activeRun.refreshed_by || "-"}</span>
                   </div>
                 </div>
               ) : null}
@@ -1521,10 +1464,10 @@ function HistoricalOutputsModal({
 
 function PerformanceResult({ response, rows, config }: { response: DbaResponse; rows: Array<Record<string, unknown>>; config: PerformanceActionConfig }) {
   return (
-    <div className="space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
+    <div className="space-y-4 rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-semibold tracking-tight">Result</p>
+          <p className="font-semibold tracking-tight text-foreground">Result</p>
           <p className="mt-0.5 text-xs text-muted-foreground">Request {response.request_id}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1540,7 +1483,7 @@ function PerformanceResult({ response, rows, config }: { response: DbaResponse; 
 
       <PerformanceRowsTable rows={rows} config={config} />
 
-      {response.raw_output ? <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-border/70 bg-black/40 p-4 text-xs text-slate-100">{response.raw_output}</pre> : null}
+      {response.raw_output ? <pre className="keep-dark max-h-56 overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs text-slate-100">{response.raw_output}</pre> : null}
     </div>
   );
 }
@@ -1559,14 +1502,14 @@ function PerformanceRowsTable({
   createdAtFallback?: string | null;
 }) {
   if (!rows.length) {
-    return <div className="rounded-md border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">No rows returned.</div>;
+    return <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No rows returned.</div>;
   }
 
   return (
-    <div className="rounded-lg border border-border/60">
+    <div className="rounded-lg border border-border bg-card">
       {showDownload ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-secondary/30 px-3 py-2.5">
-          <p className="text-sm font-medium">
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-secondary/40 px-3 py-2.5">
+          <p className="text-sm font-medium text-foreground">
             {rows.length.toLocaleString("en-US")} row{rows.length === 1 ? "" : "s"}
           </p>
           <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => downloadText(config.csvName, toCsv(rows), "text/csv")}>
@@ -1580,23 +1523,23 @@ function PerformanceRowsTable({
           <TableHeader>
             <TableRow>
               {config.columns.map((column) => (
-                <TableHead key={column.label} className={cn("sticky top-0 z-10 bg-card", column.className)}>
+                <TableHead key={column.label} className={cn("sticky top-0 z-10 bg-muted/80 font-semibold text-foreground", column.className)}>
                   {column.label}
                 </TableHead>
               ))}
-              {includeCreatedAt ? <TableHead className="sticky top-0 z-10 min-w-52 bg-card">Created At (IST)</TableHead> : null}
+              {includeCreatedAt ? <TableHead className="sticky top-0 z-10 min-w-52 bg-muted/80 font-semibold text-foreground">Created At (IST)</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((row, rowIndex) => (
               <TableRow key={rowIndex}>
                 {config.columns.map((column) => (
-                  <TableCell key={column.label} className={cn(column.className, column.mono && "font-mono text-xs text-cyan-100")}>
+                  <TableCell key={column.label} className={cn(column.className, column.mono && "font-mono text-xs text-cyan-800 dark:text-cyan-200")}>
                     {formatCell(getRecordValue(row, column.keys))}
                   </TableCell>
                 ))}
                 {includeCreatedAt ? (
-                  <TableCell className="whitespace-nowrap font-mono text-xs text-amber-100">
+                  <TableCell className="whitespace-nowrap font-mono text-xs text-amber-800 dark:text-amber-300">
                     {formatIstTimestamp(getRecordValue(row, ["created_at", "createdAt", "timestamp", "run_at", "run_time", "created_time"]) || createdAtFallback)}
                   </TableCell>
                 ) : null}

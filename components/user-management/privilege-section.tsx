@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
   BadgeCheck,
   BadgePlus,
   CheckCircle2,
@@ -33,6 +34,8 @@ import {
 } from "@/components/ui/select";
 import { ApprovalTimeline } from "@/components/visual/approval-timeline";
 import { useUserMgmt } from "@/hooks/use-user-mgmt";
+import { cn } from "@/lib/utils";
+import { TONE_STYLES, type CardTone } from "@/components/user-management/card-tones";
 import type { DbaResponse } from "@/types/dba";
 
 /* ── Types ─────────────────────────────────────────── */
@@ -267,55 +270,64 @@ const PRIV_CARDS: {
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
+  tone: CardTone;
   destructive?: boolean;
 }[] = [
   {
     modal: "check_privileges" as PrivModal,
     label: "Check User Privileges",
     description: "View all granted system privileges, roles, and object-level privileges for a database user.",
-    icon: ShieldCheck
+    icon: ShieldCheck,
+    tone: "cyan"
   },
   {
     modal: "system_privilege" as PrivModal,
     label: "Grant / Revoke System Privileges",
     description: "Grant or revoke Oracle system-level privileges to/from a user.",
-    icon: ShieldAlert
+    icon: ShieldAlert,
+    tone: "violet"
   },
   {
     modal: "bulk_object_privilege" as PrivModal,
     label: "Grant / Revoke Object Privileges",
     description: "Grant or revoke privileges on single or multiple objects (or all objects of a schema) in one operation.",
-    icon: Shield
+    icon: Shield,
+    tone: "blue"
   },
   {
     modal: "create_role" as PrivModal,
     label: "Create Role",
     description: "Create a new Oracle role to group privileges for easy assignment.",
-    icon: BadgePlus
+    icon: BadgePlus,
+    tone: "emerald"
   },
   {
     modal: "role_to_user" as PrivModal,
     label: "Grant / Revoke Role",
     description: "Grant or revoke an Oracle role to/from a database user.",
-    icon: BadgeCheck
+    icon: BadgeCheck,
+    tone: "teal"
   },
   {
     modal: "grant_sys_privs_role" as PrivModal,
     label: "Grant / Revoke System Privileges to Role",
     description: "Grant or revoke Oracle system-level privileges to/from a role.",
-    icon: ShieldCheck
+    icon: ShieldCheck,
+    tone: "indigo"
   },
   {
     modal: "grant_obj_privs_role" as PrivModal,
     label: "Grant / Revoke Object Privileges to Role",
     description: "Grant or revoke SELECT, INSERT, UPDATE, DELETE, EXECUTE on objects to a role.",
-    icon: ShieldAlert
+    icon: ShieldAlert,
+    tone: "fuchsia"
   },
   {
     modal: "drop_role" as PrivModal,
     label: "Drop Role",
     description: "Permanently drop an Oracle role from the database.",
     icon: Trash2,
+    tone: "cyan",
     destructive: true
   }
 ];
@@ -354,11 +366,11 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
 
   const getPrivilegeBadge = (priv: string) => {
     const upper = priv.toUpperCase();
-    if (upper.includes("SELECT")) return "bg-cyan-500/15 text-cyan-300 border-cyan-500/30";
-    if (upper.includes("INSERT")) return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
-    if (upper.includes("UPDATE")) return "bg-amber-500/15 text-amber-300 border-amber-500/30";
-    if (upper.includes("DELETE")) return "bg-red-500/15 text-red-300 border-red-500/30";
-    if (upper.includes("EXECUTE")) return "bg-purple-500/15 text-purple-300 border-purple-500/30";
+    if (upper.includes("SELECT")) return "bg-cyan-500/15 text-cyan-700 border-cyan-500/30 dark:text-cyan-300";
+    if (upper.includes("INSERT")) return "bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-300";
+    if (upper.includes("UPDATE")) return "bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-300";
+    if (upper.includes("DELETE")) return "bg-red-500/15 text-red-700 border-red-500/30 dark:text-red-300";
+    if (upper.includes("EXECUTE")) return "bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-300";
     return "bg-secondary text-secondary-foreground border-border/40";
   };
 
@@ -507,7 +519,7 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
             {showRawOutput ? "Hide" : "View"} Execution Output Details
           </button>
           {showRawOutput && (
-            <pre className="rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
+            <pre className="keep-dark rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
               {result.raw_output}
             </pre>
           )}
@@ -852,7 +864,7 @@ function SearchableMultiObjectSelect({
             {item}
             <button
               type="button"
-              className="hover:text-cyan-100 focus:outline-none"
+              className="hover:text-cyan-700 focus:outline-none dark:hover:text-cyan-100"
               onClick={(e) => {
                 e.stopPropagation();
                 toggleItem(item);
@@ -906,7 +918,7 @@ function SearchableMultiObjectSelect({
                 <button
                   type="button"
                   onClick={selectAllFiltered}
-                  className="text-cyan-400 hover:text-cyan-300 font-medium hover:underline text-[11px]"
+                  className="text-cyan-600 hover:text-cyan-700 font-medium hover:underline text-[11px] dark:text-cyan-400 dark:hover:text-cyan-300"
                 >
                   Select {search ? "Matching" : "All"}
                 </button>
@@ -1856,22 +1868,39 @@ export function PrivilegeManagementSection() {
     <div className="space-y-6">
       {/* Action cards */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {PRIV_CARDS.map(({ modal, label, description, icon: Icon, destructive }) => (
+        {PRIV_CARDS.map(({ modal, label, description, icon: Icon, tone, destructive }) => (
           <Card
             key={modal}
-            className="hover:border-border/80 transition-colors cursor-pointer group"
+            className={cn(
+              "group relative cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
+              destructive ? "hover:border-red-400/40 hover:shadow-red-500/10" : TONE_STYLES[tone].hover
+            )}
             onClick={() => openModal(modal)}
           >
-            <CardContent className="flex flex-col p-4 h-full">
+            <CardContent className="flex h-full flex-col p-4">
               <div className="flex items-start justify-between gap-2">
-                <span className={`rounded-md border p-2 ${destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"} group-hover:scale-105 transition-transform`}>
+                <span
+                  className={cn(
+                    "rounded-lg border p-2 transition-transform duration-200 group-hover:scale-110",
+                    destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : TONE_STYLES[tone].chip
+                  )}
+                >
                   <Icon className="h-4 w-4" />
                 </span>
-                {destructive && <Badge variant="outline" className="text-red-400 border-red-400/40 text-[10px]">Destructive</Badge>}
+                {destructive ? (
+                  <Badge variant="outline" className="border-red-400/40 text-[10px] text-red-400">Destructive</Badge>
+                ) : (
+                  <ArrowRight
+                    className={cn(
+                      "h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100",
+                      TONE_STYLES[tone].arrow
+                    )}
+                  />
+                )}
               </div>
               <div className="mt-3 flex-1">
                 <p className="text-sm font-semibold">{label}</p>
-                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
               </div>
             </CardContent>
           </Card>
@@ -1880,12 +1909,18 @@ export function PrivilegeManagementSection() {
 
       {/* Check User Privileges Result */}
       {checkPrivsResult && (
-        <div className="rounded-lg border border-border/60 p-4 space-y-3 bg-card/30">
+        <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 p-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
-            <p className="text-sm font-semibold">User Privileges Report</p>
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
+                <ShieldCheck className="h-3.5 w-3.5" />
+              </span>
+              <p className="text-sm font-semibold">User Privileges Report</p>
+            </div>
             <Button
               variant="ghost"
               size="sm"
+              className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
               onClick={() => {
                 setCheckPrivsResult(null);
                 try {

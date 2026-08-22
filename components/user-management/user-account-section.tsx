@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
   CheckCircle2,
   Database,
   DatabaseZap,
@@ -36,6 +37,8 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { useUserMgmt } from "@/hooks/use-user-mgmt";
+import { cn } from "@/lib/utils";
+import { TONE_STYLES, type CardTone } from "@/components/user-management/card-tones";
 import type { DbaResponse, UserStatusRow } from "@/types/dba";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -70,6 +73,7 @@ const ACCOUNT_CARDS: {
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
+  tone: CardTone;
   destructive?: boolean;
   noSchemaLoad?: boolean;
 }[] = [
@@ -78,6 +82,7 @@ const ACCOUNT_CARDS: {
     label: "Check Users Status",
     description: "View account status, expiry date, and profile for all users.",
     icon: UserCheck,
+    tone: "cyan",
     noSchemaLoad: true
   },
   {
@@ -85,55 +90,64 @@ const ACCOUNT_CARDS: {
     label: "Create User",
     description: "Create a new Oracle user with tablespace, profile, and quota.",
     icon: UserPlus,
+    tone: "emerald",
     noSchemaLoad: true
   },
   {
     modal: "unlock_user",
     label: "Unlock User",
     description: "Unlock a locked database account.",
-    icon: LockOpen
+    icon: LockOpen,
+    tone: "amber"
   },
   {
     modal: "reset_password",
     label: "Reset Password",
     description: "Set a new password for an existing user.",
-    icon: KeyRound
+    icon: KeyRound,
+    tone: "violet"
   },
   {
     modal: "change_default_tbs",
     label: "Change Default Tablespace",
     description: "Reassign the user's default permanent tablespace.",
-    icon: Database
+    icon: Database,
+    tone: "blue"
   },
   {
     modal: "change_temp_tbs",
     label: "Change Temporary Tablespace",
     description: "Reassign the user's temporary tablespace.",
-    icon: DatabaseZap
+    icon: DatabaseZap,
+    tone: "teal"
   },
   {
     modal: "change_quota",
     label: "Change Quota",
     description: "Alter storage quota on a tablespace for a user.",
-    icon: HardDrive
+    icon: HardDrive,
+    tone: "indigo"
   },
   {
     modal: "assign_profile",
     label: "Assign Profile",
     description: "Assign an Oracle profile to a user.",
-    icon: Fingerprint
+    icon: Fingerprint,
+    tone: "fuchsia"
   },
   {
     modal: "rename_user",
     label: "Rename User",
     description: "Rename an Oracle user (ALTER USER … RENAME TO).",
-    icon: UserPen
+    icon: UserPen,
+    tone: "orange"
   },
   {
     modal: "drop_user",
     label: "Drop User",
     description: "Permanently drop a user and all owned objects (CASCADE).",
     icon: UserX,
+    tone: "cyan",
     destructive: true
   }
 ];
@@ -218,7 +232,7 @@ function ResultPanel({ result, error }: { result: DbaResponse | null; error: str
             {showRawOutput ? "Hide" : "View"} Execution Output Details
           </button>
           {showRawOutput && (
-            <pre className="rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
+            <pre className="keep-dark rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px] font-mono text-emerald-400 dark:text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed shadow-inner">
               {result.raw_output}
             </pre>
           )}
@@ -684,18 +698,39 @@ export function UserAccountSection() {
     <div className="space-y-6">
       {/* Action cards grid */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {ACCOUNT_CARDS.map(({ modal, label, description, icon: Icon, destructive, noSchemaLoad }) => (
-          <Card key={modal} className="hover:border-border/80 transition-colors cursor-pointer group" onClick={() => openModal(modal, !noSchemaLoad)}>
-            <CardContent className="flex flex-col p-4 h-full">
+        {ACCOUNT_CARDS.map(({ modal, label, description, icon: Icon, tone, destructive, noSchemaLoad }) => (
+          <Card
+            key={modal}
+            className={cn(
+              "group relative cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
+              destructive ? "hover:border-red-400/40 hover:shadow-red-500/10" : TONE_STYLES[tone].hover
+            )}
+            onClick={() => openModal(modal, !noSchemaLoad)}
+          >
+            <CardContent className="flex h-full flex-col p-4">
               <div className="flex items-start justify-between gap-2">
-                <span className={`rounded-md border p-2 ${destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"} group-hover:scale-105 transition-transform`}>
+                <span
+                  className={cn(
+                    "rounded-lg border p-2 transition-transform duration-200 group-hover:scale-110",
+                    destructive ? "border-red-400/30 bg-red-400/10 text-red-300" : TONE_STYLES[tone].chip
+                  )}
+                >
                   <Icon className="h-4 w-4" />
                 </span>
-                {destructive && <Badge variant="outline" className="text-red-400 border-red-400/40 text-[10px]">Destructive</Badge>}
+                {destructive ? (
+                  <Badge variant="outline" className="border-red-400/40 text-[10px] text-red-400">Destructive</Badge>
+                ) : (
+                  <ArrowRight
+                    className={cn(
+                      "h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100",
+                      TONE_STYLES[tone].arrow
+                    )}
+                  />
+                )}
               </div>
               <div className="mt-3 flex-1">
                 <p className="text-sm font-semibold">{label}</p>
-                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
               </div>
             </CardContent>
           </Card>
@@ -704,12 +739,21 @@ export function UserAccountSection() {
 
       {/* User Status result table (below cards, outside modal) */}
       {statusRows.length > 0 && (
-        <div className="rounded-lg border border-border/60">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
-            <p className="text-sm font-semibold">All Database Users — Account Status</p>
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card/40 shadow-sm">
+          <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+                <UserCheck className="h-3.5 w-3.5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">All Database Users — Account Status</p>
+                <p className="text-[11px] text-muted-foreground">{statusRows.length} user{statusRows.length !== 1 ? "s" : ""} returned</p>
+              </div>
+            </div>
             <Button
               variant="ghost"
               size="sm"
+              className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
               onClick={() => {
                 setStatusResult(null);
                 try {
