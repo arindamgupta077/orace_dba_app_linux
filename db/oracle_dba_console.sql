@@ -76,7 +76,9 @@ BEGIN
         logout_read_at TIMESTAMP(6),
         logout_read_by VARCHAR2(100 CHAR),
         late_comment  VARCHAR2(1000 CHAR),
-        emergency_comment VARCHAR2(1000 CHAR)
+        emergency_comment VARCHAR2(1000 CHAR),
+        force_close_comment VARCHAR2(1000 CHAR),
+        force_closed_by VARCHAR2(128 CHAR)
       )
     ]';
   END IF;
@@ -119,6 +121,8 @@ BEGIN
   add_column_if_missing('logout_read_by', 'logout_read_by VARCHAR2(100 CHAR)');
   add_column_if_missing('late_comment', 'late_comment VARCHAR2(1000 CHAR)');
   add_column_if_missing('emergency_comment', 'emergency_comment VARCHAR2(1000 CHAR)');
+  add_column_if_missing('force_close_comment', 'force_close_comment VARCHAR2(1000 CHAR)');
+  add_column_if_missing('force_closed_by', 'force_closed_by VARCHAR2(128 CHAR)');
 END;
 /
 

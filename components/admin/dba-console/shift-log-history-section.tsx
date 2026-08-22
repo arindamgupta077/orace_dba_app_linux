@@ -10,6 +10,7 @@ import {
   Filter,
   History,
   RefreshCw,
+  ShieldAlert,
   XCircle
 } from "lucide-react";
 import { toast } from "sonner";
@@ -92,6 +93,8 @@ interface ShiftLogHistorySectionProps {
   pageSize?: number;
 }
 
+type ShiftLogStatusFilter = "ALL" | "ACTIVE" | "CLOSED" | "EMERGENCY" | "FORCE_CLOSED";
+
 export function ShiftLogHistorySection({
   className,
   fromDate,
@@ -104,9 +107,10 @@ export function ShiftLogHistorySection({
   const [sessionLogs, setSessionLogs] = useState<ShiftSession[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsSearch, setLogsSearch] = useState("");
-  const [logsStatusFilter, setLogsStatusFilter] = useState<"ALL" | "ACTIVE" | "CLOSED">("ALL");
+  const [logsStatusFilter, setLogsStatusFilter] = useState<ShiftLogStatusFilter>("ALL");
   const [showLogsHistory, setShowLogsHistory] = useState(false);
   const [selectedEmergencySession, setSelectedEmergencySession] = useState<ShiftSession | null>(null);
+  const [selectedForceClosedSession, setSelectedForceClosedSession] = useState<ShiftSession | null>(null);
   const [logsPage, setLogsPage] = useState(0);
   const logsPageSize = hideViewFullHistoryButton ? pageSize : 10;
   const defaultFromDate = useMemo(() => toIstDateStringOffset(new Date(), -30), []);
@@ -159,7 +163,9 @@ export function ShiftLogHistorySection({
       const matchesStatus =
         logsStatusFilter === "ALL" ||
         (logsStatusFilter === "ACTIVE" && log.is_active) ||
-        (logsStatusFilter === "CLOSED" && !log.is_active);
+        (logsStatusFilter === "CLOSED" && !log.is_active && !log.emergency_comment && !log.force_close_comment) ||
+        (logsStatusFilter === "EMERGENCY" && !log.is_active && Boolean(log.emergency_comment)) ||
+        (logsStatusFilter === "FORCE_CLOSED" && !log.is_active && Boolean(log.force_close_comment));
 
       const searchLower = logsSearch.toLowerCase().trim();
       const shiftLabelStr = SHIFT_LABELS[log.shift_number] || `Shift ${log.shift_number}`;
@@ -245,18 +251,20 @@ export function ShiftLogHistorySection({
               <span className="text-xs text-muted-foreground">Status:</span>
               <Select
                 value={logsStatusFilter}
-                onValueChange={(val: "ALL" | "ACTIVE" | "CLOSED") => {
+                onValueChange={(val: ShiftLogStatusFilter) => {
                   setLogsStatusFilter(val);
                   setLogsPage(0);
                 }}
               >
-                <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50 border-border/60">
+                <SelectTrigger className="h-8 text-xs w-[160px] bg-background/50 border-border/60">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Statuses</SelectItem>
                   <SelectItem value="ACTIVE">Active Only</SelectItem>
-                  <SelectItem value="CLOSED">Closed Only</SelectItem>
+                  <SelectItem value="CLOSED">Closed (Normal)</SelectItem>
+                  <SelectItem value="EMERGENCY">Emergency Logout</SelectItem>
+                  <SelectItem value="FORCE_CLOSED">Force Closed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -346,6 +354,16 @@ export function ShiftLogHistorySection({
                           <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
                             ACTIVE
                           </Badge>
+                        ) : log.force_close_comment ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedForceClosedSession(log)}
+                            className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300 hover:bg-rose-500/25 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/50"
+                            title="Click to view admin force close reason"
+                          >
+                            <ShieldAlert className="h-3 w-3 text-rose-500" />
+                            FORCE CLOSED
+                          </button>
                         ) : log.emergency_comment ? (
                           <button
                             type="button"
@@ -481,18 +499,20 @@ export function ShiftLogHistorySection({
                 </Label>
                 <Select
                   value={logsStatusFilter}
-                  onValueChange={(val: "ALL" | "ACTIVE" | "CLOSED") => {
+                  onValueChange={(val: ShiftLogStatusFilter) => {
                     setLogsStatusFilter(val);
                     setLogsPage(0);
                   }}
                 >
-                  <SelectTrigger className="h-8 text-xs w-[130px] bg-background/50 border-border/60">
+                  <SelectTrigger className="h-8 text-xs w-[160px] bg-background/50 border-border/60">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ALL">All Statuses</SelectItem>
                     <SelectItem value="ACTIVE">Active Only</SelectItem>
-                    <SelectItem value="CLOSED">Closed Only</SelectItem>
+                    <SelectItem value="CLOSED">Closed (Normal)</SelectItem>
+                    <SelectItem value="EMERGENCY">Emergency Logout</SelectItem>
+                    <SelectItem value="FORCE_CLOSED">Force Closed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -612,6 +632,16 @@ export function ShiftLogHistorySection({
                             <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-medium">
                               ACTIVE
                             </Badge>
+                          ) : log.force_close_comment ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedForceClosedSession(log)}
+                              className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300 hover:bg-rose-500/25 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/50"
+                              title="Click to view admin force close reason"
+                            >
+                              <ShieldAlert className="h-3 w-3 text-rose-500" />
+                              FORCE CLOSED
+                            </button>
                           ) : log.emergency_comment ? (
                             <button
                               type="button"
@@ -735,6 +765,85 @@ export function ShiftLogHistorySection({
               size="sm"
               variant="outline"
               onClick={() => setSelectedEmergencySession(null)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Force Close Details Dialog */}
+      <Dialog
+        open={!!selectedForceClosedSession}
+        onOpenChange={(open) => {
+          if (!open) setSelectedForceClosedSession(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-500">
+              <ShieldAlert className="h-5 w-5" />
+              Admin Force Close Details
+            </DialogTitle>
+            <DialogDescription className="pt-1">
+              This shift session was force closed by an administrator without prerequisite logout conditions.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedForceClosedSession && (
+            <div className="space-y-4 pt-1 text-xs">
+              <div className="grid grid-cols-2 gap-2.5 rounded-lg border border-border/60 bg-background/50 p-3">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">DBA:</span>
+                  <span className="font-semibold text-foreground">{selectedForceClosedSession.username}</span>
+                  <span className="text-muted-foreground ml-1 uppercase text-[10px]">({selectedForceClosedSession.role})</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Shift:</span>
+                  <span className="font-semibold">{SHIFT_LABELS[selectedForceClosedSession.shift_number] || `Shift ${selectedForceClosedSession.shift_number}`}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Shift Date:</span>
+                  <span className="font-mono">{selectedForceClosedSession.shift_date || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Duration:</span>
+                  <span className="font-medium">{formatShiftDuration(selectedForceClosedSession.login_at, selectedForceClosedSession.logout_at)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Login Time (IST):</span>
+                  <span className="font-mono">{formatDateTime(selectedForceClosedSession.login_at)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Closed At (IST):</span>
+                  <span className="font-mono">{selectedForceClosedSession.logout_at ? formatDateTime(selectedForceClosedSession.logout_at) : "—"}</span>
+                </div>
+                {selectedForceClosedSession.force_closed_by && (
+                  <div className="col-span-2 pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground block text-[11px]">Force Closed By:</span>
+                    <span className="font-semibold text-rose-400">{selectedForceClosedSession.force_closed_by}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Force Close Comment Box */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Admin Force Close Reason / Comment:
+                </Label>
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs leading-relaxed text-foreground whitespace-pre-wrap">
+                  {selectedForceClosedSession.force_close_comment || "No comment recorded."}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedForceClosedSession(null)}
             >
               Close
             </Button>

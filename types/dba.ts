@@ -924,6 +924,8 @@ export interface ShiftSession {
   ack_at?: string;
   late_comment?: string;
   emergency_comment?: string;
+  force_close_comment?: string;
+  force_closed_by?: string;
 }
 
 export interface ActiveDba {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { overrideHandover, insertAuditLog, closeShiftSession } from "@/lib/server/repository";
+import { overrideHandover, insertAuditLog, closeShiftSession, getShiftSessionById } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { getShiftLabel } from "@/lib/server/shift-utils";
@@ -35,62 +35,97 @@ export async function POST(request: Request) {
 
     const reason = (body.reason || "").trim();
     if (!reason) {
-      return NextResponse.json({ message: "A reason is required for an override." }, { status: 400 });
+      return NextResponse.json({ message: "A reason is required for admin force close." }, { status: 400 });
     }
 
+    const sessionId = body.sessionId ? Number(body.sessionId) : undefined;
     const handoverId = body.handoverId ? Number(body.handoverId) : undefined;
-    if (!handoverId) {
-      return NextResponse.json({ message: "handoverId is required." }, { status: 400 });
+
+    if (!sessionId && !handoverId) {
+      return NextResponse.json({ message: "Either sessionId or handoverId is required." }, { status: 400 });
     }
 
-    const handover = await overrideHandover({
-      handoverId,
-      adminUserId: session.userId,
-      adminUsername: session.user.username,
-      reason,
-      actor: session.user.username
-    });
+    let targetSession = sessionId ? await getShiftSessionById(sessionId) : null;
+    const targetHandoverId = handoverId || targetSession?.handover_id;
+
+    // An admin cannot force close their own shift session — another admin must perform the action
+    const targetUserId = targetSession?.user_id;
+    const targetUsername = targetSession?.username;
+    if (
+      (targetUserId && targetUserId === session.userId) ||
+      (targetUsername && targetUsername.toLowerCase() === session.user.username.toLowerCase())
+    ) {
+      return NextResponse.json(
+        { message: "You cannot force close your own shift session. Another administrator must perform this action if required." },
+        { status: 403 }
+      );
+    }
+
+    let handover = null;
+    if (targetHandoverId) {
+      try {
+        handover = await overrideHandover({
+          handoverId: targetHandoverId,
+          adminUserId: session.userId,
+          adminUsername: session.user.username,
+          reason,
+          actor: session.user.username
+        });
+      } catch (err) {
+        // If handover was not found or already acknowledged, continue to close the session
+        console.warn("[Override] Handover override warning:", err);
+      }
+    }
+
+    const targetSessionId = sessionId || handover?.session_id;
+    let closedSession = null;
+    if (targetSessionId) {
+      closedSession = await closeShiftSession({
+        sessionId: targetSessionId,
+        actor: session.user.username,
+        forceCloseComment: reason,
+        forceClosedBy: session.user.username
+      });
+      if (!targetSession) {
+        targetSession = closedSession;
+      }
+    }
+
+    const targetUser = targetSession?.username || handover?.author_username || "DBA";
+    const targetShiftNumber = targetSession?.shift_number || handover?.shift_number || 1;
+    const targetShiftLabel = getShiftLabel(targetShiftNumber);
 
     await insertAuditLog({
       actor: session.user.username,
-      action: "handover_override",
+      action: "shift_force_close",
       status: "success",
-      detail: `Admin override: acknowledged handover from ${handover.author_username}. Reason: ${reason}`
+      detail: `Admin force close: terminated shift session for ${targetUser} (${targetShiftLabel}). Reason: ${reason}`
     });
 
     void dispatchShiftWebhook("handover_override", {
       action: "handover_override",
       username: session.user.username,
       email: session.user.username,
-      shift: getShiftLabel(handover.shift_number),
-      author: handover.author_username,
+      shift: targetShiftLabel,
+      author: targetUser,
       reason,
-      timestamp: formatIstIsoString(handover.ack_at)
+      timestamp: formatIstIsoString(new Date())
     });
 
     emitGlobalNotification({
-      id: `HANDOVER-${handover.handover_id}`,
+      id: `FORCE-CLOSE-${targetSessionId || Date.now()}`,
       type: "dba_shift",
-      severity: "info",
-      db: getShiftLabel(handover.shift_number),
-      title: `Handover Override: ${session.user.username}`,
-      message: `${session.user.username} force-acknowledged the handover from ${handover.author_username} for ${getShiftLabel(handover.shift_number)} at ${formatAppDateTime(handover.ack_at)} IST.`,
-      timestamp: handover.ack_at || new Date().toISOString(),
+      severity: "warning",
+      db: targetShiftLabel,
+      title: `Admin Force Close: ${targetUser}`,
+      message: `${session.user.username} force closed the shift session for ${targetUser} (${targetShiftLabel}) at ${formatAppDateTime(new Date())} IST. Reason: ${reason}`,
+      timestamp: new Date().toISOString(),
       targetPath: "/dba-console/shift-management"
     });
 
-    // Optionally force-close the session too.
-    let closedSession = null;
-    if (body.closeSession && body.sessionId) {
-      closedSession = await closeShiftSession({
-        sessionId: Number(body.sessionId),
-        actor: session.user.username
-      });
-    }
-
     return NextResponse.json({ handover, session: closedSession });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to override handover.";
+    const message = error instanceof Error ? error.message : "Failed to force close shift session.";
     return NextResponse.json({ message }, { status: 400 });
   }
 }

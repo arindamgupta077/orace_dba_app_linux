@@ -3992,6 +3992,8 @@ interface ShiftSessionRow extends DbRow {
   ACK_AT?: Date;
   LATE_COMMENT?: string;
   EMERGENCY_COMMENT?: string;
+  FORCE_CLOSE_COMMENT?: string;
+  FORCE_CLOSED_BY?: string;
 }
 
 function mapShiftSession(row: ShiftSessionRow): ShiftSession {
@@ -4015,7 +4017,9 @@ function mapShiftSession(row: ShiftSessionRow): ShiftSession {
     ack_username: row.ACK_USERNAME ? String(row.ACK_USERNAME) : undefined,
     ack_at: row.ACK_AT ? toIstIsoString(row.ACK_AT) : undefined,
     late_comment: row.LATE_COMMENT ? String(row.LATE_COMMENT) : undefined,
-    emergency_comment: row.EMERGENCY_COMMENT ? String(row.EMERGENCY_COMMENT) : undefined
+    emergency_comment: row.EMERGENCY_COMMENT ? String(row.EMERGENCY_COMMENT) : undefined,
+    force_close_comment: row.FORCE_CLOSE_COMMENT ? String(row.FORCE_CLOSE_COMMENT) : undefined,
+    force_closed_by: row.FORCE_CLOSED_BY ? String(row.FORCE_CLOSED_BY) : undefined
   };
 }
 
@@ -4023,6 +4027,7 @@ const SHIFT_SESSION_COLUMNS = `
   s.session_id, s.user_id, s.username, s.email, u.role,
   s.shift_number, s.shift_date, s.login_at, s.logout_at,
   s.status, s.is_active, s.late_comment, s.emergency_comment,
+  s.force_close_comment, s.force_closed_by,
   h.handover_id, h.handover_text, h.status AS handover_status,
   h.ack_username, h.ack_at
 `;
@@ -4183,6 +4188,8 @@ export async function closeShiftSession(input: {
   sessionId: number;
   actor: string;
   emergencyComment?: string;
+  forceCloseComment?: string;
+  forceClosedBy?: string;
 }): Promise<ShiftSession> {
   return executeOne(async (connection) => {
     try {
@@ -4192,12 +4199,16 @@ export async function closeShiftSession(input: {
              status = 'CLOSED',
              is_active = 'N',
              updated_by = :actor,
-             emergency_comment = :emergencyComment
+             emergency_comment = :emergencyComment,
+             force_close_comment = :forceCloseComment,
+             force_closed_by = :forceClosedBy
          WHERE session_id = :sessionId AND is_active = 'Y'`,
         {
           sessionId: input.sessionId,
           actor: input.actor,
-          emergencyComment: input.emergencyComment || null
+          emergencyComment: input.emergencyComment || null,
+          forceCloseComment: input.forceCloseComment || null,
+          forceClosedBy: input.forceClosedBy || null
         }
       );
 
@@ -7730,7 +7741,9 @@ export async function ensureNotificationReadColumnsExist(): Promise<void> {
             `ALTER TABLE app_shift_sessions ADD (logout_is_read VARCHAR2(1) DEFAULT 'N')`,
             `ALTER TABLE app_shift_sessions ADD (logout_read_at TIMESTAMP)`,
             `ALTER TABLE app_shift_sessions ADD (logout_read_by VARCHAR2(100))`,
-            `ALTER TABLE app_shift_sessions ADD (emergency_comment VARCHAR2(1000 CHAR))`
+            `ALTER TABLE app_shift_sessions ADD (emergency_comment VARCHAR2(1000 CHAR))`,
+            `ALTER TABLE app_shift_sessions ADD (force_close_comment VARCHAR2(1000 CHAR))`,
+            `ALTER TABLE app_shift_sessions ADD (force_closed_by VARCHAR2(128 CHAR))`
           );
         }
         for (const stmt of statements) {

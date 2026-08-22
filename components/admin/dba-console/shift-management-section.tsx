@@ -524,21 +524,30 @@ export function ShiftManagementSection() {
   };
 
   const handleOverride = async () => {
-    if (!overrideTarget?.handover_id || !overrideReason.trim()) {
-      toast.error("A pending handover and reason are required for an override.");
+    if (!overrideTarget?.session_id || !overrideReason.trim()) {
+      toast.error("An active session and reason are required for admin force close.");
+      return;
+    }
+    if (overrideTarget.username === user?.username) {
+      toast.error("You cannot force close your own shift session. Another administrator must perform this action.");
       return;
     }
     setActionLoading(true);
     try {
-      await overrideHandoverApi(overrideTarget.handover_id, overrideReason.trim(), true, overrideTarget.session_id);
-      toast.success("Handover override completed. Session closed.");
+      await overrideHandoverApi({
+        sessionId: overrideTarget.session_id,
+        handoverId: overrideTarget.handover_id,
+        reason: overrideReason.trim(),
+        closeSession: true
+      });
+      toast.success(`Force closed shift session for ${overrideTarget.username}.`);
       setOverrideTarget(null);
       setOverrideReason("");
       await load();
       await loadHistory(100);
       window.dispatchEvent(new CustomEvent("dba-notification", { detail: { type: "dba_shift" } as NotificationPayload }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Override failed.");
+      toast.error(error instanceof Error ? error.message : "Force close failed.");
     } finally {
       setActionLoading(false);
     }
@@ -1580,34 +1589,66 @@ export function ShiftManagementSection() {
               </div>
             )}
 
-            {/* Admin override section */}
-            {isAdmin && sessions.length > 0 && (
-              <div className="space-y-2 border-t border-border/70 pt-4">
-                <Label className="flex items-center gap-2 text-amber-400">
-                  <ShieldAlert className="h-4 w-4" />
-                  Admin Override
-                </Label>
-                <div className="space-y-1.5">
+            {/* Admin force close section */}
+            {isAdmin && (
+              <div className="space-y-2.5 border-t border-border/70 pt-4">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 font-semibold text-rose-400">
+                    <ShieldAlert className="h-4 w-4" />
+                    Admin Shift Force Close
+                  </Label>
+                  <Badge variant="outline" className="text-[10px] border-rose-500/30 bg-rose-500/10 text-rose-300">
+                    App Admin Override
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Force close active shifts of other DBAs or administrators immediately without waiting for handover notes or checklist completion.
+                </p>
+                <div className="space-y-2">
                   {sessions
-                    .filter((s) => s.username !== user?.username && s.handover_status === "PENDING")
+                    .filter((s) => s.is_active && s.username !== user?.username)
                     .map((session) => (
-                      <div key={session.session_id} className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2">
-                        <span className="text-sm">
-                          {session.username} (Shift {session.shift_number}) — pending handover
-                        </span>
+                      <div key={session.session_id} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/40 p-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <DbaAvatar name={session.username} className="h-7 w-7 text-xs" />
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-semibold text-foreground truncate">{session.username}</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-cyan-500/30 text-cyan-300">
+                                {SHIFT_LABELS[session.shift_number] || `Shift ${session.shift_number}`}
+                              </Badge>
+                              {session.role === "app_admin" && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 border-purple-500/30 text-purple-300">
+                                  Admin
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-muted-foreground">
+                              Logged in at {formatTime(session.login_at)} • Handover: {session.handover_status === "ACKNOWLEDGED" ? "Acknowledged" : session.handover_status === "PENDING" ? "Pending" : "Not Submitted"}
+                            </span>
+                          </div>
+                        </div>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                          onClick={() => setOverrideTarget(session)}
+                          className="border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 shrink-0 gap-1.5 text-xs font-medium"
+                          onClick={() => {
+                            setOverrideReason("");
+                            setOverrideTarget(session);
+                          }}
+                          title={`Force close shift for ${session.username}`}
                         >
                           <ShieldAlert className="h-3.5 w-3.5" />
-                          Override & Close
+                          Force Close
                         </Button>
                       </div>
                     ))}
-                  {sessions.filter((s) => s.username !== user?.username && s.handover_status === "PENDING").length === 0 && (
-                    <p className="text-xs text-muted-foreground">No pending handovers to override.</p>
+                  {sessions.filter((s) => s.is_active && s.username !== user?.username).length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">
+                      {sessions.some((s) => s.is_active && s.username === user?.username)
+                        ? "You cannot force close your own shift session. No other active DBA sessions found."
+                        : "No active shift sessions from other DBAs to force close."}
+                    </p>
                   )}
                 </div>
               </div>
@@ -2038,38 +2079,53 @@ export function ShiftManagementSection() {
         </DialogContent>
       </Dialog>
 
-      {/* Override confirmation dialog */}
+      {/* Admin Force Close Dialog */}
       <Dialog open={!!overrideTarget} onOpenChange={(open) => !open && setOverrideTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-400">
+            <DialogTitle className="flex items-center gap-2 text-rose-400">
               <ShieldAlert className="h-5 w-5" />
-              Admin Override
+              Admin Force Close Shift
             </DialogTitle>
-            <DialogDescription>
-              You are about to force-acknowledge the handover for{" "}
-              <strong>{overrideTarget?.username}</strong> and close their session. This will be
-              recorded in the audit log with your reason.
+            <DialogDescription className="pt-1">
+              You are about to force close the active shift session for{" "}
+              <strong className="text-foreground">{overrideTarget?.username}</strong> (
+              {SHIFT_LABELS[overrideTarget?.shift_number ?? 1] || `Shift ${overrideTarget?.shift_number}`}).
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label>Reason</Label>
+          <div className="rounded-md border border-rose-500/20 bg-rose-500/5 p-3 text-xs text-rose-300 space-y-1">
+            <p className="font-semibold">Bypasses All Shift Logout Conditions</p>
+            <p>
+              This action will immediately terminate and close this DBA&apos;s shift session without requiring handover notes, daily checklist completion, or minimum duration. Your comment will be permanently recorded in the audit log and session history.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium flex items-center justify-between">
+              <span>Force Close Reason / Comment <span className="text-red-500">*</span></span>
+              <span className="text-[10px] text-muted-foreground">{overrideReason.length}/1000</span>
+            </Label>
             <Textarea
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
-              placeholder="Explain why this override is necessary..."
-              className="min-h-[80px]"
+              placeholder="Please enter a mandatory reason for admin force close..."
+              rows={4}
+              maxLength={1000}
+              className="text-xs resize-none"
+              autoFocus
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOverrideTarget(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOverrideTarget(null)} disabled={actionLoading}>
+              Cancel
+            </Button>
             <Button
               variant="destructive"
+              className="bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
               onClick={() => void handleOverride()}
               disabled={actionLoading || !overrideReason.trim()}
             >
               {actionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-              Force Acknowledge & Close
+              Confirm Force Close
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -802,14 +802,20 @@ export async function acknowledgeHandover(handoverId: number): Promise<{ handove
 }
 
 export async function overrideHandoverApi(
-  handoverId: number,
-  reason: string,
+  handoverIdOrParams: number | { handoverId?: number; sessionId?: number; reason: string; closeSession?: boolean },
+  reason?: string,
   closeSession = false,
   sessionId?: number
-): Promise<{ handover: Handover; session: ShiftSession | null }> {
-  return requestJson<{ handover: Handover; session: ShiftSession | null }>("/api/shift/override", {
+): Promise<{ handover: Handover | null; session: ShiftSession | null }> {
+  let body: { handoverId?: number; sessionId?: number; reason: string; closeSession?: boolean };
+  if (typeof handoverIdOrParams === "object") {
+    body = handoverIdOrParams;
+  } else {
+    body = { handoverId: handoverIdOrParams, reason: reason || "", closeSession, sessionId };
+  }
+  return requestJson<{ handover: Handover | null; session: ShiftSession | null }>("/api/shift/override", {
     method: "POST",
-    body: JSON.stringify({ handoverId, reason, closeSession, sessionId })
+    body: JSON.stringify(body)
   });
 }
 

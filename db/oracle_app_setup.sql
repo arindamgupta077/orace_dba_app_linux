@@ -543,6 +543,8 @@ CREATE TABLE app_shift_sessions (
   logout_read_by VARCHAR2(100 CHAR),
   late_comment  VARCHAR2(1000 CHAR),
   emergency_comment VARCHAR2(1000 CHAR),
+  force_close_comment VARCHAR2(1000 CHAR),
+  force_closed_by VARCHAR2(128 CHAR),
   CONSTRAINT fk_shift_session_user FOREIGN KEY (user_id) REFERENCES app_users(user_id),
   CONSTRAINT ck_shift_session_shift CHECK (shift_number IN (1,2,3,4)),
   CONSTRAINT ck_shift_session_status CHECK (status IN ('ACTIVE','CLOSED'))
