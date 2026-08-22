@@ -3,31 +3,46 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Bell,
+  Calendar,
   Check,
+  CheckCircle2,
   Clock,
   Database,
   Info,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Save,
   Shield,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Timer,
-  Trash2
+  Trash2,
+  Workflow
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEFAULT_SECURITY_POSTURE_POLICY, type SecurityPosturePolicyConfig } from "@/lib/security-posture-policy";
-import { formatDateTime, formatNumber } from "@/lib/utils";
+import { cn, formatDateTime, formatNumber } from "@/lib/utils";
 import {
   fetchAuditRetentionPolicy,
   fetchPerformanceConfig,
@@ -80,7 +95,7 @@ const PRESET_CHECK_INTERVAL_MINUTES = [
 const PRESET_AUDIT_RETENTION_DAYS = [
   { label: "1 Year", days: 365, years: 1 },
   { label: "2 Years", days: 730, years: 2 },
-  { label: "3 Years", days: 1095, years: 3 },
+  { label: "3 Years (Default)", days: 1095, years: 3 },
   { label: "4 Years", days: 1460, years: 4 },
   { label: "5 Years", days: 1825, years: 5 },
   { label: "6 Years", days: 2190, years: 6 },
@@ -117,6 +132,7 @@ export function SystemConfiguration() {
   const [auditStats, setAuditStats] = useState<AuditLogStats | null>(null);
   const [savingAuditPolicy, setSavingAuditPolicy] = useState(false);
   const [purgingAudit, setPurgingAudit] = useState(false);
+  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
 
@@ -304,6 +320,7 @@ export function SystemConfiguration() {
           lastPurgeAt: res.lastPurgeAt,
           lastPurgedCount: res.deletedCount
         }));
+        setPurgeDialogOpen(false);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to purge expired audit logs.");
@@ -323,730 +340,1060 @@ export function SystemConfiguration() {
     auditPolicy.retentionDays !== initialAuditPolicy.retentionDays ||
     auditPolicy.autoPurgeEnabled !== initialAuditPolicy.autoPurgeEnabled;
 
+  const hasAnyDirty = isPerfDirty || isPolicyDirty || isAuditDirty;
+
   const policyDays = Math.round((policy.outdatedAfterMinutes / (24 * 60)) * 10) / 10;
   const initialPolicyDays = Math.round((initialPolicy.outdatedAfterMinutes / (24 * 60)) * 10) / 10;
 
+  // Calculate cutoff date for audit retention
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - auditPolicy.retentionDays);
+  const cutoffFormatted = cutoffDate.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+
+  // Scanner frequency calculated executions per day
+  const scansPerDay = Math.round((1440 / Math.max(1, policy.outdatedWebhookCheckIntervalMinutes)) * 10) / 10;
+
   return (
-    <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/80 bg-gradient-to-r from-card via-card/90 to-muted/30 p-6 shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
-            <SlidersHorizontal className="h-6 w-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-foreground">System Configuration</h1>
-              <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-semibold text-cyan-700 dark:text-cyan-300">
-                APP_ADMIN ONLY
-              </Badge>
+    <TooltipProvider>
+      <div className="space-y-6">
+        {/* Executive Header Banner */}
+        <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-r from-card via-card/95 to-secondary/30 p-6 shadow-md">
+          {/* Subtle Ambient Glow */}
+          <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-cyan-500/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl" />
+
+          <div className="relative flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-500/20 via-cyan-500/10 to-transparent text-cyan-600 dark:text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                <SlidersHorizontal className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                  System Configuration
+                </h1>
+                <p className="text-xs text-muted-foreground sm:text-sm">
+                  Fine-tune enterprise governance parameters, automated cleanup schedulers, diagnostic telemetry payloads, and security posture thresholds.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Manage system-wide parameters, diagnostics defaults, Audit Log retention, Performance trends, and Security Posture policies.
-            </p>
+
+            <div className="flex items-center gap-2.5">
+              {hasAnyDirty && (
+                <Badge variant="outline" className="animate-pulse border-amber-500/40 bg-amber-500/10 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                  Unsaved Changes
+                </Badge>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadConfig}
+                disabled={loading || savingPerf || savingPolicy || savingAuditPolicy || purgingAudit}
+                className="gap-2 text-xs font-medium border-border/80 hover:bg-muted/80 shadow-xs"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-cyan-500" : ""}`} />
+                Reload Settings
+              </Button>
+            </div>
+          </div>
+
+          {/* Quick System Status Glance Bar */}
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* Audit Status Pill */}
+            <div
+              onClick={() => handleTabChange("audit-retention")}
+              className={cn(
+                "group cursor-pointer rounded-xl border p-3 transition-all duration-200",
+                activeTab === "audit-retention"
+                  ? "border-emerald-500/50 bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.12)]"
+                  : "border-border/60 bg-background/60 hover:border-emerald-500/30 hover:bg-muted/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <Shield className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Audit Retention
+                    </div>
+                    <div className="text-xs font-bold text-foreground font-mono">
+                      {initialAuditPolicy.retentionDays} Days ({Math.round((initialAuditPolicy.retentionDays / 365) * 10) / 10} Yrs)
+                    </div>
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-[10px] font-medium",
+                    initialAuditPolicy.autoPurgeEnabled
+                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                      : "border-border/60 bg-muted/60 text-muted-foreground"
+                  )}
+                >
+                  {initialAuditPolicy.autoPurgeEnabled ? "Auto-Purge ON" : "Auto-Purge OFF"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Performance Status Pill */}
+            <div
+              onClick={() => handleTabChange("performance")}
+              className={cn(
+                "group cursor-pointer rounded-xl border p-3 transition-all duration-200",
+                activeTab === "performance"
+                  ? "border-cyan-500/50 bg-cyan-500/10 shadow-[0_0_12px_rgba(6,182,212,0.12)]"
+                  : "border-border/60 bg-background/60 hover:border-cyan-500/30 hover:bg-muted/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-600 dark:text-cyan-400">
+                    <Activity className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Trend Window
+                    </div>
+                    <div className="text-xs font-bold text-foreground font-mono">
+                      {initialDays} Days ({initialDays * 24}h History)
+                    </div>
+                  </div>
+                </div>
+                <Badge variant="outline" className="border-cyan-500/40 bg-cyan-500/15 text-[10px] font-medium text-cyan-700 dark:text-cyan-300">
+                  n8n Diagnostics
+                </Badge>
+              </div>
+            </div>
+
+            {/* Security Posture Status Pill */}
+            <div
+              onClick={() => handleTabChange("security-posture")}
+              className={cn(
+                "group cursor-pointer rounded-xl border p-3 transition-all duration-200",
+                activeTab === "security-posture"
+                  ? "border-violet-500/50 bg-violet-500/10 shadow-[0_0_12px_rgba(139,92,246,0.12)]"
+                  : "border-border/60 bg-background/60 hover:border-violet-500/30 hover:bg-muted/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                    <ShieldAlert className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Nessus Expiry
+                    </div>
+                    <div className="text-xs font-bold text-foreground font-mono">
+                      {initialPolicyDays} Days Threshold
+                    </div>
+                  </div>
+                </div>
+                <Badge variant="outline" className="border-violet-500/40 bg-violet-500/15 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+                  {initialPolicy.outdatedWebhookMaxSends} Max Alerts
+                </Badge>
+              </div>
+            </div>
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={loadConfig}
-          disabled={loading || savingPerf || savingPolicy || savingAuditPolicy || purgingAudit}
-          className="gap-2 text-xs border-border/80 hover:bg-muted/80"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Reload Settings
-        </Button>
-      </div>
+        {/* Enhanced Tabs Navigation */}
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+          <div className="flex items-center justify-between border-b border-border/70 pb-3">
+            <TabsList className="grid w-full max-w-2xl grid-cols-3 bg-muted/60 p-1.5 rounded-xl border border-border/70 shadow-xs">
+              <TabsTrigger
+                value="audit-retention"
+                className="relative flex items-center justify-center gap-2 py-2 text-xs font-medium transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
+                <Shield className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Audit Retention</span>
+                {isAuditDirty && (
+                  <span className="h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse" title="Unsaved changes" />
+                )}
+              </TabsTrigger>
 
-      {/* Tabs Layout */}
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid w-full max-w-2xl grid-cols-3 bg-muted/70 p-1">
-          <TabsTrigger value="audit-retention" className="flex items-center gap-2 text-xs font-medium">
-            <Shield className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-            Audit Retention
-          </TabsTrigger>
-          <TabsTrigger value="performance" className="flex items-center gap-2 text-xs font-medium">
-            <Activity className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
-            Performance &amp; n8n
-          </TabsTrigger>
-          <TabsTrigger value="security-posture" className="flex items-center gap-2 text-xs font-medium">
-            <ShieldCheck className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-            Security Posture
-          </TabsTrigger>
-        </TabsList>
+              <TabsTrigger
+                value="performance"
+                className="relative flex items-center justify-center gap-2 py-2 text-xs font-medium transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
+                <Activity className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                <span>Performance &amp; n8n</span>
+                {isPerfDirty && (
+                  <span className="h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse" title="Unsaved changes" />
+                )}
+              </TabsTrigger>
 
-        {/* Tab 1: Audit Log Retention Policy */}
-        <TabsContent value="audit-retention" className="space-y-6">
-          <Card className="border-border/80 shadow-sm bg-card">
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
-                      <Shield className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      Audit Log Retention Policy
-                    </CardTitle>
-                    <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      Active: {initialAuditPolicy.retentionDays} Days ({Math.round((initialAuditPolicy.retentionDays / 365) * 10) / 10} Yr{initialAuditPolicy.retentionDays >= 730 ? "s" : ""})
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={`text-[11px] font-medium ${
-                        initialAuditPolicy.autoPurgeEnabled
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                          : "border-border/60 bg-muted/40 text-muted-foreground"
-                      }`}
-                    >
-                      {initialAuditPolicy.autoPurgeEnabled ? "Auto-Purge Active" : "Auto-Purge Disabled"}
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-muted-foreground">
-                    Configure retention lifespan for operational audit logs in <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">APP_AUDIT_LOGS</code> (1 Year to 7 Years), schedule automated background cleanup, and enforce data governance backed by <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">APP_SYSTEM_CONFIG</code>.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
+              <TabsTrigger
+                value="security-posture"
+                className="relative flex items-center justify-center gap-2 py-2 text-xs font-medium transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
+                <ShieldCheck className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                <span>Security Posture</span>
+                {isPolicyDirty && (
+                  <span className="h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse" title="Unsaved changes" />
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-            <CardContent className="space-y-8">
-              {/* Parameter 1: Retention Lifespan in Days & Years */}
-              <div className="space-y-3.5 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                      <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      1. Retention Lifespan (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">AUDIT_LOG_RETENTION_DAYS</code>)
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Lifespan from 1 Year (365 Days) to 7 Years (2555 Days). Audit logs older than this threshold are marked as expired and purged by scheduled maintenance or manual cleanup.
-                    </p>
-                  </div>
-                  <Badge variant="secondary" className="font-mono text-xs font-medium">
-                    {auditPolicy.retentionDays} Days ({Math.round((auditPolicy.retentionDays / 365) * 10) / 10} Years)
-                  </Badge>
-                </div>
-
-                {/* Quick Presets */}
-                <div className="space-y-2">
-                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Quick Presets (1 to 7 Years)
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    {PRESET_AUDIT_RETENTION_DAYS.map((p) => (
-                      <Button
-                        key={p.days}
-                        type="button"
-                        variant={auditPolicy.retentionDays === p.days ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setAuditPolicy((prev) => ({ ...prev, retentionDays: p.days }))}
-                        className="text-xs transition-all"
-                      >
-                        {p.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Custom Inputs: In Years and In Days */}
-                <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="audit-retention-years-input" className="text-xs font-medium text-foreground">
-                      Set in Years (1 – 7 Years):
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="audit-retention-years-input"
-                        type="number"
-                        min={1}
-                        max={7}
-                        value={Math.round(auditPolicy.retentionDays / 365)}
-                        onChange={(e) => {
-                          const yrs = parseInt(e.target.value, 10);
-                          if (Number.isFinite(yrs) && yrs >= 1 && yrs <= 7) {
-                            setAuditPolicy((prev) => ({ ...prev, retentionDays: yrs * 365 }));
-                          }
-                        }}
-                        className="font-mono text-sm bg-background"
-                      />
-                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                        Years (1–7)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="audit-retention-days-input" className="text-xs font-medium text-foreground">
-                      Exact Value in Days (365 – 2555 Days):
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="audit-retention-days-input"
-                        type="number"
-                        min={365}
-                        max={2555}
-                        value={auditPolicy.retentionDays}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          if (Number.isFinite(val) && val > 0) {
-                            setAuditPolicy((prev) => ({ ...prev, retentionDays: val }));
-                          }
-                        }}
-                        className="font-mono text-sm bg-background"
-                      />
-                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                        Days
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Parameter 2: Auto-Purge Toggle */}
-              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* ========================================================================= */}
+          {/* TAB 1: AUDIT LOG RETENTION POLICY (EMERALD THEME) */}
+          {/* ========================================================================= */}
+          <TabsContent value="audit-retention" className="space-y-6 focus-visible:outline-none">
+            <Card className="overflow-hidden border-border/80 bg-card/90 shadow-md backdrop-blur-xs">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-r from-emerald-500/5 via-transparent to-transparent pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                      <RefreshCw className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      2. Automated Daily Background Cleanup (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">AUDIT_LOG_AUTO_PURGE_ENABLED</code>)
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      When enabled, the server background scheduler automatically deletes expired audit log records daily at 02:30 AM.
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <CardTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                          <Shield className="h-4 w-4" />
+                        </div>
+                        Audit Log Retention &amp; Lifecycle Governance
+                      </CardTitle>
+                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        Active: {initialAuditPolicy.retentionDays} Days ({Math.round((initialAuditPolicy.retentionDays / 365) * 10) / 10} Yr{initialAuditPolicy.retentionDays >= 730 ? "s" : ""})
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs font-medium",
+                          initialAuditPolicy.autoPurgeEnabled
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                            : "border-border/60 bg-muted/60 text-muted-foreground"
+                        )}
+                      >
+                        {initialAuditPolicy.autoPurgeEnabled ? "Auto-Purge Enabled" : "Auto-Purge Disabled"}
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-xs text-muted-foreground">
+                      Configure retention lifespans for operational audit records in <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">APP_AUDIT_LOGS</code> (1 to 7 Years), schedule automated daily server purges, and track live database volume.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-7 pt-6">
+                {/* Parameter 1: Retention Lifespan Selector */}
+                <div className="space-y-4 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          1. Retention Lifespan
+                        </Label>
+                        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                          AUDIT_LOG_RETENTION_DAYS
+                        </code>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Audit records older than this threshold are marked as expired and pruned by scheduled maintenance or manual execution.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80 px-2.5 py-1">
+                        {auditPolicy.retentionDays} Days ≈ {Math.round((auditPolicy.retentionDays / 365) * 10) / 10} Years
+                      </Badge>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  {/* Quick Preset Pills */}
+                  <div className="space-y-2 pt-1">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Quick Lifespan Presets (1 to 7 Years)
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PRESET_AUDIT_RETENTION_DAYS.map((p) => {
+                        const isSelected = auditPolicy.retentionDays === p.days;
+                        return (
+                          <Button
+                            key={p.days}
+                            type="button"
+                            variant={isSelected ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setAuditPolicy((prev) => ({ ...prev, retentionDays: p.days }))}
+                            className={cn(
+                              "text-xs transition-all h-8",
+                              isSelected
+                                ? "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.25)] font-semibold"
+                                : "hover:border-emerald-500/40 hover:bg-emerald-500/5"
+                            )}
+                          >
+                            {isSelected && <Check className="mr-1.5 h-3.5 w-3.5" />}
+                            {p.label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Dual Synchronized Inputs: Years & Days */}
+                  <div className="grid gap-4 sm:grid-cols-2 max-w-xl pt-2">
+                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <Label htmlFor="audit-retention-years-input" className="text-xs font-semibold text-foreground">
+                        Set in Years (1 to 7 Years):
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="audit-retention-years-input"
+                          type="number"
+                          min={1}
+                          max={7}
+                          value={Math.round(auditPolicy.retentionDays / 365)}
+                          onChange={(e) => {
+                            const yrs = parseInt(e.target.value, 10);
+                            if (Number.isFinite(yrs) && yrs >= 1 && yrs <= 7) {
+                              setAuditPolicy((prev) => ({ ...prev, retentionDays: yrs * 365 }));
+                            }
+                          }}
+                          className="font-mono text-sm bg-background font-semibold"
+                        />
+                        <span className="shrink-0 text-xs font-mono text-muted-foreground">
+                          Years (1–7)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <Label htmlFor="audit-retention-days-input" className="text-xs font-semibold text-foreground">
+                        Exact Value in Days (365 to 2555):
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="audit-retention-days-input"
+                          type="number"
+                          min={365}
+                          max={2555}
+                          value={auditPolicy.retentionDays}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (Number.isFinite(val) && val > 0) {
+                              setAuditPolicy((prev) => ({ ...prev, retentionDays: val }));
+                            }
+                          }}
+                          className="font-mono text-sm bg-background font-semibold"
+                        />
+                        <span className="shrink-0 text-xs font-mono text-muted-foreground">
+                          Days
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Calculated Cutoff Banner */}
+                  <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+                    <Calendar className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <div>
+                      <strong>Active Purge Cutoff:</strong> Records logged prior to <strong>{cutoffFormatted}</strong> ({auditPolicy.retentionDays} days ago) are classified as expired.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Parameter 2: Automated Background Daily Purge Card */}
+                <div className="space-y-3.5 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <RefreshCw className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          2. Automated Daily Background Cleanup
+                        </Label>
+                        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                          AUDIT_LOG_AUTO_PURGE_ENABLED
+                        </code>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        When enabled, the server background scheduler automatically purges expired records daily at <strong>02:30 AM Server Time</strong>.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/80 p-1">
+                      <Button
+                        type="button"
+                        variant={auditPolicy.autoPurgeEnabled ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setAuditPolicy((prev) => ({ ...prev, autoPurgeEnabled: true }))}
+                        className={cn(
+                          "text-xs gap-1.5 h-8",
+                          auditPolicy.autoPurgeEnabled
+                            ? "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 font-semibold"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Enabled
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={!auditPolicy.autoPurgeEnabled ? "secondary" : "ghost"}
+                        size="sm"
+                        onClick={() => setAuditPolicy((prev) => ({ ...prev, autoPurgeEnabled: false }))}
+                        className={cn(
+                          "text-xs h-8",
+                          !auditPolicy.autoPurgeEnabled ? "bg-muted font-semibold text-foreground" : "text-muted-foreground"
+                        )}
+                      >
+                        Disabled
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Database Volume Metrics & Manual Purge */}
+                <div className="space-y-4 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                      <h3 className="text-sm font-bold text-foreground">
+                        Oracle Database Storage &amp; Volume Metrics
+                      </h3>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        APP_AUDIT_LOGS
+                      </code>
+                    </div>
                     <Button
                       type="button"
-                      variant={auditPolicy.autoPurgeEnabled ? "default" : "outline"}
+                      variant="ghost"
                       size="sm"
-                      onClick={() => setAuditPolicy((prev) => ({ ...prev, autoPurgeEnabled: true }))}
-                      className={`text-xs gap-1.5 ${auditPolicy.autoPurgeEnabled ? "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white" : ""}`}
+                      onClick={loadConfig}
+                      disabled={loading}
+                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
                     >
-                      <Check className="h-3.5 w-3.5" />
-                      Enabled
+                      <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                      Refresh Metrics
                     </Button>
+                  </div>
+
+                  {/* 4 Metric Cards */}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-xl border border-border/70 bg-background/90 p-3.5 shadow-xs">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Total Audit Records
+                      </div>
+                      <div className="mt-1 text-xl font-bold font-mono text-foreground">
+                        {loading ? <Skeleton className="h-7 w-20" /> : auditStats ? formatNumber(auditStats.totalLogs) : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">Rows in APP_AUDIT_LOGS</div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-background/90 p-3.5 shadow-xs">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Oldest Recorded Entry
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-foreground truncate" title={auditStats?.oldestLogTimestamp ? formatDateTime(auditStats.oldestLogTimestamp) : "None"}>
+                        {loading ? <Skeleton className="h-7 w-28" /> : auditStats?.oldestLogTimestamp ? formatDateTime(auditStats.oldestLogTimestamp) : "No records"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">Earliest active timestamp</div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-background/90 p-3.5 shadow-xs">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Expired Records
+                      </div>
+                      <div className={cn(
+                        "mt-1 text-xl font-bold font-mono",
+                        auditStats && auditStats.expiredLogsCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
+                      )}>
+                        {loading ? <Skeleton className="h-7 w-16" /> : auditStats ? formatNumber(auditStats.expiredLogsCount) : "0"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">&gt; {auditPolicy.retentionDays} days lifespan</div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-background/90 p-3.5 shadow-xs">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Last Purge Execution
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-foreground truncate" title={auditStats?.lastPurgeAt ? `${formatDateTime(auditStats.lastPurgeAt)} (${auditStats.lastPurgedCount} removed)` : "Never executed"}>
+                        {loading ? <Skeleton className="h-7 w-28" /> : auditStats?.lastPurgeAt ? formatDateTime(auditStats.lastPurgeAt) : "Never"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        {auditStats?.lastPurgedCount ? `${formatNumber(auditStats.lastPurgedCount)} records removed` : "No purge history"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Manual Purge Action Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/60">
+                    <div className="text-xs text-muted-foreground">
+                      {auditStats && auditStats.expiredLogsCount > 0 ? (
+                        <span className="text-amber-700 dark:text-amber-400 font-semibold flex items-center gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {formatNumber(auditStats.expiredLogsCount)} record{auditStats.expiredLogsCount === 1 ? "" : "s"} older than {auditPolicy.retentionDays} days are eligible for immediate purge.
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          All audit records are within the active {auditPolicy.retentionDays}-day retention lifespan.
+                        </span>
+                      )}
+                    </div>
+
                     <Button
                       type="button"
-                      variant={!auditPolicy.autoPurgeEnabled ? "secondary" : "outline"}
+                      variant="outline"
                       size="sm"
-                      onClick={() => setAuditPolicy((prev) => ({ ...prev, autoPurgeEnabled: false }))}
-                      className="text-xs"
+                      onClick={() => setPurgeDialogOpen(true)}
+                      disabled={purgingAudit || loading || (auditStats?.expiredLogsCount === 0 && !isAuditDirty)}
+                      className="gap-2 text-xs border-rose-500/30 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-300 font-semibold shadow-xs"
                     >
-                      Disabled
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Purge Expired Logs Now
                     </Button>
                   </div>
                 </div>
-              </div>
 
-              {/* Live Oracle DB Storage & Log Volume Metrics */}
-              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                    <Database className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-                    Oracle Database Storage Metrics (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">APP_AUDIT_LOGS</code>)
-                  </Label>
+                {/* Compliance & Technical Architecture Blueprint */}
+                <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent p-5 text-xs shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300 text-sm">
+                    <Info className="h-4 w-4" />
+                    Data Governance, Audit Trail &amp; Oracle Storage Architecture:
+                  </div>
+                  <div className="mt-3 grid gap-2.5 text-muted-foreground">
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <div>
+                        <strong>Permanent Storage:</strong> Configuration parameters are persisted in Oracle table <code className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono font-bold text-emerald-900 dark:text-emerald-200 border border-emerald-500/30">APP_SYSTEM_CONFIG</code> under key <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">AUDIT_LOG_RETENTION_DAYS</code>.
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <div>
+                        <strong>Dynamic Audit Page Header:</strong> The active retention period ({auditPolicy.retentionDays} Days) is dynamically reflected in the <strong>Audit Logs</strong> subpage header for complete regulatory compliance visibility.
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <div>
+                        <strong>Immutable Purge Audit Trail:</strong> Every manual and background purge execution writes an audit event with user identity, affected rows, and timestamp into <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">APP_AUDIT_LOGS</code>.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+
+              {/* Action Footer */}
+              <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/40 px-6 py-4">
+                <div className="text-xs text-muted-foreground">
+                  {isAuditDirty ? (
+                    <span className="font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Unsaved changes pending in Audit Retention Policy
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      Retention policy is synchronized with APP_SYSTEM_CONFIG
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={loadConfig}
-                    disabled={loading}
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                    onClick={() => setAuditPolicy({ ...initialAuditPolicy })}
+                    disabled={!isAuditDirty || savingAuditPolicy}
+                    className="text-xs font-medium"
                   >
-                    <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-                    Refresh Metrics
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Reset
                   </Button>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pt-1">
-                  <div className="rounded-lg border border-border/70 bg-background p-3 shadow-xs">
-                    <div className="text-[11px] font-medium text-muted-foreground">Total Audit Records</div>
-                    <div className="mt-1 text-lg font-bold text-foreground font-mono">
-                      {auditStats ? formatNumber(auditStats.totalLogs) : "—"}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">Rows in APP_AUDIT_LOGS</div>
-                  </div>
-
-                  <div className="rounded-lg border border-border/70 bg-background p-3 shadow-xs">
-                    <div className="text-[11px] font-medium text-muted-foreground">Oldest Recorded Log</div>
-                    <div className="mt-1 text-xs font-semibold text-foreground truncate" title={auditStats?.oldestLogTimestamp ? formatDateTime(auditStats.oldestLogTimestamp) : "None"}>
-                      {auditStats?.oldestLogTimestamp ? formatDateTime(auditStats.oldestLogTimestamp) : "No records"}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">Earliest active entry</div>
-                  </div>
-
-                  <div className="rounded-lg border border-border/70 bg-background p-3 shadow-xs">
-                    <div className="text-[11px] font-medium text-muted-foreground">Expired Records</div>
-                    <div className={`mt-1 text-lg font-bold font-mono ${auditStats && auditStats.expiredLogsCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                      {auditStats ? formatNumber(auditStats.expiredLogsCount) : "0"}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">&gt; {auditPolicy.retentionDays} days threshold</div>
-                  </div>
-
-                  <div className="rounded-lg border border-border/70 bg-background p-3 shadow-xs">
-                    <div className="text-[11px] font-medium text-muted-foreground">Last Purge Execution</div>
-                    <div className="mt-1 text-xs font-semibold text-foreground truncate" title={auditStats?.lastPurgeAt ? `${formatDateTime(auditStats.lastPurgeAt)} (${auditStats.lastPurgedCount} removed)` : "Never executed"}>
-                      {auditStats?.lastPurgeAt ? formatDateTime(auditStats.lastPurgeAt) : "Never"}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">
-                      {auditStats?.lastPurgedCount ? `${auditStats.lastPurgedCount} records removed` : "No purge history"}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Manual Purge Action Button */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/60">
-                  <div className="text-xs text-muted-foreground">
-                    {auditStats && auditStats.expiredLogsCount > 0 ? (
-                      <span className="text-amber-700 dark:text-amber-400 font-medium">
-                        {auditStats.expiredLogsCount} record{auditStats.expiredLogsCount === 1 ? "" : "s"} older than {auditPolicy.retentionDays} days are eligible for immediate purge.
-                      </span>
-                    ) : (
-                      <span>All audit records are within the active retention window.</span>
-                    )}
-                  </div>
 
                   <Button
                     type="button"
-                    variant="outline"
                     size="sm"
-                    onClick={handlePurgeExpiredAuditLogs}
-                    disabled={purgingAudit || loading || (auditStats?.expiredLogsCount === 0 && !isAuditDirty)}
-                    className="gap-2 text-xs border-rose-500/30 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-300"
+                    onClick={handleSaveAuditRetentionPolicy}
+                    disabled={savingAuditPolicy || !isAuditDirty}
+                    className="gap-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white shadow-sm"
                   >
-                    {purgingAudit ? (
+                    {savingAuditPolicy ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Purging Expired Logs...
+                        Saving Policy...
                       </>
                     ) : (
                       <>
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Purge Expired Logs Now
+                        <Save className="h-3.5 w-3.5" />
+                        Save Retention Policy
                       </>
                     )}
                   </Button>
                 </div>
-              </div>
+              </CardFooter>
+            </Card>
+          </TabsContent>
 
-              {/* Informational Integration Box */}
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 p-4 text-xs">
-                <div className="flex items-center gap-2 font-semibold text-emerald-700 dark:text-emerald-300">
-                  <Info className="h-4 w-4" />
-                  Audit Log Governance &amp; Compliance Details:
+          {/* ========================================================================= */}
+          {/* TAB 2: PERFORMANCE & n8n DIAGNOSTICS (CYAN THEME) */}
+          {/* ========================================================================= */}
+          <TabsContent value="performance" className="space-y-6 focus-visible:outline-none">
+            <Card className="overflow-hidden border-border/80 bg-card/90 shadow-md backdrop-blur-xs">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-r from-cyan-500/5 via-transparent to-transparent pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <CardTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-600 dark:text-cyan-400">
+                          <Activity className="h-4 w-4" />
+                        </div>
+                        RUN ALL Performance Telemetry Window &amp; n8n Integration
+                      </CardTitle>
+                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 font-mono text-xs font-medium text-cyan-700 dark:text-cyan-300">
+                        Active Window: {initialDays} Day{initialDays === 1 ? "" : "s"} ({initialDays * 24} Hours)
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-xs text-muted-foreground">
+                      Configure the lookback timeframe window of historical Oracle AWR performance metrics and capacity utilization dispatched to n8n during the <strong>RUN ALL</strong> (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">check_performance</code>) workflow.
+                    </CardDescription>
+                  </div>
                 </div>
-                <ul className="mt-2.5 grid gap-1.5 pl-6 text-muted-foreground list-disc">
-                  <li>
-                    <strong>Storage:</strong> Policy parameters are stored in Oracle table <code className="rounded bg-emerald-500/10 dark:bg-emerald-950/60 px-1 py-0.5 font-mono text-emerald-800 dark:text-emerald-200 border border-emerald-500/20">APP_SYSTEM_CONFIG</code> under key <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">AUDIT_LOG_RETENTION_DAYS</code>.
-                  </li>
-                  <li>
-                    <strong>Audit Page Visibility:</strong> The active retention period ({auditPolicy.retentionDays} Days) is dynamically displayed in the <strong>Audit Logs</strong> page header for full compliance visibility.
-                  </li>
-                  <li>
-                    <strong>Purge Audit Trail:</strong> Every manual and automated purge execution records an immutable audit entry with actor, row count, and timestamp in <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">APP_AUDIT_LOGS</code>.
-                  </li>
-                </ul>
-              </div>
-            </CardContent>
+              </CardHeader>
 
-            <CardFooter className="flex items-center justify-between border-t border-border/70 bg-muted/30 dark:bg-muted/20 px-6 py-3.5">
-              <div className="text-xs text-muted-foreground">
-                {isAuditDirty ? (
-                  <span className="font-medium text-amber-700 dark:text-amber-300">Unsaved changes pending in Audit Retention Policy</span>
-                ) : (
-                  <span>Audit retention policy is up to date in APP_SYSTEM_CONFIG</span>
-                )}
-              </div>
+              <CardContent className="space-y-7 pt-6">
+                {/* Trend Window Parameter Section */}
+                <div className="space-y-4 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Clock className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                          Lookback Window Duration
+                        </Label>
+                        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                          PERF_RUN_ALL_TREND_DAYS
+                        </code>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Number of historical days aggregated and formatted in the telemetry payload for AI analysis and diagnostic reports.
+                      </p>
+                    </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setAuditPolicy({ ...initialAuditPolicy })}
-                  disabled={!isAuditDirty || savingAuditPolicy}
-                  className="text-xs"
-                >
-                  Reset
-                </Button>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveAuditRetentionPolicy}
-                  disabled={savingAuditPolicy || !isAuditDirty}
-                  className="gap-2 text-xs bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white"
-                >
-                  {savingAuditPolicy ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Saving Policy...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-3.5 w-3.5" />
-                      Save Retention Policy
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 2: Performance & n8n Diagnostics */}
-        <TabsContent value="performance" className="space-y-6">
-          <Card className="border-border/80 shadow-sm bg-card">
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
-                      <Activity className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-                      RUN ALL Historical Trend Window
-                    </CardTitle>
-                    <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-xs font-medium text-cyan-700 dark:text-cyan-300">
-                      Active: {initialDays} Day{initialDays === 1 ? "" : "s"}
+                    <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80 px-2.5 py-1">
+                      {trendDays} Days = {trendDays * 24} Hours
                     </Badge>
                   </div>
-                  <CardDescription className="text-xs text-muted-foreground">
-                    Configure the timeframe window of Historical Performance &amp; Capacity Trends data sent to n8n when executing the <strong>RUN ALL</strong> (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">check_performance</code>) action.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
 
-            <CardContent className="space-y-6">
-              {/* Presets */}
-              <div className="space-y-2.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Quick Presets
-                </Label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_PERF_DAYS.map((d) => (
-                    <Button
-                      key={d}
-                      type="button"
-                      variant={trendDays === d ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setTrendDays(d)}
-                      className="text-xs transition-all"
-                    >
-                      {d} {d === 1 ? "Day (24h)" : `Days (${d * 24}h)`}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Custom Input */}
-              <div className="grid max-w-sm gap-2">
-                <Label htmlFor="trend-days-input" className="text-xs font-medium text-foreground">
-                  Custom Number of Days (1 – 90):
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="trend-days-input"
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={trendDays}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (Number.isFinite(val)) setTrendDays(val);
-                      else if (e.target.value === "") setTrendDays(1);
-                    }}
-                    className="font-mono text-sm bg-background"
-                  />
-                  <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                    = {trendDays * 24} Hours
-                  </span>
-                </div>
-              </div>
-
-              {/* Payload Preview info */}
-              <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 dark:bg-cyan-950/20 p-4 text-xs">
-                <div className="flex items-center gap-2 font-semibold text-cyan-700 dark:text-cyan-300">
-                  <Info className="h-4 w-4" />
-                  Payload Sent to n8n Webhook:
-                </div>
-                <ul className="mt-2.5 grid gap-1.5 pl-6 text-muted-foreground list-disc">
-                  <li>
-                    <strong>Trend Key:</strong> <code className="rounded bg-cyan-500/10 dark:bg-cyan-950/60 px-1 py-0.5 font-mono text-cyan-800 dark:text-cyan-200 border border-cyan-500/20">last_days_performance_trends</code> (aggregating the last {trendDays} day{trendDays === 1 ? "" : "s"})
-                  </li>
-                  <li>
-                    <strong>Performance Metrics:</strong> Avg Response Time, Avg Active Sessions (1h), Peak Active Sessions (1h), Max Tablespace Util (single maximum), CPU Util %, OS Memory Util %, FRA Util %
-                  </li>
-                  <li>
-                    <strong>Inventory Metadata:</strong> DB Version, Operating System, Database Type
-                  </li>
-                </ul>
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex items-center justify-between border-t border-border/70 bg-muted/30 dark:bg-muted/20 px-6 py-3.5">
-              <div className="text-xs text-muted-foreground">
-                {isPerfDirty ? (
-                  <span className="font-medium text-amber-700 dark:text-amber-300">Unsaved changes: {trendDays} days selected</span>
-                ) : (
-                  <span>Configuration is up to date</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setTrendDays(initialDays)}
-                  disabled={!isPerfDirty || savingPerf}
-                  className="text-xs"
-                >
-                  Reset
-                </Button>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSavePerformanceConfig}
-                  disabled={savingPerf || !isPerfDirty || trendDays < 1 || trendDays > 90}
-                  className="gap-2 text-xs bg-cyan-600 hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 text-white"
-                >
-                  {savingPerf ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-3.5 w-3.5" />
-                      Save Configuration
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 3: Security Posture Policy Configuration */}
-        <TabsContent value="security-posture" className="space-y-6">
-          <Card className="border-border/80 shadow-sm bg-card">
-            <CardHeader className="pb-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
-                      <ShieldAlert className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                      Security Posture Nessus Scan Report Policy
-                    </CardTitle>
-                    <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 text-xs font-medium text-violet-700 dark:text-violet-300">
-                      Active Expiry: {initialPolicyDays} Days
-                    </Badge>
-                  </div>
-                  <CardDescription className="text-xs text-muted-foreground">
-                    Configure document obsolescence thresholds, automated n8n overdue webhook alerts, and scheduler check frequencies backed by <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">APP_SYSTEM_CONFIG</code>.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-8">
-              {/* Parameter 1: Outdated After Threshold */}
-              <div className="space-y-3.5 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                      <Clock className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                      1. Report Outdated Threshold (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">SECURITY_POSTURE_OUTDATED_AFTER_MINUTES</code>)
+                  {/* Quick Preset Pills */}
+                  <div className="space-y-2 pt-1">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Quick Timeframe Presets
                     </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Age at which an active Nessus PDF report is marked as overdue. Triggers the amber badge in database inventory selection and initiates overdue n8n alerts.
-                    </p>
-                  </div>
-                  <Badge variant="secondary" className="font-mono text-xs font-medium">
-                    {policy.outdatedAfterMinutes} min ({policyDays} days)
-                  </Badge>
-                </div>
-
-                {/* Quick Presets */}
-                <div className="space-y-2">
-                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Quick Presets
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    {PRESET_OUTDATED_DAYS.map((p) => (
-                      <Button
-                        key={p.minutes}
-                        type="button"
-                        variant={policy.outdatedAfterMinutes === p.minutes ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: p.minutes }))}
-                        className="text-xs transition-all"
-                      >
-                        {p.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Custom Inputs */}
-                <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="posture-days-input" className="text-xs font-medium text-foreground">
-                      Set in Days:
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="posture-days-input"
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={Math.round(policy.outdatedAfterMinutes / (24 * 60))}
-                        onChange={(e) => {
-                          const days = parseInt(e.target.value, 10);
-                          if (Number.isFinite(days) && days > 0) {
-                            setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: days * 24 * 60 }));
-                          }
-                        }}
-                        className="font-mono text-sm bg-background"
-                      />
-                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                        Days
-                      </span>
+                    <div className="flex flex-wrap gap-2">
+                      {PRESET_PERF_DAYS.map((d) => {
+                        const isSelected = trendDays === d;
+                        return (
+                          <Button
+                            key={d}
+                            type="button"
+                            variant={isSelected ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setTrendDays(d)}
+                            className={cn(
+                              "text-xs transition-all h-8",
+                              isSelected
+                                ? "bg-cyan-600 text-white hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.25)] font-semibold"
+                                : "hover:border-cyan-500/40 hover:bg-cyan-500/5"
+                            )}
+                          >
+                            {isSelected && <Check className="mr-1.5 h-3.5 w-3.5" />}
+                            {d} {d === 1 ? "Day (24h)" : `Days (${d * 24}h)`}
+                          </Button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="posture-minutes-input" className="text-xs font-medium text-foreground">
-                      Exact Value in Minutes:
+                  {/* Custom Days Input */}
+                  <div className="max-w-md space-y-1.5 rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs">
+                    <Label htmlFor="trend-days-input" className="text-xs font-semibold text-foreground">
+                      Custom Number of Days (1 to 90 Days):
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input
-                        id="posture-minutes-input"
+                        id="trend-days-input"
                         type="number"
                         min={1}
-                        max={525600}
-                        value={policy.outdatedAfterMinutes}
+                        max={90}
+                        value={trendDays}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (Number.isFinite(val)) setTrendDays(val);
+                          else if (e.target.value === "") setTrendDays(1);
+                        }}
+                        className="font-mono text-sm bg-background font-semibold"
+                      />
+                      <span className="shrink-0 text-xs font-mono text-muted-foreground">
+                        = {trendDays * 24} Hours Historical Window
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pipeline Flow Architecture */}
+                <div className="space-y-3 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <Workflow className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                    <h3 className="text-sm font-bold text-foreground">
+                      Telemetry Pipeline &amp; Workflow Execution Flow
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4 pt-2">
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-[10px]">1</div>
+                        Action Trigger
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        DBA clicks <strong>RUN ALL</strong> on Performance Tuning page.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-[10px]">2</div>
+                        Config Lookup
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Reads <code className="font-mono text-[10px]">PERF_RUN_ALL_TREND_DAYS</code> ({trendDays}d).
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-[10px]">3</div>
+                        AWR Aggregation
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Gathers CPU, Memory, Sessions &amp; Storage metrics for {trendDays} days.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-[10px]">4</div>
+                        n8n Webhook
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Dispatches formatted JSON payload to n8n analyzer.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+
+              {/* Action Footer */}
+              <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/40 px-6 py-4">
+                <div className="text-xs text-muted-foreground">
+                  {isPerfDirty ? (
+                    <span className="font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Unsaved changes: {trendDays} days ({trendDays * 24} hours) selected
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-cyan-500" />
+                      Configuration is synchronized with APP_SYSTEM_CONFIG
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setTrendDays(initialDays)}
+                    disabled={!isPerfDirty || savingPerf}
+                    className="text-xs font-medium"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Reset
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSavePerformanceConfig}
+                    disabled={savingPerf || !isPerfDirty || trendDays < 1 || trendDays > 90}
+                    className="gap-2 text-xs font-semibold bg-cyan-600 hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 text-white shadow-sm"
+                  >
+                    {savingPerf ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-3.5 w-3.5" />
+                        Save Configuration
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardFooter>
+            </Card>
+          </TabsContent>
+
+          {/* ========================================================================= */}
+          {/* TAB 3: SECURITY POSTURE POLICY (VIOLET THEME) */}
+          {/* ========================================================================= */}
+          <TabsContent value="security-posture" className="space-y-6 focus-visible:outline-none">
+            <Card className="overflow-hidden border-border/80 bg-card/90 shadow-md backdrop-blur-xs">
+              <CardHeader className="border-b border-border/60 bg-gradient-to-r from-violet-500/5 via-transparent to-transparent pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <CardTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                          <ShieldAlert className="h-4 w-4" />
+                        </div>
+                        Security Posture Nessus Scan Report Policy
+                      </CardTitle>
+                      <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 font-mono text-xs font-medium text-violet-700 dark:text-violet-300">
+                        Active Expiry: {initialPolicyDays} Days
+                      </Badge>
+                      <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 font-mono text-xs font-medium text-violet-700 dark:text-violet-300">
+                        Max {initialPolicy.outdatedWebhookMaxSends} Sends / {initialPolicy.outdatedWebhookIntervalHours}h Interval
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-xs text-muted-foreground">
+                      Configure document obsolescence thresholds, automated n8n overdue webhook alerts, and scheduler check frequencies backed by <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">APP_SYSTEM_CONFIG</code>.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-7 pt-6">
+                {/* 2x2 Parameter Grid */}
+                <div className="grid gap-5 md:grid-cols-2">
+                  {/* Parameter 1: Report Outdated Threshold */}
+                  <div className="space-y-3.5 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Clock className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                          1. Report Outdated Threshold
+                        </Label>
+                        <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80">
+                          {policyDays} Days ({policy.outdatedAfterMinutes} min)
+                        </Badge>
+                      </div>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        SECURITY_POSTURE_OUTDATED_AFTER_MINUTES
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        Age at which a Nessus PDF scan report is marked as overdue and triggers notifications.
+                      </p>
+                    </div>
+
+                    {/* Presets */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Presets
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_OUTDATED_DAYS.map((p) => {
+                          const isSelected = policy.outdatedAfterMinutes === p.minutes;
+                          return (
+                            <Button
+                              key={p.minutes}
+                              type="button"
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: p.minutes }))}
+                              className={cn(
+                                "h-7 px-2.5 text-xs transition-all",
+                                isSelected
+                                  ? "bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500 font-semibold shadow-[0_0_8px_rgba(139,92,246,0.25)]"
+                                  : "hover:border-violet-500/40 hover:bg-violet-500/5"
+                              )}
+                            >
+                              {p.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Dual Inputs */}
+                    <div className="grid gap-2.5 sm:grid-cols-2 pt-1">
+                      <div className="space-y-1 rounded-lg border border-border/60 bg-background/80 p-2.5">
+                        <Label htmlFor="posture-days-input" className="text-xs font-semibold text-foreground">
+                          Set in Days:
+                        </Label>
+                        <Input
+                          id="posture-days-input"
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={Math.round(policy.outdatedAfterMinutes / (24 * 60))}
+                          onChange={(e) => {
+                            const days = parseInt(e.target.value, 10);
+                            if (Number.isFinite(days) && days > 0) {
+                              setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: days * 24 * 60 }));
+                            }
+                          }}
+                          className="font-mono text-sm bg-background font-semibold h-8"
+                        />
+                      </div>
+
+                      <div className="space-y-1 rounded-lg border border-border/60 bg-background/80 p-2.5">
+                        <Label htmlFor="posture-minutes-input" className="text-xs font-semibold text-foreground">
+                          Exact Minutes:
+                        </Label>
+                        <Input
+                          id="posture-minutes-input"
+                          type="number"
+                          min={1}
+                          max={525600}
+                          value={policy.outdatedAfterMinutes}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (Number.isFinite(val) && val > 0) {
+                              setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: val }));
+                            }
+                          }}
+                          className="font-mono text-sm bg-background font-semibold h-8"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Parameter 2: Overdue Webhook Max Sends */}
+                  <div className="space-y-3.5 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          2. Overdue Webhook Max Sends
+                        </Label>
+                        <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80">
+                          {policy.outdatedWebhookMaxSends} sends limit
+                        </Badge>
+                      </div>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        Maximum consecutive overdue reminders dispatched per report before pausing.
+                      </p>
+                    </div>
+
+                    {/* Presets */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Presets
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_MAX_SENDS.map((count) => {
+                          const isSelected = policy.outdatedWebhookMaxSends === count;
+                          return (
+                            <Button
+                              key={count}
+                              type="button"
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookMaxSends: count }))}
+                              className={cn(
+                                "h-7 px-3 text-xs transition-all",
+                                isSelected
+                                  ? "bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-600 dark:hover:bg-amber-500 font-semibold shadow-[0_0_8px_rgba(217,119,6,0.25)]"
+                                  : "hover:border-amber-500/40 hover:bg-amber-500/5"
+                              )}
+                            >
+                              {count}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Custom Input */}
+                    <div className="max-w-xs space-y-1 rounded-lg border border-border/60 bg-background/80 p-2.5">
+                      <Label htmlFor="max-sends-input" className="text-xs font-semibold text-foreground">
+                        Custom Send Limit (1 to 100):
+                      </Label>
+                      <Input
+                        id="max-sends-input"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={policy.outdatedWebhookMaxSends}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10);
                           if (Number.isFinite(val) && val > 0) {
-                            setPolicy((prev) => ({ ...prev, outdatedAfterMinutes: val }));
+                            setPolicy((prev) => ({ ...prev, outdatedWebhookMaxSends: val }));
                           }
                         }}
-                        className="font-mono text-sm bg-background"
+                        className="font-mono text-sm bg-background font-semibold h-8"
                       />
-                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                        Minutes
-                      </span>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Webhook Parameters: Max Sends & Interval */}
-              <div className="grid gap-4 md:grid-cols-2">
-                {/* Parameter 2: Overdue Webhook Max Sends */}
-                <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                        <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                        2. Overdue Webhook Max Sends
+                  {/* Parameter 3: Overdue Webhook Interval Hours */}
+                  <div className="space-y-3.5 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Timer className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                          3. Overdue Webhook Interval
+                        </Label>
+                        <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80">
+                          Every {policy.outdatedWebhookIntervalHours} Hours
+                        </Badge>
+                      </div>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        Cooldown delay between consecutive notifications for the same overdue document.
+                      </p>
+                    </div>
+
+                    {/* Presets */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Presets
                       </Label>
-                      <Badge variant="outline" className="font-mono text-xs border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                        {policy.outdatedWebhookMaxSends} sends
-                      </Badge>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_WEBHOOK_INTERVAL_HOURS.map((p) => {
+                          const isSelected = policy.outdatedWebhookIntervalHours === p.hours;
+                          return (
+                            <Button
+                              key={p.hours}
+                              type="button"
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookIntervalHours: p.hours }))}
+                              className={cn(
+                                "h-7 px-2.5 text-xs transition-all",
+                                isSelected
+                                  ? "bg-cyan-600 text-white hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500 font-semibold shadow-[0_0_8px_rgba(6,182,212,0.25)]"
+                                  : "hover:border-cyan-500/40 hover:bg-cyan-500/5"
+                              )}
+                            >
+                              {p.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground font-mono">SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS</code>
-                    <p className="text-xs text-muted-foreground">
-                      Maximum number of successful overdue-report webhook reminders sent for each document before pausing.
-                    </p>
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Presets
-                    </Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PRESET_MAX_SENDS.map((count) => (
-                        <Button
-                          key={count}
-                          type="button"
-                          variant={policy.outdatedWebhookMaxSends === count ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookMaxSends: count }))}
-                          className="h-7 px-2.5 text-xs"
-                        >
-                          {count}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid max-w-xs gap-1.5">
-                    <Label htmlFor="max-sends-input" className="text-xs font-medium text-foreground">
-                      Custom Send Limit (1 – 100):
-                    </Label>
-                    <Input
-                      id="max-sends-input"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={policy.outdatedWebhookMaxSends}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        if (Number.isFinite(val) && val > 0) {
-                          setPolicy((prev) => ({ ...prev, outdatedWebhookMaxSends: val }));
-                        }
-                      }}
-                      className="font-mono text-sm bg-background"
-                    />
-                  </div>
-                </div>
-
-                {/* Parameter 3: Overdue Webhook Interval Hours */}
-                <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                        <Timer className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-                        3. Overdue Webhook Interval
+                    {/* Custom Input */}
+                    <div className="max-w-xs space-y-1 rounded-lg border border-border/60 bg-background/80 p-2.5">
+                      <Label htmlFor="webhook-hours-input" className="text-xs font-semibold text-foreground">
+                        Custom Cooldown (Hours, 1 to 720):
                       </Label>
-                      <Badge variant="outline" className="font-mono text-xs border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
-                        {policy.outdatedWebhookIntervalHours}h delay
-                      </Badge>
-                    </div>
-                    <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground font-mono">SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS</code>
-                    <p className="text-xs text-muted-foreground">
-                      Cooldown delay between consecutive successful overdue webhook notifications for the same report.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Presets
-                    </Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PRESET_WEBHOOK_INTERVAL_HOURS.map((p) => (
-                        <Button
-                          key={p.hours}
-                          type="button"
-                          variant={policy.outdatedWebhookIntervalHours === p.hours ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookIntervalHours: p.hours }))}
-                          className="h-7 px-2.5 text-xs"
-                        >
-                          {p.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid max-w-xs gap-1.5">
-                    <Label htmlFor="webhook-hours-input" className="text-xs font-medium text-foreground">
-                      Custom Interval (Hours):
-                    </Label>
-                    <div className="flex items-center gap-2">
                       <Input
                         id="webhook-hours-input"
                         type="number"
@@ -1059,144 +1406,282 @@ export function SystemConfiguration() {
                             setPolicy((prev) => ({ ...prev, outdatedWebhookIntervalHours: val }));
                           }
                         }}
-                        className="font-mono text-sm bg-background"
+                        className="font-mono text-sm bg-background font-semibold h-8"
                       />
-                      <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                        Hours
-                      </span>
+                    </div>
+                  </div>
+
+                  {/* Parameter 4: Background Scanner Frequency */}
+                  <div className="space-y-3.5 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <RefreshCw className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          4. Background Scanner Frequency
+                        </Label>
+                        <Badge variant="secondary" className="font-mono text-xs font-bold bg-background border border-border/80">
+                          Every {policy.outdatedWebhookCheckIntervalMinutes} min ({scansPerDay} scans/day)
+                        </Badge>
+                      </div>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        Frequency of the background cron scheduler scanning for overdue reports due for alerts.
+                      </p>
+                    </div>
+
+                    {/* Presets */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Presets
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_CHECK_INTERVAL_MINUTES.map((p) => {
+                          const isSelected = policy.outdatedWebhookCheckIntervalMinutes === p.minutes;
+                          return (
+                            <Button
+                              key={p.minutes}
+                              type="button"
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookCheckIntervalMinutes: p.minutes }))}
+                              className={cn(
+                                "h-7 px-2.5 text-xs transition-all",
+                                isSelected
+                                  ? "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 font-semibold shadow-[0_0_8px_rgba(16,185,129,0.25)]"
+                                  : "hover:border-emerald-500/40 hover:bg-emerald-500/5"
+                              )}
+                            >
+                              {p.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Custom Input */}
+                    <div className="max-w-xs space-y-1 rounded-lg border border-border/60 bg-background/80 p-2.5">
+                      <Label htmlFor="scanner-freq-input" className="text-xs font-semibold text-foreground">
+                        Custom Scan Frequency (Minutes, 1 to 1440):
+                      </Label>
+                      <Input
+                        id="scanner-freq-input"
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={policy.outdatedWebhookCheckIntervalMinutes}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (Number.isFinite(val) && val > 0) {
+                            setPolicy((prev) => ({ ...prev, outdatedWebhookCheckIntervalMinutes: val }));
+                          }
+                        }}
+                        className="font-mono text-sm bg-background font-semibold h-8"
+                      />
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Parameter 4: Scheduler Check Interval */}
-              <div className="space-y-3.5 rounded-lg border border-border/70 bg-muted/20 dark:bg-card/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                      <RefreshCw className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      4. Background Scheduler Scanner Frequency (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES</code>)
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      How frequently the background cron task scans Oracle DB for overdue reports due to send another n8n notification.
-                    </p>
-                  </div>
-                  <Badge variant="outline" className="font-mono text-xs border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                    Every {policy.outdatedWebhookCheckIntervalMinutes} min ({Math.round((policy.outdatedWebhookCheckIntervalMinutes / 60) * 10) / 10}h)
-                  </Badge>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Quick Presets
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    {PRESET_CHECK_INTERVAL_MINUTES.map((p) => (
-                      <Button
-                        key={p.minutes}
-                        type="button"
-                        variant={policy.outdatedWebhookCheckIntervalMinutes === p.minutes ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setPolicy((prev) => ({ ...prev, outdatedWebhookCheckIntervalMinutes: p.minutes }))}
-                        className="text-xs transition-all"
-                      >
-                        {p.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid max-w-sm gap-1.5">
-                  <Label htmlFor="scanner-freq-input" className="text-xs font-medium text-foreground">
-                    Custom Frequency in Minutes (1 – 1440):
-                  </Label>
+                {/* Lifecycle & Alert Simulation Flow Diagram */}
+                <div className="space-y-3 rounded-xl border border-border/80 bg-muted/15 p-5 dark:bg-card/40 shadow-xs">
                   <div className="flex items-center gap-2">
-                    <Input
-                      id="scanner-freq-input"
-                      type="number"
-                      min={1}
-                      max={1440}
-                      value={policy.outdatedWebhookCheckIntervalMinutes}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        if (Number.isFinite(val) && val > 0) {
-                          setPolicy((prev) => ({ ...prev, outdatedWebhookCheckIntervalMinutes: val }));
-                        }
-                      }}
-                      className="font-mono text-sm bg-background"
-                    />
-                    <span className="shrink-0 text-xs text-muted-foreground font-mono">
-                      = {Math.round((policy.outdatedWebhookCheckIntervalMinutes / 60) * 10) / 10} Hours
-                    </span>
+                    <Workflow className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                    <h3 className="text-sm font-bold text-foreground">
+                      Document Obsolescence &amp; Webhook Lifecycle Flow
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 pt-2">
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="text-xs font-bold text-foreground">1. Upload Report</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        DBA uploads Nessus PDF report to Database Inventory.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-3 shadow-xs">
+                      <div className="text-xs font-bold text-foreground">2. Active &amp; Valid</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Status is valid until age reaches <strong>{policyDays} Days</strong>.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 shadow-xs">
+                      <div className="text-xs font-bold text-amber-800 dark:text-amber-300">3. Outdated Flagged</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Triggers amber <span className="inline-flex items-center rounded-md border px-1 py-0 text-[9px] font-medium border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">Outdated</span> badge.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/5 p-3 shadow-xs">
+                      <div className="text-xs font-bold text-cyan-800 dark:text-cyan-300">4. n8n Alert Dispatched</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Webhook sent. Cooldown of <strong>{policy.outdatedWebhookIntervalHours}h</strong> begins.
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-violet-500/40 bg-violet-500/5 p-3 shadow-xs">
+                      <div className="text-xs font-bold text-violet-800 dark:text-violet-300">5. Alert Cap Reached</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Pauses after <strong>{policy.outdatedWebhookMaxSends} alerts</strong> until new PDF is uploaded.
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Informational Box */}
-              <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 dark:bg-violet-950/20 p-4 text-xs">
-                <div className="flex items-center gap-2 font-semibold text-violet-700 dark:text-violet-300">
-                  <Info className="h-4 w-4" />
-                  Database &amp; Workflow Integration Details:
+                {/* Storage & Architecture Card */}
+                <div className="rounded-xl border border-violet-500/30 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent p-5 text-xs shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-violet-800 dark:text-violet-300 text-sm">
+                    <Info className="h-4 w-4" />
+                    Security Posture Policy Schema &amp; Storage Details:
+                  </div>
+                  <div className="mt-3 grid gap-2.5 text-muted-foreground">
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
+                      <div>
+                        <strong>Database Persistence:</strong> All 4 policy parameters are stored directly in Oracle table <code className="rounded bg-violet-500/15 px-1.5 py-0.5 font-mono font-bold text-violet-900 dark:text-violet-200 border border-violet-500/30">APP_SYSTEM_CONFIG</code> with updated user and timestamp tracking.
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
+                      <div>
+                        <strong>Database Inventory Integration:</strong> Databases whose active security report is older than <strong>{policy.outdatedAfterMinutes} minutes ({policyDays} days)</strong> automatically evaluate <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">security_posture_outdated = true</code>.
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <ul className="mt-2.5 grid gap-1.5 pl-6 text-muted-foreground list-disc">
-                  <li>
-                    <strong>Storage:</strong> Stored permanently in Oracle table <code className="rounded bg-violet-500/10 dark:bg-violet-950/60 px-1 py-0.5 font-mono text-violet-800 dark:text-violet-200 border border-violet-500/20">APP_SYSTEM_CONFIG</code> with full change tracking and audit timestamps.
-                  </li>
-                  <li>
-                    <strong>Database Inventory Outdated Flag:</strong> Databases with an active Nessus PDF older than <strong>{policy.outdatedAfterMinutes} minutes ({policyDays} days)</strong> are automatically marked with <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">security_posture_outdated = true</code>.
-                  </li>
-                  <li>
-                    <strong>n8n Alert Dispatch:</strong> Sends up to <strong>{policy.outdatedWebhookMaxSends} alerts</strong> with a <strong>{policy.outdatedWebhookIntervalHours}-hour cooldown</strong> between sends to <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">SECURITY_POSTURE_N8N_WEBHOOK_URL</code>.
-                  </li>
-                </ul>
-              </div>
-            </CardContent>
+              </CardContent>
 
-            <CardFooter className="flex items-center justify-between border-t border-border/70 bg-muted/30 dark:bg-muted/20 px-6 py-3.5">
-              <div className="text-xs text-muted-foreground">
-                {isPolicyDirty ? (
-                  <span className="font-medium text-amber-700 dark:text-amber-300">Unsaved changes pending in Security Posture Policy</span>
-                ) : (
-                  <span>Configuration is up to date in APP_SYSTEM_CONFIG</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPolicy({ ...initialPolicy })}
-                  disabled={!isPolicyDirty || savingPolicy}
-                  className="text-xs"
-                >
-                  Reset
-                </Button>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveSecurityPolicy}
-                  disabled={savingPolicy || !isPolicyDirty}
-                  className="gap-2 text-xs bg-violet-600 hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500 text-white"
-                >
-                  {savingPolicy ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Saving Policy...
-                    </>
+              {/* Action Footer */}
+              <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/40 px-6 py-4">
+                <div className="text-xs text-muted-foreground">
+                  {isPolicyDirty ? (
+                    <span className="font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Unsaved changes pending in Security Posture Policy
+                    </span>
                   ) : (
-                    <>
-                      <Save className="h-3.5 w-3.5" />
-                      Save Security Policy
-                    </>
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-violet-500" />
+                      Security posture policy is synchronized with APP_SYSTEM_CONFIG
+                    </span>
                   )}
-                </Button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPolicy({ ...initialPolicy })}
+                    disabled={!isPolicyDirty || savingPolicy}
+                    className="text-xs font-medium"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Reset
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSaveSecurityPolicy}
+                    disabled={savingPolicy || !isPolicyDirty}
+                    className="gap-2 text-xs font-semibold bg-violet-600 hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500 text-white shadow-sm"
+                  >
+                    {savingPolicy ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Saving Policy...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-3.5 w-3.5" />
+                        Save Security Policy
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardFooter>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        {/* Safety Confirmation Dialog for Purging Expired Audit Logs */}
+        <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Purge Expired Audit Logs
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                    Permanent deletion of historical audit entries from Oracle database.
+                  </DialogDescription>
+                </div>
               </div>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+            </DialogHeader>
+
+            <div className="space-y-3 py-2 text-xs text-foreground">
+              <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-800 dark:text-rose-200">
+                <p className="font-semibold">Warning: This action is irreversible.</p>
+                <p className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">
+                  All records in <code className="font-mono font-bold">APP_AUDIT_LOGS</code> older than <strong>{auditPolicy.retentionDays} Days</strong> (created before {cutoffFormatted}) will be permanently deleted.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border/80 bg-muted/40 p-3 space-y-1 font-mono text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Eligible Expired Records:</span>
+                  <span className="font-bold text-amber-600 dark:text-amber-400">
+                    {auditStats ? formatNumber(auditStats.expiredLogsCount) : 0} rows
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Active Retention Lifespan:</span>
+                  <span className="font-bold">{auditPolicy.retentionDays} Days</span>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPurgeDialogOpen(false)}
+                disabled={purgingAudit}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handlePurgeExpiredAuditLogs}
+                disabled={purgingAudit}
+                className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+              >
+                {purgingAudit ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Purging Records...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Confirm &amp; Purge Now
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   );
 }
