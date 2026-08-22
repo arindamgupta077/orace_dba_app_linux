@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { reloadSchedules } from "@/lib/server/scheduler";
 import {
+  insertAuditLog,
   listDashboardSchedules,
   upsertDashboardSchedule,
 } from "@/lib/server/repository";
@@ -45,6 +46,12 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check existing schedule for change detail
+    const existingSchedules = await listDashboardSchedules().catch(() => []);
+    const prevSchedule = existingSchedules.find(
+      (s) => s.db_name.toLowerCase() === db_name.toLowerCase()
+    );
+
     const schedule = await upsertDashboardSchedule({
       db_name,
       interval_min,
@@ -53,6 +60,36 @@ export async function POST(request: Request) {
 
     // Tell the running scheduler to pick up the new schedule immediately
     reloadSchedules().catch(() => {});
+
+    // Capture in audit log (visible on Audit page)
+    const isUpdate = !!prevSchedule;
+    const intervalLabel = interval_min < 60 ? `${interval_min}m` : `${interval_min / 60}h`;
+    const prevIntervalLabel = prevSchedule
+      ? prevSchedule.interval_min < 60
+        ? `${prevSchedule.interval_min}m`
+        : `${prevSchedule.interval_min / 60}h`
+      : "";
+
+    const detail = isUpdate
+      ? `Updated auto-refresh schedule for ${db_name} from ${prevIntervalLabel} to ${intervalLabel}.`
+      : `Configured auto-refresh schedule for ${db_name} (every ${intervalLabel}).`;
+
+    await insertAuditLog({
+      actor: session.user.username,
+      action: "dashboard_schedule",
+      db: db_name,
+      status: "success",
+      detail,
+      metadata: {
+        operation: isUpdate ? "UPDATE" : "CREATE",
+        schedule_id: schedule.id,
+        db_name,
+        interval_min,
+        previous_interval_min: prevSchedule?.interval_min,
+        is_active: schedule.is_active,
+        table_name: "APP_DASHBOARD_SCHEDULES",
+      },
+    }).catch((e) => console.warn("[schedules/POST] Failed to insert audit log:", e));
 
     return NextResponse.json({ schedule });
   } catch (err) {

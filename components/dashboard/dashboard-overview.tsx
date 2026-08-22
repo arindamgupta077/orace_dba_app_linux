@@ -1266,7 +1266,7 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden">
+        <div className="flex flex-shrink-0 flex-col sm:items-end gap-2 print:hidden sm:-mt-2">
           <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
@@ -1995,22 +1995,7 @@ export function DashboardOverview() {
             </Card>
           )}
 
-          {/* ── SECTION 7: SNAPSHOT INFO FOOTER ───────────────────────── */}
-          {serverSchedule?.is_active && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">
-              <Calendar className="h-3.5 w-3.5 text-violet-400 shrink-0" />
-              <span>
-                <span className="font-medium text-violet-300">Server scheduler active</span>
-                {" "}— refreshes every{" "}
-                <span className="font-medium text-slate-300">
-                  {serverSchedule.interval_min < 60
-                    ? `${serverSchedule.interval_min}m`
-                    : `${serverSchedule.interval_min / 60}h`}
-                </span>
-                {" "}even when browser is closed.
-              </span>
-            </div>
-          )}
+
         </>
       )}
 

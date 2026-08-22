@@ -69,10 +69,12 @@ export function useNotificationStream() {
           addNotificationRef.current(payloadToNotificationItem(data));
 
           if (!data.replayed) {
-            // Sync RMAN background jobs state if a LIVE RMAN notification arrives
             const lowerTitle = (data.title || "").toLowerCase();
             const lowerMsg = (data.message || "").toLowerCase();
-            if (lowerTitle.includes("rman") || lowerMsg.includes("rman")) {
+            const isNonJobType = data.type === "dba_shift" || data.type === "approval_workflow" || data.type === "tablespace" || data.type === "filesystem_drive" || data.type === "alert_log";
+
+            // Sync RMAN background jobs state if a LIVE RMAN notification arrives
+            if (!isNonJobType && (data.type === "rman" || (!data.type && (/\brman\b/i.test(lowerTitle) || /\brman\b/i.test(lowerMsg))))) {
               const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
               const isDone = lowerTitle.includes("completed") || lowerTitle.includes("finished") || lowerMsg.includes("completed") || lowerMsg.includes("finished") || data.severity === "info";
               if (isFail || isDone) {
@@ -81,8 +83,8 @@ export function useNotificationStream() {
             }
 
             // Sync Data Pump (EXPDP & IMPDP) background jobs state if a LIVE Data Pump notification arrives
-            const isExpdp = lowerTitle.includes("expdp") || lowerMsg.includes("expdp") || data.dpAction === "expdp";
-            const isImpdp = lowerTitle.includes("impdp") || lowerMsg.includes("impdp") || data.dpAction === "impdp";
+            const isExpdp = !isNonJobType && (data.type === "expdp" || data.dpAction === "expdp" || (!data.type && /\bexpdp\b/i.test(lowerTitle + " " + lowerMsg)));
+            const isImpdp = !isNonJobType && (data.type === "impdp" || data.dpAction === "impdp" || (!data.type && /\bimpdp\b/i.test(lowerTitle + " " + lowerMsg)));
             if (isExpdp || isImpdp) {
               const isFail = data.severity === "critical" || lowerTitle.includes("failed") || lowerMsg.includes("failed");
               const dpStatus = data.dpStatus || (isFail ? "error" : "success");

@@ -2106,7 +2106,20 @@ export async function touchSessionActivity(sessionTokenHash: string): Promise<bo
   return ((result as { rowsAffected?: number })?.rowsAffected ?? 0) > 0;
 }
 
-const APP_AUDITED_ACTIONS = new Set<string>(["disk_utilization", "alert_log", "Tablespace Alert", "approval_workflow", "expdp", "impdp", "db_monitoring", "test_connection"]);
+const APP_AUDITED_ACTIONS = new Set<string>([
+  "disk_utilization",
+  "alert_log",
+  "Tablespace Alert",
+  "approval_workflow",
+  "expdp",
+  "impdp",
+  "db_monitoring",
+  "test_connection",
+  "dashboard_schedule",
+  "APP_DASHBOARD_SCHEDULES",
+  "schedule_auto_refresh",
+  "auto_refresh_schedule"
+]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
   "acknowledged",
@@ -7801,47 +7814,36 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       const readAt = row.READ_AT ? toIstIsoString(row.READ_AT) : undefined;
 
       const sourceName = String(row.SOURCE_NAME || "").toLowerCase();
-      const isImpdp =
-        rawType === "impdp" ||
-        id.includes("impdp") ||
-        message.toLowerCase().includes("impdp");
+      let type = rawType;
 
-      const isExpdp =
-        rawType === "expdp" ||
-        id.includes("expdp") ||
-        message.toLowerCase().includes("expdp");
+      if (rawType === "generic" || !rawType) {
+        const isImpdp = id.includes("impdp") || /\bimpdp\b/i.test(message);
+        const isExpdp = id.includes("expdp") || /\bexpdp\b/i.test(message);
+        const isDatapump = isImpdp || isExpdp || sourceName === "datapump" || id.startsWith("DP-");
+        const isRman = sourceName === "rman" || id.startsWith("RMAN-") || /\brman\b/i.test(message);
+        const isDbStart = id.startsWith("DB-START-");
+        const isDbStop = id.startsWith("DB-STOP-");
+        const isLsnrStart = id.startsWith("LSNR-START-");
+        const isLsnrStop = id.startsWith("LSNR-STOP-");
 
-      const isDatapump = isImpdp || isExpdp || rawType === "datapump" || sourceName === "datapump" || id.startsWith("DP-");
-
-      const isRman =
-        rawType === "rman" ||
-        rawType === "backup" ||
-        sourceName === "rman" ||
-        id.startsWith("RMAN-") ||
-        message.toLowerCase().includes("rman");
-
-      const isDbStart = rawType === "database_start" || rawType === "start_database" || id.startsWith("DB-START-");
-      const isDbStop = rawType === "database_stop" || rawType === "stop_database" || id.startsWith("DB-STOP-");
-      const isLsnrStart = rawType === "listener_start" || rawType === "start_listener" || id.startsWith("LSNR-START-");
-      const isLsnrStop = rawType === "listener_stop" || rawType === "stop_listener" || id.startsWith("LSNR-STOP-");
-
-      const type = isImpdp
-        ? "impdp"
-        : isExpdp
-        ? "expdp"
-        : isDatapump
-        ? "datapump"
-        : isRman
-        ? "rman"
-        : isDbStart
-        ? "database_start"
-        : isDbStop
-        ? "database_stop"
-        : isLsnrStart
-        ? "listener_start"
-        : isLsnrStop
-        ? "listener_stop"
-        : rawType;
+        type = isImpdp
+          ? "impdp"
+          : isExpdp
+          ? "expdp"
+          : isDatapump
+          ? "datapump"
+          : isRman
+          ? "rman"
+          : isDbStart
+          ? "database_start"
+          : isDbStop
+          ? "database_stop"
+          : isLsnrStart
+          ? "listener_start"
+          : isLsnrStop
+          ? "listener_stop"
+          : rawType;
+      }
 
       let targetPath = "/dashboard";
       if (type === "tablespace") targetPath = "/tablespaces";
@@ -7856,8 +7858,8 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       ) targetPath = "/general-admin";
       else if (type === "approval_workflow") targetPath = "/admin-panel/pending-approvals";
       else if (type === "dba_shift") targetPath = "/dba-console/shift-management";
-      else if (isDatapump) targetPath = "/data-pump";
-      else if (isRman) targetPath = "/backups";
+      else if (type === "datapump" || type === "expdp" || type === "impdp") targetPath = "/data-pump";
+      else if (type === "rman") targetPath = "/backups";
 
       let title = `Alert: ${db || "System"}`;
       if (type === "tablespace") title = `Tablespace Alert: ${row.TABLESPACE_NAME || db || ""}`;
@@ -7884,19 +7886,19 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
       }
       else if (type === "approval_workflow") title = `Approval Request: ${db || ""}`;
       else if (type === "dba_shift") title = row.OBJECT_NAME ? String(row.OBJECT_NAME) : `DBA Console Event`;
-      else if (isImpdp) {
+      else if (type === "impdp") {
         const st = (status || "").toLowerCase();
         if (st === "completed" || st === "success") title = `IMPDP completed: ${db || ""}`;
         else if (st === "failed") title = `IMPDP failed: ${db || ""}`;
         else title = `IMPDP started: ${db || ""}`;
       }
-      else if (isExpdp) {
+      else if (type === "expdp") {
         const st = (status || "").toLowerCase();
         if (st === "completed" || st === "success") title = `EXPDP completed: ${db || ""}`;
         else if (st === "failed") title = `EXPDP failed: ${db || ""}`;
         else title = `EXPDP started: ${db || ""}`;
       }
-      else if (isRman) {
+      else if (type === "rman") {
         const st = (status || "").toLowerCase();
         if (st === "completed" || st === "success") title = `RMAN Backup completed: ${db || ""}`;
         else if (st === "failed") title = `RMAN Backup failed: ${db || ""}`;

@@ -102,9 +102,16 @@ export function QueryPanel() {
       }
     };
 
+    const handleStorageCleared = () => {
+      setQuery("SELECT SYSDATE FROM DUAL");
+      setRunState({ status: "idle", output: null, timestamp: null, response: null });
+    };
+
     window.addEventListener("general-admin-runstate-change", handleRunStateChange);
+    window.addEventListener("general-admin-storage-cleared", handleStorageCleared);
     return () => {
       window.removeEventListener("general-admin-runstate-change", handleRunStateChange);
+      window.removeEventListener("general-admin-storage-cleared", handleStorageCleared);
     };
   }, [selectedDb]);
 

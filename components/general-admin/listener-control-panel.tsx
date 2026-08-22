@@ -190,9 +190,17 @@ export function ListenerControlPanel() {
       }
     };
 
+    const handleStorageCleared = () => {
+      setRunState({ status: "idle", output: null, timestamp: null, action: null, response: null });
+      setLoading(null);
+      setConfirmAction(null);
+    };
+
     window.addEventListener("general-admin-runstate-change", handleRunStateChange);
+    window.addEventListener("general-admin-storage-cleared", handleStorageCleared);
     return () => {
       window.removeEventListener("general-admin-runstate-change", handleRunStateChange);
+      window.removeEventListener("general-admin-storage-cleared", handleStorageCleared);
     };
   }, [selectedDb]);
 

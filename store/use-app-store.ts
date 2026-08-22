@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, RequestHistoryItem, UserSession, DataPumpJob, DataPumpJobStatus, DataPumpOperation, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
+import type { AuditLogItem, DatabaseTarget, DbaAction, NotificationItem, NotificationItemType, RequestHistoryItem, UserSession, DataPumpJob, DataPumpJobStatus, DataPumpOperation, ExpdpTemplate, ImpdpTemplate, RmanJob, RmanJobStatus } from "@/types/dba";
 import { markAllNotificationsReadApi, markNotificationReadApi } from "@/services/api";
 import { pickRandomEligibleDb } from "@/lib/db-selector-helper";
 
@@ -161,28 +161,42 @@ export const useAppStore = create<AppState>()(
 
             const lowerT = (item.title || oldItem.title || "").toLowerCase();
             const lowerM = (item.message || oldItem.message || "").toLowerCase();
-            const isImpdp = item.type === "impdp" || item.dpAction === "impdp" || lowerT.includes("impdp") || lowerM.includes("impdp");
-            const isExpdp = item.type === "expdp" || item.dpAction === "expdp" || lowerT.includes("expdp") || lowerM.includes("expdp");
-            const isDp = isImpdp || isExpdp || item.type === "datapump";
-            const isRman = item.type === "rman" || lowerT.includes("rman") || lowerM.includes("rman");
+            const id = String(item.id || oldItem.id || "").toLowerCase();
 
-            const resolvedTargetPath = isDp
-              ? "/data-pump"
-              : isRman
-              ? "/backups"
-              : item.targetPath || oldItem.targetPath;
+            // 1. If explicit non-generic type is set, preserve it and its target path!
+            const explicitType = (item.type && item.type !== "generic") ? item.type : (oldItem.type && oldItem.type !== "generic") ? oldItem.type : null;
+            let resolvedType: NotificationItemType = explicitType || "generic";
+            let resolvedTargetPath = item.targetPath || oldItem.targetPath;
 
-            const resolvedType = isImpdp
-              ? "impdp"
-              : isExpdp
-              ? "expdp"
-              : isDp
-              ? "datapump"
-              : isRman
-              ? "rman"
-              : item.type && item.type !== "generic"
-              ? item.type
-              : oldItem.type || "generic";
+            if (explicitType) {
+              if (!resolvedTargetPath) {
+                if (explicitType === "dba_shift") resolvedTargetPath = "/dba-console/shift-management";
+                else if (explicitType === "approval_workflow") resolvedTargetPath = "/admin-panel/pending-approvals";
+                else if (explicitType === "tablespace") resolvedTargetPath = "/tablespaces";
+                else if (explicitType === "filesystem_drive") resolvedTargetPath = "/filesystem-drive";
+                else if (explicitType === "alert_log") resolvedTargetPath = "/alerts";
+                else if (explicitType === "expdp" || explicitType === "impdp" || explicitType === "datapump") resolvedTargetPath = "/data-pump";
+                else if (explicitType === "rman") resolvedTargetPath = "/backups";
+                else if (
+                  explicitType === "db_monitoring" ||
+                  explicitType === "database_start" ||
+                  explicitType === "database_stop" ||
+                  explicitType === "listener_start" ||
+                  explicitType === "listener_stop"
+                ) {
+                  resolvedTargetPath = "/general-admin";
+                }
+              }
+            } else {
+              // 2. Only infer for generic / untyped notifications
+              const isImpdp = item.dpAction === "impdp" || id.includes("impdp") || /\bimpdp\b/i.test(lowerT) || /\bimpdp\b/i.test(lowerM);
+              const isExpdp = item.dpAction === "expdp" || id.includes("expdp") || /\bexpdp\b/i.test(lowerT) || /\bexpdp\b/i.test(lowerM);
+              const isDp = isImpdp || isExpdp || id.startsWith("dp-");
+              const isRman = id.startsWith("rman-") || /\brman\b/i.test(lowerT) || /\brman\b/i.test(lowerM);
+
+              resolvedType = isImpdp ? "impdp" : isExpdp ? "expdp" : isDp ? "datapump" : isRman ? "rman" : "generic";
+              resolvedTargetPath = isDp ? "/data-pump" : isRman ? "/backups" : (item.targetPath || oldItem.targetPath);
+            }
 
             updated[existingIndex] = {
               ...oldItem,
@@ -201,13 +215,42 @@ export const useAppStore = create<AppState>()(
           } else {
             const lowerT = (item.title || "").toLowerCase();
             const lowerM = (item.message || "").toLowerCase();
-            const isImpdp = item.type === "impdp" || item.dpAction === "impdp" || lowerT.includes("impdp") || lowerM.includes("impdp");
-            const isExpdp = item.type === "expdp" || item.dpAction === "expdp" || lowerT.includes("expdp") || lowerM.includes("expdp");
-            const isDp = isImpdp || isExpdp || item.type === "datapump";
-            const isRman = item.type === "rman" || lowerT.includes("rman") || lowerM.includes("rman");
+            const id = String(item.id || "").toLowerCase();
 
-            const resolvedTargetPath = isDp ? "/data-pump" : isRman ? "/backups" : item.targetPath;
-            const resolvedType = isImpdp ? "impdp" : isExpdp ? "expdp" : isDp ? "datapump" : isRman ? "rman" : item.type;
+            // 1. If explicit non-generic type is set, preserve it and its target path!
+            const explicitType = item.type && item.type !== "generic" ? item.type : null;
+            let resolvedType: NotificationItemType = explicitType || "generic";
+            let resolvedTargetPath = item.targetPath;
+
+            if (explicitType) {
+              if (!resolvedTargetPath) {
+                if (explicitType === "dba_shift") resolvedTargetPath = "/dba-console/shift-management";
+                else if (explicitType === "approval_workflow") resolvedTargetPath = "/admin-panel/pending-approvals";
+                else if (explicitType === "tablespace") resolvedTargetPath = "/tablespaces";
+                else if (explicitType === "filesystem_drive") resolvedTargetPath = "/filesystem-drive";
+                else if (explicitType === "alert_log") resolvedTargetPath = "/alerts";
+                else if (explicitType === "expdp" || explicitType === "impdp" || explicitType === "datapump") resolvedTargetPath = "/data-pump";
+                else if (explicitType === "rman") resolvedTargetPath = "/backups";
+                else if (
+                  explicitType === "db_monitoring" ||
+                  explicitType === "database_start" ||
+                  explicitType === "database_stop" ||
+                  explicitType === "listener_start" ||
+                  explicitType === "listener_stop"
+                ) {
+                  resolvedTargetPath = "/general-admin";
+                }
+              }
+            } else {
+              // 2. Only infer for generic / untyped notifications
+              const isImpdp = item.dpAction === "impdp" || id.includes("impdp") || /\bimpdp\b/i.test(lowerT) || /\bimpdp\b/i.test(lowerM);
+              const isExpdp = item.dpAction === "expdp" || id.includes("expdp") || /\bexpdp\b/i.test(lowerT) || /\bexpdp\b/i.test(lowerM);
+              const isDp = isImpdp || isExpdp || id.startsWith("dp-");
+              const isRman = id.startsWith("rman-") || /\brman\b/i.test(lowerT) || /\brman\b/i.test(lowerM);
+
+              resolvedType = isImpdp ? "impdp" : isExpdp ? "expdp" : isDp ? "datapump" : isRman ? "rman" : "generic";
+              resolvedTargetPath = isDp ? "/data-pump" : isRman ? "/backups" : item.targetPath;
+            }
 
             updated = [{ ...item, type: resolvedType, targetPath: resolvedTargetPath, read: item.read ?? false }, ...state.notifications];
           }

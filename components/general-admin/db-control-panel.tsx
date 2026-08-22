@@ -299,16 +299,25 @@ export function DbControlPanel() {
       }
     };
 
+    const handleStorageCleared = () => {
+      setRunState({ status: "idle", output: null, timestamp: null, action: null, response: null });
+      setLoading(null);
+      setSelectedShutdownOption("IMMEDIATE");
+      setConfirmAction(null);
+    };
+
     window.addEventListener("dba-monitoring-incident", handleMonitoringUpdate);
     window.addEventListener("dba-notification", handleMonitoringUpdate);
     window.addEventListener("dba-database-update", handleDatabaseUpdate);
     window.addEventListener("general-admin-runstate-change", handleRunStateChange);
+    window.addEventListener("general-admin-storage-cleared", handleStorageCleared);
 
     return () => {
       window.removeEventListener("dba-monitoring-incident", handleMonitoringUpdate);
       window.removeEventListener("dba-notification", handleMonitoringUpdate);
       window.removeEventListener("dba-database-update", handleDatabaseUpdate);
       window.removeEventListener("general-admin-runstate-change", handleRunStateChange);
+      window.removeEventListener("general-admin-storage-cleared", handleStorageCleared);
     };
   }, [selectedDb, isProd, refreshRebootStatus, refreshIncidentStatus]);
 

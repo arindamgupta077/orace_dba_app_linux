@@ -55,6 +55,10 @@ export function isAdminActionRunning(type: AdminActionType, db?: string | null):
   return activeJobs.has(key);
 }
 
+export function clearActiveAdminJobs(): void {
+  activeJobs.clear();
+}
+
 /**
  * Execute Database Control action in the background.
  */

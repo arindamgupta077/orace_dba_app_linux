@@ -175,32 +175,13 @@ export function alertTypeToTargetPath(alertType: string, sourceName?: string, al
   const id = (alertId || "").trim().toLowerCase();
   const m = (message || "").toLowerCase();
 
-  if (
-    t === "datapump" ||
-    t === "expdp" ||
-    t === "impdp" ||
-    s === "datapump" ||
-    id.startsWith("dp-") ||
-    id.includes("expdp") ||
-    id.includes("impdp") ||
-    m.includes("expdp") ||
-    m.includes("impdp")
-  ) {
-    return "/data-pump";
-  }
-  if (
-    t === "rman" ||
-    t === "backup" ||
-    s === "rman" ||
-    id.startsWith("rman-") ||
-    id.includes("rman") ||
-    m.includes("rman")
-  ) {
-    return "/backups";
-  }
+  // 1. Explicit / Known Alert Types
+  if (t === "dba_shift") return "/dba-console/shift-management";
+  if (t === "approval_workflow") return "/admin-panel/pending-approvals";
   if (t === "tablespace") return "/tablespaces";
   if (t === "filesystem_drive" || t === "filesystem" || t === "drive" || t === "disk_utilization") return "/filesystem-drive";
-  if (t === "approval_workflow") return "/admin-panel/pending-approvals";
+  if (t === "alert_log") return "/alerts";
+  if (t === "refresh_dashboard") return "/";
   if (
     t === "db_monitoring" ||
     t === "database_start" ||
@@ -218,9 +199,31 @@ export function alertTypeToTargetPath(alertType: string, sourceName?: string, al
   ) {
     return "/general-admin";
   }
-  if (t === "dba_shift") return "/dba-console/shift-management";
-  if (t === "alert_log") return "/alerts";
-  if (t === "refresh_dashboard") return "/";
+  if (t === "expdp" || t === "impdp" || t === "datapump") {
+    return "/data-pump";
+  }
+  if (t === "rman" || t === "backup") {
+    return "/backups";
+  }
+
+  // 2. Inferred Types (for generic / untyped alerts)
+  if (
+    s === "datapump" ||
+    id.startsWith("dp-") ||
+    id.includes("expdp") ||
+    id.includes("impdp") ||
+    /\b(expdp|impdp)\b/i.test(m)
+  ) {
+    return "/data-pump";
+  }
+  if (
+    s === "rman" ||
+    id.startsWith("rman-") ||
+    /\brman\b/i.test(m)
+  ) {
+    return "/backups";
+  }
+
   return "/tablespaces";
 }
 
@@ -230,47 +233,41 @@ export function resolveNotificationType(alertType: string, sourceName?: string, 
   const id = (alertId || "").trim().toLowerCase();
   const m = (message || "").toLowerCase();
 
-  if (t === "refresh_dashboard" || id.startsWith("refresh-")) {
-    return "refresh_dashboard";
-  }
+  // 1. Explicit / Known Alert Types
+  if (t === "dba_shift") return "dba_shift";
+  if (t === "approval_workflow") return "approval_workflow";
+  if (t === "tablespace") return "tablespace";
+  if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
+  if (t === "alert_log") return "alert_log";
+  if (t === "refresh_dashboard" || id.startsWith("refresh-")) return "refresh_dashboard";
+  if (t === "impdp") return "impdp";
+  if (t === "expdp") return "expdp";
+  if (t === "datapump") return "datapump";
+  if (t === "rman" || t === "backup") return "rman";
+  if (t === "database_start" || t === "start_database" || id.startsWith("db-start-")) return "database_start";
+  if (t === "database_stop" || t === "stop_database" || id.startsWith("db-stop-")) return "database_stop";
+  if (t === "listener_start" || t === "start_listener" || id.startsWith("lsnr-start-")) return "listener_start";
+  if (t === "listener_stop" || t === "stop_listener" || id.startsWith("lsnr-stop-")) return "listener_stop";
+  if (t === "db_monitoring") return "db_monitoring";
 
-  if (t === "impdp" || id.includes("impdp") || m.includes("impdp")) {
+  // 2. Inferred Types (for generic / untyped alerts)
+  if (id.includes("impdp") || /\bimpdp\b/i.test(m)) {
     return "impdp";
   }
-  if (t === "expdp" || id.includes("expdp") || m.includes("expdp")) {
+  if (id.includes("expdp") || /\bexpdp\b/i.test(m)) {
     return "expdp";
   }
-  if (t === "datapump" || s === "datapump" || id.startsWith("dp-")) {
+  if (s === "datapump" || id.startsWith("dp-")) {
     return "datapump";
   }
   if (
-    t === "rman" ||
-    t === "backup" ||
     s === "rman" ||
     id.startsWith("rman-") ||
-    id.includes("rman") ||
-    m.includes("rman")
+    /\brman\b/i.test(m)
   ) {
     return "rman";
   }
-  if (t === "database_start" || t === "start_database" || id.startsWith("db-start-")) {
-    return "database_start";
-  }
-  if (t === "database_stop" || t === "stop_database" || id.startsWith("db-stop-")) {
-    return "database_stop";
-  }
-  if (t === "listener_start" || t === "start_listener" || id.startsWith("lsnr-start-")) {
-    return "listener_start";
-  }
-  if (t === "listener_stop" || t === "stop_listener" || id.startsWith("lsnr-stop-")) {
-    return "listener_stop";
-  }
-  if (t === "tablespace") return "tablespace";
-  if (t === "filesystem_drive" || t === "filesystem" || t === "drive") return "filesystem_drive";
-  if (t === "approval_workflow") return "approval_workflow";
-  if (t === "db_monitoring") return "db_monitoring";
-  if (t === "dba_shift") return "dba_shift";
-  if (t === "alert_log") return "alert_log";
+
   return "generic";
 }
 

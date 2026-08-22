@@ -1145,7 +1145,8 @@ USING (
   SELECT 'RESET_PASSWORD', 'Reset Password', 'user_management', 'medium', 'Resets a user password' FROM dual UNION ALL
   SELECT 'KILL_SESSION', 'Kill DB Session', 'database_admin', 'high', 'Terminates an active database session' FROM dual UNION ALL
   SELECT 'ALTER_TABLESPACE', 'Alter Tablespace', 'database_admin', 'high', 'Resizes or adds datafiles to a tablespace' FROM dual UNION ALL
-  SELECT 'EXECUTE_RMAN', 'Execute RMAN Job', 'database_admin', 'critical', 'Triggers an RMAN backup or restore operation' FROM dual
+  SELECT 'EXECUTE_RMAN', 'Execute RMAN Job', 'database_admin', 'critical', 'Triggers an RMAN backup or restore operation' FROM dual UNION ALL
+  SELECT 'DASHBOARD_SCHEDULE', 'Dashboard Schedule', 'monitoring', 'medium', 'Configures server-side auto-refresh schedules for database dashboard' FROM dual
 ) src
 ON (dst.action_name = src.action_name)
 WHEN NOT MATCHED THEN

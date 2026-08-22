@@ -35,8 +35,9 @@ async function buildReplayItems(userRole?: string, userId?: number, username?: s
       );
 
       const resolvedType = resolveNotificationType(alert.alert_type, alert.source, alert.id, alert.message);
-      const isExpdp = resolvedType === "expdp" || (alert.message || "").toLowerCase().includes("expdp");
-      const isImpdp = resolvedType === "impdp" || (alert.message || "").toLowerCase().includes("impdp");
+      const isExplicitType = alert.alert_type && alert.alert_type !== "generic";
+      const isExpdp = !isExplicitType && (resolvedType === "expdp" || /\bexpdp\b/i.test(alert.message || ""));
+      const isImpdp = !isExplicitType && (resolvedType === "impdp" || /\bimpdp\b/i.test(alert.message || ""));
       const isRman = resolvedType === "rman";
 
       const finalType = isImpdp ? "impdp" : isExpdp ? "expdp" : resolvedType;

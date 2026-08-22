@@ -6,16 +6,19 @@ import {
   History,
   Radio,
   Settings2,
-  Terminal
+  Terminal,
+  Trash2
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DbControlPanel } from "@/components/general-admin/db-control-panel";
 import { ListenerControlPanel } from "@/components/general-admin/listener-control-panel";
 import { MonitoringIncidentHistoryModal } from "@/components/general-admin/monitoring-incident-history-modal";
 import { MonitoringIncidentsPanel } from "@/components/general-admin/monitoring-incidents-panel";
 import { QueryPanel } from "@/components/general-admin/query-panel";
-import { loadSessionData, saveSessionData } from "@/components/general-admin/storage-helpers";
+import { clearGeneralAdminStorage, loadSessionData, saveSessionData } from "@/components/general-admin/storage-helpers";
+import { clearActiveAdminJobs } from "@/services/general-admin-service";
 import { cn } from "@/lib/utils";
 
 type TabKey = "db-control" | "listener-control" | "query";
@@ -68,6 +71,30 @@ export function GeneralAdminDashboard() {
     saveSessionData(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
 
+  // Listen for storage clear events to sync active tab
+  useEffect(() => {
+    const handleStorageCleared = () => {
+      const savedTab = loadSessionData<TabKey>(ACTIVE_TAB_STORAGE_KEY, "db-control");
+      setActiveTab(savedTab);
+    };
+
+    window.addEventListener("general-admin-storage-cleared", handleStorageCleared);
+    return () => {
+      window.removeEventListener("general-admin-storage-cleared", handleStorageCleared);
+    };
+  }, []);
+
+  const handleClearStorage = () => {
+    clearActiveAdminJobs();
+    const result = clearGeneralAdminStorage();
+    toast.success("General Admin storage cleared", {
+      description:
+        result.clearedKeysCount > 0
+          ? `Cleared ${result.clearedKeysCount} saved session/local storage entries.`
+          : "Storage is already clean."
+    });
+  };
+
   const activeTabDef = TABS.find((t) => t.key === activeTab) || TABS[0];
 
   return (
@@ -83,16 +110,29 @@ export function GeneralAdminDashboard() {
             Database lifecycle control, listener management, and ad-hoc SQL execution via SSH
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setHistoryOpen(true)}
-          className="ml-auto flex items-center gap-1.5 border-border/60 bg-card/60 text-xs font-medium hover:bg-card hover:border-border transition-all"
-        >
-          <History className="h-3.5 w-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">Monitoring History</span>
-          <span className="sm:hidden">History</span>
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHistoryOpen(true)}
+            className="flex items-center gap-1.5 border-border/60 bg-card/60 text-xs font-medium hover:bg-card hover:border-border transition-all"
+          >
+            <History className="h-3.5 w-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Monitoring History</span>
+            <span className="sm:hidden">History</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleClearStorage}
+            className="h-8 w-8 shrink-0 border-border/60 bg-card/60 hover:bg-rose-500/10 hover:border-rose-500/30 hover:text-rose-400 transition-all"
+            title="Clear General Admin session and local storage"
+            aria-label="Clear General Admin storage"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+          </Button>
+        </div>
       </div>
 
       {/* Monitoring Notifications Panel (renders only when active incidents exist) */}

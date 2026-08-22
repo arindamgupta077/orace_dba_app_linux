@@ -807,14 +807,17 @@ export function NotificationCenter() {
         ) : (
           <div className="divide-y divide-border/40">
             {items.map((item) => {
-              const lowerTitle = (item.title || "").toLowerCase();
-              const lowerMsg = (item.message || "").toLowerCase();
-              const isDp = item.type === "datapump" || lowerTitle.includes("expdp") || lowerTitle.includes("impdp") || lowerMsg.includes("expdp") || lowerMsg.includes("impdp");
-              const isRman = item.type === "rman" || lowerTitle.includes("rman") || lowerMsg.includes("rman");
-              const isLifecycle = item.type === "database_start" || item.type === "database_stop" || item.type === "listener_start" || item.type === "listener_stop" || item.type === "db_monitoring";
-              const resolvedTarget = isDp ? "/data-pump" : isRman ? "/backups" : isLifecycle ? "/general-admin" : (item.targetPath || "#");
+              const isConsole = item.category === "console" || item.type === "dba_shift";
+              let resolvedTarget = item.targetPath;
+              if (!resolvedTarget || resolvedTarget === "#") {
+                const lowerTitle = (item.title || "").toLowerCase();
+                const lowerMsg = (item.message || "").toLowerCase();
+                const isDp = item.type === "datapump" || item.type === "expdp" || item.type === "impdp" || (item.type === "generic" && /\b(expdp|impdp)\b/i.test(lowerTitle + " " + lowerMsg));
+                const isRman = item.type === "rman" || (item.type === "generic" && /\brman\b/i.test(lowerTitle + " " + lowerMsg));
+                const isLifecycle = item.type === "database_start" || item.type === "database_stop" || item.type === "listener_start" || item.type === "listener_stop" || item.type === "db_monitoring";
+                resolvedTarget = isDp ? "/data-pump" : isRman ? "/backups" : isLifecycle ? "/general-admin" : isConsole ? "/dba-console/shift-management" : "#";
+              }
               const ContentWrapper = resolvedTarget && resolvedTarget !== "#" ? Link : "div";
-              const isConsole = item.category === "console";
               return (
                 <ContentWrapper
                   key={item.id}

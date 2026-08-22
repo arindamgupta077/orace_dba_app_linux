@@ -204,15 +204,19 @@ export function DatabaseAlertsBell() {
     }
 
     let target = notification.targetPath;
-    const lowerTitle = (notification.title || "").toLowerCase();
-    const lowerMsg = (notification.message || "").toLowerCase();
-    const isDp = notification.type === "datapump" || lowerTitle.includes("expdp") || lowerTitle.includes("impdp") || lowerMsg.includes("expdp") || lowerMsg.includes("impdp");
-    const isRman = notification.type === "rman" || lowerTitle.includes("rman") || lowerMsg.includes("rman");
+    if (!target || target === "#") {
+      const lowerTitle = (notification.title || "").toLowerCase();
+      const lowerMsg = (notification.message || "").toLowerCase();
+      const isDp = notification.type === "datapump" || notification.type === "expdp" || notification.type === "impdp" || (notification.type === "generic" && /\b(expdp|impdp)\b/i.test(lowerTitle + " " + lowerMsg));
+      const isRman = notification.type === "rman" || (notification.type === "generic" && /\brman\b/i.test(lowerTitle + " " + lowerMsg));
 
-    if (isDp) {
-      target = "/data-pump";
-    } else if (isRman) {
-      target = "/backups";
+      if (isDp) {
+        target = "/data-pump";
+      } else if (isRman) {
+        target = "/backups";
+      } else if (notification.type === "dba_shift") {
+        target = "/dba-console/shift-management";
+      }
     }
 
     if (target) {
