@@ -7,6 +7,8 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  AuditLogRetentionPolicyConfig,
+  AuditLogStats,
   BackupStatusCheck,
   BackupStatusValue,
   BackupTemplate,
@@ -34,6 +36,7 @@ import type {
   ShiftReportData,
   ShiftReportFilters,
   ShiftSession,
+  SecurityPosturePolicyConfig,
   TablespaceRow,
   UserSession
 } from "@/types/dba";
@@ -674,6 +677,62 @@ export async function updatePerformanceConfig(trendDays: number): Promise<{ ok: 
     body: JSON.stringify({ trendDays })
   });
 }
+
+/** Fetch the Security Posture Nessus scan report policy parameters. */
+export async function fetchSecurityPosturePolicy(): Promise<{ policy: SecurityPosturePolicyConfig }> {
+  return requestJson<{ policy: SecurityPosturePolicyConfig }>("/api/security-posture/policy");
+}
+
+/** Update the Security Posture Nessus scan report policy parameters (app_admin only). */
+export async function updateSecurityPosturePolicy(
+  policy: Partial<SecurityPosturePolicyConfig>
+): Promise<{ ok: boolean; policy: SecurityPosturePolicyConfig }> {
+  return requestJson<{ ok: boolean; policy: SecurityPosturePolicyConfig }>("/api/security-posture/policy", {
+    method: "POST",
+    body: JSON.stringify(policy)
+  });
+}
+
+/** Fetch the Audit Log Retention Policy and DB log statistics. */
+export async function fetchAuditRetentionPolicy(): Promise<{
+  policy: AuditLogRetentionPolicyConfig;
+  stats: AuditLogStats;
+}> {
+  return requestJson<{ policy: AuditLogRetentionPolicyConfig; stats: AuditLogStats }>("/api/audit/retention");
+}
+
+/** Update the Audit Log Retention Policy (app_admin only). */
+export async function updateAuditRetentionPolicy(
+  policy: Partial<AuditLogRetentionPolicyConfig>
+): Promise<{ ok: boolean; policy: AuditLogRetentionPolicyConfig; stats?: AuditLogStats }> {
+  return requestJson<{ ok: boolean; policy: AuditLogRetentionPolicyConfig; stats?: AuditLogStats }>("/api/audit/retention", {
+    method: "POST",
+    body: JSON.stringify(policy)
+  });
+}
+
+/** Run on-demand purge of expired audit logs (app_admin only). */
+export async function purgeExpiredAuditLogs(retentionDays?: number): Promise<{
+  ok: boolean;
+  deletedCount: number;
+  retentionDays: number;
+  lastPurgeAt: string;
+  stats?: AuditLogStats;
+  message: string;
+}> {
+  return requestJson<{
+    ok: boolean;
+    deletedCount: number;
+    retentionDays: number;
+    lastPurgeAt: string;
+    stats?: AuditLogStats;
+    message: string;
+  }>("/api/audit/retention/purge", {
+    method: "POST",
+    body: JSON.stringify(retentionDays !== undefined ? { retentionDays } : {})
+  });
+}
+
 
 // ============================================================
 // DBA Console — Shift Management, Daily Checklist, Shift Report

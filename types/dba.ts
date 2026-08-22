@@ -445,6 +445,24 @@ export interface AuditLogItem {
   metadata?: Record<string, unknown>;
 }
 
+export interface AuditLogRetentionPolicyConfig {
+  retentionDays: number;
+  autoPurgeEnabled: boolean;
+  lastPurgeAt?: string | null;
+  lastPurgedCount?: number | null;
+}
+
+export interface AuditLogStats {
+  totalLogs: number;
+  retentionDays: number;
+  autoPurgeEnabled: boolean;
+  oldestLogTimestamp: string | null;
+  newestLogTimestamp: string | null;
+  expiredLogsCount: number;
+  lastPurgeAt: string | null;
+  lastPurgedCount: number | null;
+}
+
 export interface DatabaseTarget {
   name: string;
   environment: string;
@@ -487,6 +505,13 @@ export interface SecurityPostureReport {
   ai_model?: string;
   summary_generated_at?: string;
   error_message?: string;
+}
+
+export interface SecurityPosturePolicyConfig {
+  outdatedAfterMinutes: number;
+  outdatedWebhookMaxSends: number;
+  outdatedWebhookIntervalHours: number;
+  outdatedWebhookCheckIntervalMinutes: number;
 }
 
 export interface DatabaseOwnerSummary {

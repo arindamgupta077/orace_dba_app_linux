@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ClipboardList, Download, RotateCcw, Search, StickyNote, FileSpreadsheet, FileText } from "lucide-react";
+import { ClipboardList, Download, RotateCcw, Search, Shield, SlidersHorizontal, StickyNote, FileSpreadsheet, FileText } from "lucide-react";
 import { useAppStore } from "@/store/use-app-store";
 import { exportDataset, ExportColumn } from "@/lib/export";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,8 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAuditLogs } from "@/services/api";
-import type { AuditLogItem } from "@/types/dba";
+import { fetchAuditLogs, fetchAuditRetentionPolicy } from "@/services/api";
+import type { AuditLogItem, AuditLogRetentionPolicyConfig } from "@/types/dba";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { downloadText, formatDateTime, toCsv, parseAppTimestamp, toIstDateString } from "@/lib/utils";
 
@@ -68,6 +70,7 @@ const processAndSortLogs = (items: AuditLogItem[]) => {
 export default function AuditPage() {
   const user = useAppStore((state) => state.user);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [retentionPolicy, setRetentionPolicy] = useState<AuditLogRetentionPolicyConfig | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Filters & Pagination State
@@ -83,6 +86,14 @@ export default function AuditPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [hasMore, setHasMore] = useState(true);
+
+  useEffect(() => {
+    fetchAuditRetentionPolicy()
+      .then((res) => {
+        if (res?.policy) setRetentionPolicy(res.policy);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -229,7 +240,28 @@ export default function AuditPage() {
 
   return (
     <>
-      <PageHeader title="Audit Logs" description="Role-aware activity trail for DBA actions, retries, approvals, and authentication events." icon={ClipboardList} />
+      <PageHeader
+        title="Audit Logs"
+        description="Role-aware activity trail for DBA actions, retries, approvals, and authentication events."
+        icon={ClipboardList}
+      >
+        <Badge
+          variant="outline"
+          className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 py-1.5 px-3 text-xs font-medium gap-1.5 shadow-sm"
+          title={retentionPolicy ? `Audit logs older than ${retentionPolicy.retentionDays} days (~${Math.round((retentionPolicy.retentionDays / 365) * 10) / 10} Years) are automatically purged from Oracle Database.` : "Audit Log Retention Policy"}
+        >
+          <Shield className="h-3.5 w-3.5" />
+          Retention: {retentionPolicy ? `${retentionPolicy.retentionDays} Days (${Math.round((retentionPolicy.retentionDays / 365) * 10) / 10} Yr${retentionPolicy.retentionDays >= 730 ? "s" : ""})` : "Policy Active"}
+        </Badge>
+        {user?.role === "app_admin" && (
+          <Link href="/admin-panel/system-configuration">
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-border/80 hover:bg-muted">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-cyan-400" />
+              Configure Policy
+            </Button>
+          </Link>
+        )}
+      </PageHeader>
       <Card>
         <CardContent className="space-y-6 pt-6">
           {/* Filters Bar */}

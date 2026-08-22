@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
-import { Check, ChevronDown, ChevronUp, Clock, Download, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Download, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchDashboardTrends, fetchPerformanceAuditLogs, fetchPerformanceConfig, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, updatePerformanceConfig, type PerformanceRunAllHistoryResponse } from "@/services/api";
+import { fetchDashboardTrends, fetchPerformanceAuditLogs, fetchPerformanceConfig, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, updatePerformanceConfig, type DashboardTrendsRange, type PerformanceRunAllHistoryResponse } from "@/services/api";
 import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
@@ -624,7 +624,7 @@ export function PerformanceTuningWorkspace() {
       // - FRA Utilization
       let lastPerformanceTrends: Record<string, unknown> | null = null;
       try {
-        const trendsRes = await fetchDashboardTrends(selectedDb, `${trendDays}d` as any);
+        const trendsRes = await fetchDashboardTrends(selectedDb, `${trendDays}d` as DashboardTrendsRange);
         if (trendsRes?.snapshots) {
           const snapshots = trendsRes.snapshots;
           const trendPoints = snapshots
@@ -688,7 +688,7 @@ export function PerformanceTuningWorkspace() {
         db_type: dbTarget?.db_type || null
       };
 
-      // 3. Trigger the n8n check_performance workflow with the configured number of days
+      // 3. Trigger the AI Agent check_performance workflow with the configured number of days
       const actionParams: Record<string, unknown> = {
         timeframe: `${trendDays}d`,
         trend_days: trendDays,
@@ -743,7 +743,7 @@ export function PerformanceTuningWorkspace() {
     <div>
       <PageHeader
         title="Performance Tuning"
-        description="Run focused Oracle performance checks through n8n and review the returned rows in-place."
+        description="Run focused Oracle performance checks through AI Agent and review the returned rows in-place."
         icon={TrendingUp}
       />
 
@@ -758,7 +758,7 @@ export function PerformanceTuningWorkspace() {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold tracking-tight">Performance Tuning Actions</h2>
             <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-300">
-              N8N Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
+              AI Agent Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -776,7 +776,7 @@ export function PerformanceTuningWorkspace() {
                 setConfigModalOpen(true);
               }}
               className="gap-1.5 border-border/80 text-xs text-muted-foreground transition-colors hover:border-amber-400/50 hover:text-foreground"
-              title="Configure trend history days sent to n8n (App Admin Only)"
+              title="Configure trend history days sent to AI Agent (App Admin Only)"
             >
               <Settings className="h-3.5 w-3.5 text-amber-400" />
               Configure Window ({trendDays}d)
@@ -805,7 +805,7 @@ export function PerformanceTuningWorkspace() {
       {runAll.status === "loading" ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-100">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Running all performance checks through n8n — results will be saved to database.
+          Running all performance checks through AI Agent — results will be saved to database.
         </div>
       ) : historyLoading ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-border/40 bg-background/20 p-3 text-sm text-muted-foreground">
@@ -992,7 +992,7 @@ export function PerformanceTuningWorkspace() {
                 Configure RUN ALL Trend Window
               </DialogTitle>
               <DialogDescription>
-                Set the number of days of Historical Performance &amp; Capacity Trends data sent to n8n during the <strong>RUN ALL</strong> (<code>check_performance</code>) action.
+                Set the number of days of Historical Performance &amp; Capacity Trends data sent to AI Agent during the <strong>RUN ALL</strong> (<code>check_performance</code>) action.
               </DialogDescription>
             </DialogHeader>
 
@@ -1031,7 +1031,7 @@ export function PerformanceTuningWorkspace() {
                   className="font-mono"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  The app will compute 7 key performance metrics across the last {tempDays} day{tempDays === 1 ? "" : "s"} ({tempDays * 24} hours) along with database inventory details (DB version, OS, DB type) to forward to n8n.
+                  The app will compute 7 key performance metrics across the last {tempDays} day{tempDays === 1 ? "" : "s"} ({tempDays * 24} hours) along with database inventory details (DB version, OS, DB type) to forward to AI Agent.
                 </p>
               </div>
             </div>
@@ -1304,7 +1304,7 @@ function RunAllTables({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-medium">Detailed SQL outputs</p>
-          <p className="mt-1 text-xs text-muted-foreground">Full row output returned by n8n for each performance check.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Full row output returned by AI Agent for each performance check.</p>
         </div>
         {!hideHistoryButton && targetDb ? (
           <Button type="button" variant="outline" size="sm" onClick={() => setHistoryModalOpen(true)}>

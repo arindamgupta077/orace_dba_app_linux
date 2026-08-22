@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { DatabaseZap, ShieldAlert, Users } from "lucide-react";
+import { DatabaseZap, ShieldAlert, SlidersHorizontal, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/use-app-store";
@@ -12,7 +12,8 @@ import { fetchPendingApprovalCount } from "@/services/api";
 const BASE_TABS = [
   { href: "/admin-panel/database-inventory", label: "DATABASE INVENTORY", icon: DatabaseZap },
   { href: "/admin-panel/app-users",          label: "APP USER MANAGEMENT", icon: Users },
-  { href: "/admin-panel/pending-approvals",  label: "PENDING APPROVALS",   icon: ShieldAlert }
+  { href: "/admin-panel/pending-approvals",  label: "PENDING APPROVALS",   icon: ShieldAlert },
+  { href: "/admin-panel/system-configuration", label: "SYSTEM CONFIGURATION", icon: SlidersHorizontal }
 ];
 
 export function AdminPanelTabs() {

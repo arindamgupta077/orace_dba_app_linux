@@ -3,9 +3,8 @@ import "server-only";
 import oracledb, { type BindParameters, type Connection } from "oracledb";
 
 import {
-  SECURITY_POSTURE_OUTDATED_AFTER_MINUTES,
-  SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS,
-  SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS
+  DEFAULT_SECURITY_POSTURE_POLICY,
+  type SecurityPosturePolicyConfig
 } from "@/lib/security-posture-policy";
 import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
@@ -21,6 +20,8 @@ import type {
   AppUser,
   AppUserRole,
   AuditLogItem,
+  AuditLogRetentionPolicyConfig,
+  AuditLogStats,
   BackupStatusCheck,
   BackupStatusValue,
   BackupTemplate,
@@ -767,6 +768,10 @@ export interface OutdatedSecurityPostureNotification {
  * Claims expire after five minutes so a terminated app process cannot block a retry.
  */
 export async function claimOutdatedSecurityPostureNotifications(): Promise<OutdatedSecurityPostureNotification[]> {
+  const policy = await getSecurityPosturePolicyConfig().catch(() => memorySecurityPosturePolicy);
+  const outdatedAfterMin = policy.outdatedAfterMinutes;
+  const maxSends = policy.outdatedWebhookMaxSends;
+
   return executeOne(async (connection) => {
     const result = await connection.execute<DbRow>(
       `SELECT r.report_id, d.database_name, u.username AS owner_name,
@@ -775,8 +780,8 @@ export async function claimOutdatedSecurityPostureNotifications(): Promise<Outda
        JOIN database_inventory d ON d.id = r.database_id
        LEFT JOIN app_users u ON u.user_id = d.owner_id
        WHERE r.is_active = 'Y'
-         AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
-         AND NVL(r.outdated_webhook_send_count, 0) < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}
+         AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${outdatedAfterMin}, 'MINUTE')
+         AND NVL(r.outdated_webhook_send_count, 0) < ${maxSends}
          AND (r.outdated_webhook_next_send_at IS NULL
               OR r.outdated_webhook_next_send_at <= SYSTIMESTAMP)
          AND (r.outdated_webhook_claimed_at IS NULL
@@ -811,13 +816,17 @@ export async function claimOutdatedSecurityPostureNotifications(): Promise<Outda
 }
 
 export async function markSecurityPostureOutdatedWebhookSent(reportId: number) {
+  const policy = await getSecurityPosturePolicyConfig().catch(() => memorySecurityPosturePolicy);
+  const maxSends = policy.outdatedWebhookMaxSends;
+  const intervalHours = policy.outdatedWebhookIntervalHours;
+
   return executeOne(async (connection) => {
     await connection.execute(
       `UPDATE app_security_posture_reports
        SET outdated_webhook_send_count = NVL(outdated_webhook_send_count, 0) + 1,
            outdated_webhook_next_send_at = CASE
-             WHEN NVL(outdated_webhook_send_count, 0) + 1 < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}
-               THEN SYSTIMESTAMP + NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS}, 'HOUR')
+             WHEN NVL(outdated_webhook_send_count, 0) + 1 < ${maxSends}
+               THEN SYSTIMESTAMP + NUMTODSINTERVAL(${intervalHours}, 'HOUR')
              ELSE NULL
            END,
            outdated_webhook_sent_at = SYSTIMESTAMP,
@@ -830,12 +839,15 @@ export async function markSecurityPostureOutdatedWebhookSent(reportId: number) {
 }
 
 export async function releaseSecurityPostureOutdatedWebhookClaim(reportId: number) {
+  const policy = await getSecurityPosturePolicyConfig().catch(() => memorySecurityPosturePolicy);
+  const maxSends = policy.outdatedWebhookMaxSends;
+
   return executeOne(async (connection) => {
     await connection.execute(
       `UPDATE app_security_posture_reports
        SET outdated_webhook_claimed_at = NULL
        WHERE report_id = :reportId
-         AND NVL(outdated_webhook_send_count, 0) < ${SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS}`,
+         AND NVL(outdated_webhook_send_count, 0) < ${maxSends}`,
       { reportId },
       { autoCommit: true }
     );
@@ -1131,6 +1143,9 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
     }
     const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
+    const policy = await getSecurityPosturePolicyConfig().catch(() => memorySecurityPosturePolicy);
+    const outdatedAfterMin = policy.outdatedAfterMinutes;
+
     const result = await connection.execute<DbRow>(
       `SELECT
          d.id,
@@ -1150,7 +1165,7 @@ export async function listDatabaseInventory(input: { role?: UserRole; userId?: n
            FROM app_security_posture_reports r
            WHERE r.database_id = d.id
              AND r.is_active = 'Y'
-             AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${SECURITY_POSTURE_OUTDATED_AFTER_MINUTES}, 'MINUTE')
+             AND r.uploaded_at < SYSTIMESTAMP - NUMTODSINTERVAL(${outdatedAfterMin}, 'MINUTE')
          ) THEN 'Y' ELSE 'N' END AS security_posture_outdated,
          (
            SELECT i.incident_status
@@ -2118,7 +2133,11 @@ const APP_AUDITED_ACTIONS = new Set<string>([
   "dashboard_schedule",
   "APP_DASHBOARD_SCHEDULES",
   "schedule_auto_refresh",
-  "auto_refresh_schedule"
+  "auto_refresh_schedule",
+  "configure_audit_retention",
+  "purge_audit_logs",
+  "configure_performance_trends",
+  "configure_security_posture_policy"
 ]);
 const APP_AUDITED_STATUSES = new Set<string>([
   "pending_approval",
@@ -8599,4 +8618,457 @@ export async function setPerformanceTrendDaysConfig(days: number, updatedBy: str
     }
   });
 }
+
+// ─── Security Posture Policy Configuration ─────────────────────────────────────
+
+let memorySecurityPosturePolicy: SecurityPosturePolicyConfig = { ...DEFAULT_SECURITY_POSTURE_POLICY };
+
+export async function getSecurityPosturePolicyConfig(): Promise<SecurityPosturePolicyConfig> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT config_key, config_value FROM app_system_config WHERE config_key IN (
+          'SECURITY_POSTURE_OUTDATED_AFTER_MINUTES',
+          'SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS',
+          'SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS',
+          'SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES'
+        )`
+      );
+      const rows = result.rows || [];
+      const configMap = new Map<string, string>();
+      for (const row of rows) {
+        const k = String(row.CONFIG_KEY ?? row.config_key ?? "");
+        const v = String(row.CONFIG_VALUE ?? row.config_value ?? "");
+        if (k) configMap.set(k.toUpperCase(), v);
+      }
+
+      const rawAfterMin = parseInt(configMap.get("SECURITY_POSTURE_OUTDATED_AFTER_MINUTES") || "", 10);
+      const rawMaxSends = parseInt(configMap.get("SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS") || "", 10);
+      const rawIntervalHours = parseInt(configMap.get("SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS") || "", 10);
+      const rawCheckMin = parseInt(configMap.get("SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES") || "", 10);
+
+      memorySecurityPosturePolicy = {
+        outdatedAfterMinutes: Number.isFinite(rawAfterMin) && rawAfterMin > 0 ? rawAfterMin : memorySecurityPosturePolicy.outdatedAfterMinutes,
+        outdatedWebhookMaxSends: Number.isFinite(rawMaxSends) && rawMaxSends > 0 ? rawMaxSends : memorySecurityPosturePolicy.outdatedWebhookMaxSends,
+        outdatedWebhookIntervalHours: Number.isFinite(rawIntervalHours) && rawIntervalHours > 0 ? rawIntervalHours : memorySecurityPosturePolicy.outdatedWebhookIntervalHours,
+        outdatedWebhookCheckIntervalMinutes: Number.isFinite(rawCheckMin) && rawCheckMin > 0 ? rawCheckMin : memorySecurityPosturePolicy.outdatedWebhookCheckIntervalMinutes
+      };
+
+      return { ...memorySecurityPosturePolicy };
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        return { ...memorySecurityPosturePolicy };
+      }
+      throw error;
+    }
+  });
+}
+
+export async function setSecurityPosturePolicyConfig(
+  input: Partial<SecurityPosturePolicyConfig>,
+  updatedBy: string
+): Promise<SecurityPosturePolicyConfig> {
+  const current = await getSecurityPosturePolicyConfig().catch(() => ({ ...memorySecurityPosturePolicy }));
+
+  const nextOutdatedAfterMinutes = input.outdatedAfterMinutes !== undefined
+    ? Math.max(1, Math.min(525600, Math.round(input.outdatedAfterMinutes)))
+    : current.outdatedAfterMinutes;
+
+  const nextMaxSends = input.outdatedWebhookMaxSends !== undefined
+    ? Math.max(1, Math.min(100, Math.round(input.outdatedWebhookMaxSends)))
+    : current.outdatedWebhookMaxSends;
+
+  const nextIntervalHours = input.outdatedWebhookIntervalHours !== undefined
+    ? Math.max(1, Math.min(720, Math.round(input.outdatedWebhookIntervalHours)))
+    : current.outdatedWebhookIntervalHours;
+
+  const nextCheckIntervalMinutes = input.outdatedWebhookCheckIntervalMinutes !== undefined
+    ? Math.max(1, Math.min(1440, Math.round(input.outdatedWebhookCheckIntervalMinutes)))
+    : current.outdatedWebhookCheckIntervalMinutes;
+
+  const updatedConfig: SecurityPosturePolicyConfig = {
+    outdatedAfterMinutes: nextOutdatedAfterMinutes,
+    outdatedWebhookMaxSends: nextMaxSends,
+    outdatedWebhookIntervalHours: nextIntervalHours,
+    outdatedWebhookCheckIntervalMinutes: nextCheckIntervalMinutes
+  };
+
+  memorySecurityPosturePolicy = { ...updatedConfig };
+
+  return executeOne(async (connection) => {
+    const items = [
+      {
+        key: "SECURITY_POSTURE_OUTDATED_AFTER_MINUTES",
+        val: String(updatedConfig.outdatedAfterMinutes),
+        desc: "Age in minutes at which an active security posture report is considered outdated"
+      },
+      {
+        key: "SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS",
+        val: String(updatedConfig.outdatedWebhookMaxSends),
+        desc: "Maximum number of overdue security posture webhook notifications sent per document"
+      },
+      {
+        key: "SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS",
+        val: String(updatedConfig.outdatedWebhookIntervalHours),
+        desc: "Interval in hours between consecutive overdue security posture webhook notifications"
+      },
+      {
+        key: "SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES",
+        val: String(updatedConfig.outdatedWebhookCheckIntervalMinutes),
+        desc: "Scheduler check interval in minutes for overdue security posture webhook notifications"
+      }
+    ];
+
+    try {
+      for (const item of items) {
+        await connection.execute(
+          `MERGE INTO app_system_config dst
+           USING (SELECT :cfgKey AS config_key FROM dual) src
+           ON (dst.config_key = src.config_key)
+           WHEN MATCHED THEN
+             UPDATE SET dst.config_value = :cfgVal, dst.updated_by = :updatedBy, dst.updated_at = SYSTIMESTAMP
+           WHEN NOT MATCHED THEN
+             INSERT (config_key, config_value, description, updated_by)
+             VALUES (:cfgKey2, :cfgVal2, :cfgDesc, :updatedBy2)`,
+          {
+            cfgKey: item.key,
+            cfgVal: item.val,
+            updatedBy,
+            cfgKey2: item.key,
+            cfgVal2: item.val,
+            cfgDesc: item.desc,
+            updatedBy2: updatedBy
+          },
+          { autoCommit: false }
+        );
+      }
+      await connection.commit();
+      return { ...updatedConfig };
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        try {
+          await connection.execute(`
+            CREATE TABLE app_system_config (
+              config_key    VARCHAR2(100) NOT NULL PRIMARY KEY,
+              config_value  VARCHAR2(4000) NOT NULL,
+              description   VARCHAR2(500),
+              updated_by    VARCHAR2(100),
+              updated_at    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+            )
+          `);
+          for (const item of items) {
+            await connection.execute(
+              `INSERT INTO app_system_config (config_key, config_value, description, updated_by)
+               VALUES (:cfgKey, :cfgVal, :cfgDesc, :updatedBy)`,
+              { cfgKey: item.key, cfgVal: item.val, cfgDesc: item.desc, updatedBy },
+              { autoCommit: false }
+            );
+          }
+          await connection.commit();
+        } catch {
+          // Table creation or insert fallback handled in memory
+        }
+        return { ...updatedConfig };
+      }
+      throw error;
+    }
+  });
+}
+
+// ─── Audit Log Retention Policy Configuration ────────────────────────────────
+
+const DEFAULT_AUDIT_RETENTION_DAYS = 1095;
+const DEFAULT_AUDIT_AUTO_PURGE = true;
+
+let memoryAuditRetentionPolicy: AuditLogRetentionPolicyConfig = {
+  retentionDays: DEFAULT_AUDIT_RETENTION_DAYS,
+  autoPurgeEnabled: DEFAULT_AUDIT_AUTO_PURGE,
+  lastPurgeAt: null,
+  lastPurgedCount: 0
+};
+
+export async function getAuditRetentionPolicyConfig(): Promise<AuditLogRetentionPolicyConfig> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT config_key, config_value FROM app_system_config WHERE config_key IN (
+          'AUDIT_LOG_RETENTION_DAYS',
+          'AUDIT_LOG_AUTO_PURGE_ENABLED',
+          'AUDIT_LOG_LAST_PURGE_AT',
+          'AUDIT_LOG_LAST_PURGED_COUNT'
+        )`
+      );
+      const rows = result.rows || [];
+      const configMap = new Map<string, string>();
+      for (const row of rows) {
+        const k = String(row.CONFIG_KEY ?? row.config_key ?? "");
+        const v = String(row.CONFIG_VALUE ?? row.config_value ?? "");
+        if (k) configMap.set(k.toUpperCase(), v);
+      }
+
+      const rawDays = parseInt(configMap.get("AUDIT_LOG_RETENTION_DAYS") || "", 10);
+      const rawAutoPurge = configMap.get("AUDIT_LOG_AUTO_PURGE_ENABLED");
+      const rawLastPurgeAt = configMap.get("AUDIT_LOG_LAST_PURGE_AT") || null;
+      const rawLastPurgedCount = parseInt(configMap.get("AUDIT_LOG_LAST_PURGED_COUNT") || "0", 10);
+
+      memoryAuditRetentionPolicy = {
+        retentionDays: Number.isFinite(rawDays) && rawDays > 0 ? rawDays : memoryAuditRetentionPolicy.retentionDays,
+        autoPurgeEnabled: rawAutoPurge !== undefined ? (rawAutoPurge.toUpperCase() === "TRUE" || rawAutoPurge.toUpperCase() === "Y" || rawAutoPurge === "1") : memoryAuditRetentionPolicy.autoPurgeEnabled,
+        lastPurgeAt: rawLastPurgeAt || memoryAuditRetentionPolicy.lastPurgeAt,
+        lastPurgedCount: Number.isFinite(rawLastPurgedCount) ? rawLastPurgedCount : memoryAuditRetentionPolicy.lastPurgedCount
+      };
+
+      return { ...memoryAuditRetentionPolicy };
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        return { ...memoryAuditRetentionPolicy };
+      }
+      throw error;
+    }
+  });
+}
+
+export async function setAuditRetentionPolicyConfig(
+  input: Partial<AuditLogRetentionPolicyConfig>,
+  updatedBy: string
+): Promise<AuditLogRetentionPolicyConfig> {
+  const current = await getAuditRetentionPolicyConfig().catch(() => ({ ...memoryAuditRetentionPolicy }));
+
+  const nextRetentionDays = input.retentionDays !== undefined
+    ? Math.max(365, Math.min(2555, Math.round(input.retentionDays)))
+    : current.retentionDays;
+
+  const nextAutoPurge = input.autoPurgeEnabled !== undefined
+    ? Boolean(input.autoPurgeEnabled)
+    : current.autoPurgeEnabled;
+
+  const updatedConfig: AuditLogRetentionPolicyConfig = {
+    ...current,
+    retentionDays: nextRetentionDays,
+    autoPurgeEnabled: nextAutoPurge
+  };
+
+  memoryAuditRetentionPolicy = { ...updatedConfig };
+
+  return executeOne(async (connection) => {
+    const items = [
+      {
+        key: "AUDIT_LOG_RETENTION_DAYS",
+        val: String(updatedConfig.retentionDays),
+        desc: "Retention period in days for application audit logs in APP_AUDIT_LOGS table"
+      },
+      {
+        key: "AUDIT_LOG_AUTO_PURGE_ENABLED",
+        val: updatedConfig.autoPurgeEnabled ? "TRUE" : "FALSE",
+        desc: "Whether the background scheduler automatically purges audit logs older than retention period"
+      }
+    ];
+
+    try {
+      for (const item of items) {
+        await connection.execute(
+          `MERGE INTO app_system_config dst
+           USING (SELECT :cfgKey AS config_key FROM dual) src
+           ON (dst.config_key = src.config_key)
+           WHEN MATCHED THEN
+             UPDATE SET dst.config_value = :cfgVal, dst.updated_by = :updatedBy, dst.updated_at = SYSTIMESTAMP
+           WHEN NOT MATCHED THEN
+             INSERT (config_key, config_value, description, updated_by)
+             VALUES (:cfgKey2, :cfgVal2, :cfgDesc, :updatedBy2)`,
+          {
+            cfgKey: item.key,
+            cfgVal: item.val,
+            updatedBy,
+            cfgKey2: item.key,
+            cfgVal2: item.val,
+            cfgDesc: item.desc,
+            updatedBy2: updatedBy
+          },
+          { autoCommit: false }
+        );
+      }
+      await connection.commit();
+      return { ...updatedConfig };
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        try {
+          await connection.execute(`
+            CREATE TABLE app_system_config (
+              config_key    VARCHAR2(100) NOT NULL PRIMARY KEY,
+              config_value  VARCHAR2(4000) NOT NULL,
+              description   VARCHAR2(500),
+              updated_by    VARCHAR2(100),
+              updated_at    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+            )
+          `);
+          for (const item of items) {
+            await connection.execute(
+              `INSERT INTO app_system_config (config_key, config_value, description, updated_by)
+               VALUES (:cfgKey, :cfgVal, :cfgDesc, :updatedBy)`,
+              { cfgKey: item.key, cfgVal: item.val, cfgDesc: item.desc, updatedBy },
+              { autoCommit: false }
+            );
+          }
+          await connection.commit();
+        } catch {
+          // Fallback handled in memory
+        }
+        return { ...updatedConfig };
+      }
+      throw error;
+    }
+  });
+}
+
+export async function getAuditLogStats(): Promise<AuditLogStats> {
+  const policy = await getAuditRetentionPolicyConfig();
+  return executeOne(async (connection) => {
+    try {
+      const summaryResult = await connection.execute<DbRow>(
+        `SELECT
+           COUNT(*) AS total_count,
+           MIN(created_at) AS oldest_log,
+           MAX(created_at) AS newest_log
+         FROM app_audit_logs`
+      );
+      const summaryRow = summaryResult.rows?.[0];
+      const totalLogs = Number(summaryRow?.TOTAL_COUNT ?? summaryRow?.total_count ?? 0);
+      const oldestDate = summaryRow?.OLDEST_LOG ?? summaryRow?.oldest_log;
+      const newestDate = summaryRow?.NEWEST_LOG ?? summaryRow?.newest_log;
+
+      let expiredLogsCount = 0;
+      if (policy.retentionDays > 0) {
+        const expiredResult = await connection.execute<DbRow>(
+          `SELECT COUNT(*) AS expired_count
+           FROM app_audit_logs
+           WHERE created_at < SYSTIMESTAMP - NUMTODSINTERVAL(:days, 'DAY')`,
+          { days: policy.retentionDays }
+        );
+        expiredLogsCount = Number(expiredResult.rows?.[0]?.EXPIRED_COUNT ?? expiredResult.rows?.[0]?.expired_count ?? 0);
+      }
+
+      return {
+        totalLogs,
+        retentionDays: policy.retentionDays,
+        autoPurgeEnabled: policy.autoPurgeEnabled,
+        oldestLogTimestamp: oldestDate ? toIstIsoString(oldestDate) : null,
+        newestLogTimestamp: newestDate ? toIstIsoString(newestDate) : null,
+        expiredLogsCount,
+        lastPurgeAt: policy.lastPurgeAt ?? null,
+        lastPurgedCount: policy.lastPurgedCount ?? 0
+      };
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        return {
+          totalLogs: 0,
+          retentionDays: policy.retentionDays,
+          autoPurgeEnabled: policy.autoPurgeEnabled,
+          oldestLogTimestamp: null,
+          newestLogTimestamp: null,
+          expiredLogsCount: 0,
+          lastPurgeAt: policy.lastPurgeAt ?? null,
+          lastPurgedCount: policy.lastPurgedCount ?? 0
+        };
+      }
+      throw error;
+    }
+  });
+}
+
+export async function purgeExpiredAuditLogs(
+  customRetentionDays?: number,
+  actor: string = "system"
+): Promise<{ deletedCount: number; retentionDays: number; lastPurgeAt: string }> {
+  const policy = await getAuditRetentionPolicyConfig();
+  const effectiveDays = customRetentionDays !== undefined && customRetentionDays > 0
+    ? Math.max(365, Math.min(2555, Math.round(customRetentionDays)))
+    : policy.retentionDays;
+
+  return executeOne(async (connection) => {
+    try {
+      const deleteResult = await connection.execute<{ rowsAffected?: number }>(
+        `DELETE FROM app_audit_logs
+         WHERE created_at < SYSTIMESTAMP - NUMTODSINTERVAL(:days, 'DAY')`,
+        { days: effectiveDays },
+        { autoCommit: false }
+      );
+      const deletedCount = deleteResult.rowsAffected || 0;
+      const purgeTimestamp = new Date().toISOString();
+
+      // Update APP_SYSTEM_CONFIG with last purge run stats
+      const items = [
+        {
+          key: "AUDIT_LOG_LAST_PURGE_AT",
+          val: purgeTimestamp,
+          desc: "Timestamp of last audit log purge execution"
+        },
+        {
+          key: "AUDIT_LOG_LAST_PURGED_COUNT",
+          val: String(deletedCount),
+          desc: "Number of audit log records removed during last purge execution"
+        }
+      ];
+
+      for (const item of items) {
+        await connection.execute(
+          `MERGE INTO app_system_config dst
+           USING (SELECT :cfgKey AS config_key FROM dual) src
+           ON (dst.config_key = src.config_key)
+           WHEN MATCHED THEN
+             UPDATE SET dst.config_value = :cfgVal, dst.updated_by = :updatedBy, dst.updated_at = SYSTIMESTAMP
+           WHEN NOT MATCHED THEN
+             INSERT (config_key, config_value, description, updated_by)
+             VALUES (:cfgKey2, :cfgVal2, :cfgDesc, :updatedBy2)`,
+          {
+            cfgKey: item.key,
+            cfgVal: item.val,
+            updatedBy: actor,
+            cfgKey2: item.key,
+            cfgVal2: item.val,
+            cfgDesc: item.desc,
+            updatedBy2: actor
+          },
+          { autoCommit: false }
+        );
+      }
+
+      await connection.commit();
+
+      memoryAuditRetentionPolicy.lastPurgeAt = purgeTimestamp;
+      memoryAuditRetentionPolicy.lastPurgedCount = deletedCount;
+
+      // Insert audit log entry for the purge action
+      await insertAuditLog({
+        actor,
+        action: "purge_audit_logs",
+        db: "GLOBAL",
+        status: "success",
+        detail: `Audit log retention cleanup executed (${actor}): purged ${deletedCount} logs older than ${effectiveDays} days.`,
+        metadata: {
+          purged_count: deletedCount,
+          retention_days: effectiveDays,
+          executed_by: actor,
+          timestamp: purgeTimestamp
+        }
+      }).catch(() => {});
+
+      return {
+        deletedCount,
+        retentionDays: effectiveDays,
+        lastPurgeAt: purgeTimestamp
+      };
+    } catch (error) {
+      await connection.rollback().catch(() => {});
+      if (isOracleMissingTableError(error)) {
+        return {
+          deletedCount: 0,
+          retentionDays: effectiveDays,
+          lastPurgeAt: new Date().toISOString()
+        };
+      }
+      throw error;
+    }
+  });
+}
+
 

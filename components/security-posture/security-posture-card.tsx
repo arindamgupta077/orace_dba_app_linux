@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { SECURITY_POSTURE_OUTDATED_AFTER_MS } from "@/lib/security-posture-policy";
 import { formatAppDateTime } from "@/lib/utils";
+import { fetchSecurityPosturePolicy } from "@/services/api";
 import { useAppStore } from "@/store/use-app-store";
 import type { SecurityPostureProcessingStatus, SecurityPostureReport } from "@/types/dba";
 
@@ -173,7 +174,23 @@ export function SecurityPostureCard() {
     }
   };
 
-  const isOutdated = report ? Date.now() - new Date(report.uploaded_at).getTime() > SECURITY_POSTURE_OUTDATED_AFTER_MS : false;
+  const [outdatedMs, setOutdatedMs] = useState<number>(SECURITY_POSTURE_OUTDATED_AFTER_MS);
+
+  useEffect(() => {
+    fetchSecurityPosturePolicy()
+      .then((res) => {
+        if (res?.policy?.outdatedAfterMinutes) {
+          setOutdatedMs(res.policy.outdatedAfterMinutes * 60 * 1000);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const databases = useAppStore((state) => state.databases);
+  const currentDb = databases.find((d) => d.name?.toUpperCase() === selectedDb.toUpperCase());
+  const isOutdated = currentDb?.security_posture_outdated !== undefined
+    ? currentDb.security_posture_outdated
+    : (report ? Date.now() - new Date(report.uploaded_at).getTime() > outdatedMs : false);
   const canUpload = user?.role === "client" || user?.role === "app_admin";
 
   /* ---------- Status-dependent inline indicator ---------- */

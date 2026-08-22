@@ -7,8 +7,11 @@ import { getServerEnv } from "@/lib/server/env";
 import {
   claimOutdatedSecurityPostureNotifications,
   getActiveSchedules,
+  getAuditRetentionPolicyConfig,
+  getSecurityPosturePolicyConfig,
   insertAuditLog,
   markSecurityPostureOutdatedWebhookSent,
+  purgeExpiredAuditLogs,
   releaseSecurityPostureOutdatedWebhookClaim,
   updateScheduleRunMetadata,
   type DashboardSchedule,
@@ -33,6 +36,8 @@ interface SchedulerGlobal {
   jobs: Map<number, ManagedJob>;
   syncTask: ScheduledTask | null;
   outdatedPostureTask: ScheduledTask | null;
+  auditPurgeTask: ScheduledTask | null;
+  currentOutdatedCheckIntervalMinutes: number;
   started: boolean;
 }
 
@@ -46,6 +51,8 @@ function getState(): SchedulerGlobal {
       jobs: new Map(),
       syncTask: null,
       outdatedPostureTask: null,
+      auditPurgeTask: null,
+      currentOutdatedCheckIntervalMinutes: SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES,
       started: false,
     };
   }
@@ -146,6 +153,26 @@ function removeStaleJobs(activeIds: Set<number>): void {
 }
 
 /**
+ * Reschedule the overdue security posture check task when policy is updated.
+ */
+export function rescheduleOutdatedPostureTask(intervalMinutes: number): void {
+  const state = getState();
+  const normalized = Math.max(1, Math.min(1440, Math.round(intervalMinutes)));
+  if (state.outdatedPostureTask) {
+    state.outdatedPostureTask.stop();
+    state.outdatedPostureTask = null;
+  }
+  const expr = toCronExpression(normalized);
+  state.outdatedPostureTask = cron.schedule(expr, () => {
+    notifyOutdatedSecurityPostures().catch((e) =>
+      console.warn("[scheduler] Error in notifyOutdatedSecurityPostures:", e)
+    );
+  });
+  state.currentOutdatedCheckIntervalMinutes = normalized;
+  console.log(`[scheduler] Overdue security posture check task rescheduled: every ${normalized}m (cron="${expr}")`);
+}
+
+/**
  * Load all active schedules from Oracle and sync the in-memory cron jobs.
  * Called on server start and every SYNC_INTERVAL_MIN minutes.
  */
@@ -164,6 +191,17 @@ async function syncSchedules(): Promise<void> {
       if (!existing || existing.schedule.interval_min !== schedule.interval_min) {
         registerJob(schedule);
       }
+    }
+
+    // Check if security posture check interval changed in DB
+    try {
+      const policy = await getSecurityPosturePolicyConfig();
+      const state = getState();
+      if (policy.outdatedWebhookCheckIntervalMinutes !== state.currentOutdatedCheckIntervalMinutes) {
+        rescheduleOutdatedPostureTask(policy.outdatedWebhookCheckIntervalMinutes);
+      }
+    } catch {
+      // Ignore policy sync check failure
     }
 
     console.log(
@@ -205,6 +243,20 @@ async function notifyOutdatedSecurityPostures(): Promise<void> {
   }
 }
 
+async function runAuditLogRetentionCleanup(): Promise<void> {
+  try {
+    const policy = await getAuditRetentionPolicyConfig();
+    if (!policy.autoPurgeEnabled || policy.retentionDays <= 0) return;
+    console.log(`[scheduler] Running automated audit log retention purge (older than ${policy.retentionDays} days)...`);
+    const result = await purgeExpiredAuditLogs(policy.retentionDays, "scheduler");
+    if (result.deletedCount > 0) {
+      console.log(`[scheduler] Automated purge completed: removed ${result.deletedCount} expired audit log records.`);
+    }
+  } catch (error) {
+    console.warn("[scheduler] Error during automated audit log retention cleanup:", error);
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const SYNC_INTERVAL_MIN = 1; // reload schedules from DB every minute
@@ -231,13 +283,25 @@ export async function startScheduler(): Promise<void> {
     );
   });
 
-  state.outdatedPostureTask = cron.schedule(
-    toCronExpression(SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES),
-    () => notifyOutdatedSecurityPostures()
-  );
+  // Daily automated audit log retention cleanup (runs at 02:30 AM every day)
+  state.auditPurgeTask = cron.schedule("30 2 * * *", () => {
+    runAuditLogRetentionCleanup().catch((e) =>
+      console.warn("[scheduler] Audit retention cleanup error:", e)
+    );
+  });
+
+  let initialCheckMin = SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES;
+  try {
+    const policy = await getSecurityPosturePolicyConfig();
+    initialCheckMin = policy.outdatedWebhookCheckIntervalMinutes;
+  } catch {
+    // fallback
+  }
+
+  rescheduleOutdatedPostureTask(initialCheckMin);
 
   console.log(
-    `[scheduler] Scheduler running. Re-syncs schedules every ${SYNC_INTERVAL_MIN}m; checks overdue security posture every ${SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES}m.`
+    `[scheduler] Scheduler running. Re-syncs schedules every ${SYNC_INTERVAL_MIN}m; checks overdue security posture every ${initialCheckMin}m; audit log retention cleanup daily at 02:30.`
   );
 }
 
@@ -250,9 +314,27 @@ export async function reloadSchedules(): Promise<void> {
 }
 
 /**
+ * Force an immediate reload of security posture policy schedule.
+ */
+export async function reloadSecurityPosturePolicy(): Promise<void> {
+  const policy = await getSecurityPosturePolicyConfig().catch(() => null);
+  if (policy) {
+    rescheduleOutdatedPostureTask(policy.outdatedWebhookCheckIntervalMinutes);
+  }
+}
+
+/**
+ * Force an immediate reload and optional cleanup run for audit log retention policy.
+ */
+export async function reloadAuditRetentionPolicy(): Promise<void> {
+  await runAuditLogRetentionCleanup().catch(() => {});
+}
+
+/**
  * Return the IDs of schedules currently being managed.
  * Used by API routes to check scheduler health.
  */
 export function getActiveJobIds(): number[] {
   return Array.from(getState().jobs.keys());
 }
+

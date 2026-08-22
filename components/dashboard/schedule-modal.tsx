@@ -14,13 +14,11 @@ import {
   Loader2,
   Pause,
   Play,
-  RefreshCw,
   Search,
   Sparkles,
   Timer,
   Trash2,
   X,
-  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";

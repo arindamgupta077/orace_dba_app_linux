@@ -150,4 +150,54 @@ END;
 -- UPDATE app_security_posture_reports SET processing_status = 'COMPLETED', ai_summary = :summary, ai_model = :model, summary_generated_at = SYSTIMESTAMP, error_message = NULL WHERE report_id = :document_id AND is_active = 'Y';
 -- UPDATE app_security_posture_reports SET processing_status = 'FAILED', error_message = :message WHERE report_id = :document_id AND is_active = 'Y';
 
+-- ----------------------------------------------------------------------------
+-- System Configuration for Security Posture Policy
+-- ----------------------------------------------------------------------------
+DECLARE
+  table_exists NUMBER := 0;
+BEGIN
+  SELECT COUNT(*) INTO table_exists FROM user_tables WHERE UPPER(table_name) = 'APP_SYSTEM_CONFIG';
+  IF table_exists = 0 THEN
+    EXECUTE IMMEDIATE '
+      CREATE TABLE app_system_config (
+        config_key    VARCHAR2(100) NOT NULL PRIMARY KEY,
+        config_value  VARCHAR2(4000) NOT NULL,
+        description   VARCHAR2(500),
+        updated_by    VARCHAR2(100),
+        updated_at    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+      )
+    ';
+  END IF;
+END;
+/
+
+MERGE INTO app_system_config dst
+USING (SELECT 'SECURITY_POSTURE_OUTDATED_AFTER_MINUTES' AS config_key FROM dual) src
+ON (dst.config_key = src.config_key)
+WHEN NOT MATCHED THEN
+  INSERT (config_key, config_value, description, updated_by)
+  VALUES ('SECURITY_POSTURE_OUTDATED_AFTER_MINUTES', '43200', 'Age in minutes at which an active security posture report is considered outdated', 'SYSTEM');
+
+MERGE INTO app_system_config dst
+USING (SELECT 'SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS' AS config_key FROM dual) src
+ON (dst.config_key = src.config_key)
+WHEN NOT MATCHED THEN
+  INSERT (config_key, config_value, description, updated_by)
+  VALUES ('SECURITY_POSTURE_OUTDATED_WEBHOOK_MAX_SENDS', '7', 'Maximum number of overdue security posture webhook notifications sent per document', 'SYSTEM');
+
+MERGE INTO app_system_config dst
+USING (SELECT 'SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS' AS config_key FROM dual) src
+ON (dst.config_key = src.config_key)
+WHEN NOT MATCHED THEN
+  INSERT (config_key, config_value, description, updated_by)
+  VALUES ('SECURITY_POSTURE_OUTDATED_WEBHOOK_INTERVAL_HOURS', '24', 'Interval in hours between consecutive overdue security posture webhook notifications', 'SYSTEM');
+
+MERGE INTO app_system_config dst
+USING (SELECT 'SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES' AS config_key FROM dual) src
+ON (dst.config_key = src.config_key)
+WHEN NOT MATCHED THEN
+  INSERT (config_key, config_value, description, updated_by)
+  VALUES ('SECURITY_POSTURE_OUTDATED_WEBHOOK_CHECK_INTERVAL_MINUTES', '240', 'Scheduler check interval in minutes for overdue security posture webhook notifications', 'SYSTEM');
+
 COMMIT;
+
