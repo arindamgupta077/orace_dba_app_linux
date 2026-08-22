@@ -25,7 +25,7 @@ Actions used by the Performance Tuning screen:
 
 | UI option | `action` | `params` | Recommended `raw_data` key |
 | --- | --- | --- | --- |
-| RUN ALL | `check_performance` | `{}` | all keys below, plus optional `performance_results` |
+| RUN ALL | `check_performance` | `{ "timeframe": "3d", "trend_days": 3, "db_version": "...", "os": "...", "db_type": "...", "database_inventory": { "db_version": "...", "os": "...", "db_type": "..." }, "last_days_performance_trends": { "trend_days": 3, "avg_response_time_ms": N, "avg_active_sessions_1h": N, "peak_active_sessions_1h": N, "max_tablespace_util_pct": N, "max_tablespace_name": "...", "cpu_utilization_pct": N, "os_memory_utilization_pct": N, "fra_utilization_pct": N, "trend_points": [...] } }` *(Note: timeframe/trend_days is configurable by `app_admin`)* | all keys below, plus optional `performance_results` |
 | Top SQL | `top_sql` | `{ "order_by": "elapsed_time" }` where value is one of `elapsed_time`, `cpu_sec`, `disk_reads`, `executions`, `buffer_gets` | `top_sql` |
 | CPU Usage | `cpu_usage` | `{}` | `cpu_usage` |
 | Wait Events | `wait_events` | `{}` | `wait_events` |

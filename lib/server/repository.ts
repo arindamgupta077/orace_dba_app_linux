@@ -8518,3 +8518,85 @@ export async function listRebootHistory(
     }));
   });
 }
+
+// ============================================================
+// System Configuration & Performance Tuning Settings (app_admin)
+// ============================================================
+
+const DEFAULT_PERF_TREND_DAYS = 3;
+let memoryPerfTrendDays = DEFAULT_PERF_TREND_DAYS;
+
+export async function getPerformanceTrendDaysConfig(): Promise<number> {
+  return executeOne(async (connection) => {
+    try {
+      const result = await connection.execute<DbRow>(
+        `SELECT config_value FROM app_system_config WHERE config_key = 'PERF_RUN_ALL_TREND_DAYS'`
+      );
+      const val = result.rows?.[0]?.CONFIG_VALUE ?? result.rows?.[0]?.config_value;
+      if (!val) return memoryPerfTrendDays;
+      const parsed = parseInt(String(val), 10);
+      if (Number.isFinite(parsed) && parsed > 0 && parsed <= 90) {
+        memoryPerfTrendDays = parsed;
+        return parsed;
+      }
+      return memoryPerfTrendDays;
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        return memoryPerfTrendDays;
+      }
+      throw error;
+    }
+  });
+}
+
+export async function setPerformanceTrendDaysConfig(days: number, updatedBy: string): Promise<number> {
+  const normalized = Math.max(1, Math.min(90, Math.round(days)));
+  memoryPerfTrendDays = normalized;
+  return executeOne(async (connection) => {
+    try {
+      await connection.execute(
+        `MERGE INTO app_system_config dst
+         USING (SELECT 'PERF_RUN_ALL_TREND_DAYS' AS config_key FROM dual) src
+         ON (dst.config_key = src.config_key)
+         WHEN MATCHED THEN
+           UPDATE SET dst.config_value = :cfgVal, dst.updated_by = :updatedBy, dst.updated_at = SYSTIMESTAMP
+         WHEN NOT MATCHED THEN
+           INSERT (config_key, config_value, description, updated_by)
+           VALUES ('PERF_RUN_ALL_TREND_DAYS', :cfgVal2, 'Number of days of performance trend data sent to n8n on RUN ALL', :updatedBy2)`,
+        {
+          cfgVal: String(normalized),
+          updatedBy: updatedBy,
+          cfgVal2: String(normalized),
+          updatedBy2: updatedBy
+        },
+        { autoCommit: true }
+      );
+      return normalized;
+    } catch (error) {
+      if (isOracleMissingTableError(error) || isOracleMissingColumnError(error)) {
+        try {
+          await connection.execute(`
+            CREATE TABLE app_system_config (
+              config_key    VARCHAR2(100) NOT NULL PRIMARY KEY,
+              config_value  VARCHAR2(4000) NOT NULL,
+              description   VARCHAR2(500),
+              updated_by    VARCHAR2(100),
+              updated_at    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+            )
+          `);
+          await connection.execute(
+            `INSERT INTO app_system_config (config_key, config_value, description, updated_by)
+             VALUES ('PERF_RUN_ALL_TREND_DAYS', :cfgVal, 'Number of days of performance trend data sent to n8n on RUN ALL', :updatedBy)`,
+            { cfgVal: String(normalized), updatedBy: updatedBy },
+            { autoCommit: true }
+          );
+        } catch {
+          // Table creation or insert fallback handled in memory
+        }
+        return normalized;
+      }
+      throw error;
+    }
+  });
+}
+

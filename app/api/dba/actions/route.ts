@@ -7,8 +7,9 @@ import { isDestructiveSql, sqlDedupSignature } from "@/lib/server/destructive-sq
 import { emitGlobalNotification } from "@/lib/server/notification-events";
 import { notifyDataPumpJob, type DataPumpCallbackPayload } from "@/lib/server/datapump-events";
 import { getServerEnv } from "@/lib/server/env";
-import { getDatabaseTargetByName, insertAlertNotification, insertAuditLog, insertRebootHistory, insertRequestHistory, persistRunData, upsertDataPumpJobHistory, upsertRmanJobHistory } from "@/lib/server/repository";
+import { getDatabaseTargetByName, getDashboardHistoryTrends, getPerformanceTrendDaysConfig, insertAlertNotification, insertAuditLog, insertRebootHistory, insertRequestHistory, persistRunData, upsertDataPumpJobHistory, upsertRmanJobHistory } from "@/lib/server/repository";
 import { requireAuthenticatedSession } from "@/lib/server/session";
+import { normalizeMetrics, safeNum } from "@/components/dashboard/dashboard-utils";
 import { createMockResponse } from "@/services/mock-data";
 import type { DbaAction, DbaRequestPayload, DbaResponse, RebootEventType, RmanJobStatus } from "@/types/dba";
 
@@ -122,7 +123,8 @@ export async function POST(request: Request) {
       user_id: session.userId,
       environment: dbTarget?.env_label,
       os: dbTarget?.os,
-      db_type: dbTarget?.db_type
+      db_type: dbTarget?.db_type,
+      db_version: dbTarget?.db_version
     };
 
     // ── Production Gate for Listener Start/Stop ───────────────────────
@@ -321,6 +323,96 @@ export async function POST(request: Request) {
         throw new Error(
           `Failed to record PRE_SHUTDOWN event in db_reboot_history: ${errorMsg}. Stop database request was not sent to n8n.`
         );
+      }
+    }
+
+    // ── Attach Historical Performance Trends for RUN ALL (check_performance) ──
+    if (action === "check_performance") {
+      if (!params.last_days_performance_trends && !params.historical_trends && !params.last_performance_trends) {
+        try {
+          const configDays = await getPerformanceTrendDaysConfig().catch(() => 3);
+          const hours = configDays * 24;
+          const { rows: snapshots } = await getDashboardHistoryTrends(db, hours, 500);
+          if (snapshots && snapshots.length > 0) {
+            const trendPoints = snapshots.map((s) => {
+              const m = normalizeMetrics(s.metrics);
+              let maxTbsPct: number | null = null;
+              let maxTbsName: string | null = null;
+              for (const t of m?.tablespaces ?? []) {
+                const pct = safeNum(t.pct_used);
+                if (maxTbsPct === null || pct > maxTbsPct) {
+                  maxTbsPct = pct;
+                  maxTbsName = t.tablespace_name;
+                }
+              }
+              const fra = m?.fra;
+              const fraPct = fra && safeNum(fra.fra_size_gb) > 0 ? safeNum(fra.pct_used) : null;
+              const os = m?.os_resources;
+              const memPct = os?.memory_used_pct != null ? safeNum(os.memory_used_pct) : null;
+              return {
+                timestamp: s.refresh_timestamp,
+                avg_response_time_ms: m?.db_response_time_ms ?? null,
+                avg_active_sessions_1h: m?.avg_active_sessions_1hr ?? null,
+                peak_active_sessions_1h: m?.peak_active_sessions_1hr ?? null,
+                max_tablespace_util_pct: maxTbsPct,
+                max_tablespace_name: maxTbsName,
+                cpu_utilization_pct: os != null ? safeNum(os.cpu_usage_pct) : null,
+                os_memory_utilization_pct: memPct,
+                fra_utilization_pct: fraPct
+              };
+            });
+
+            const respTimes = trendPoints.map((p) => p.avg_response_time_ms).filter((v): v is number => v != null);
+            const avgSessions = trendPoints.map((p) => p.avg_active_sessions_1h).filter((v): v is number => v != null);
+            const peakSessions = trendPoints.map((p) => p.peak_active_sessions_1h).filter((v): v is number => v != null);
+            const cpus = trendPoints.map((p) => p.cpu_utilization_pct).filter((v): v is number => v != null);
+            const mems = trendPoints.map((p) => p.os_memory_utilization_pct).filter((v): v is number => v != null);
+            const fras = trendPoints.map((p) => p.fra_utilization_pct).filter((v): v is number => v != null);
+
+            let overallMaxTbsPct: number | null = null;
+            let overallMaxTbsName: string | null = null;
+            for (const p of trendPoints) {
+              if (p.max_tablespace_util_pct != null && (overallMaxTbsPct === null || p.max_tablespace_util_pct > overallMaxTbsPct)) {
+                overallMaxTbsPct = p.max_tablespace_util_pct;
+                overallMaxTbsName = p.max_tablespace_name;
+              }
+            }
+
+            const calcAvg = (arr: number[]) => (arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2)) : null);
+
+            const trendsData = {
+              trend_days: configDays,
+              avg_response_time_ms: calcAvg(respTimes),
+              avg_active_sessions_1h: calcAvg(avgSessions),
+              peak_active_sessions_1h: peakSessions.length ? Math.max(...peakSessions) : null,
+              max_tablespace_util_pct: overallMaxTbsPct,
+              max_tablespace_name: overallMaxTbsName,
+              cpu_utilization_pct: calcAvg(cpus),
+              os_memory_utilization_pct: calcAvg(mems),
+              fra_utilization_pct: calcAvg(fras),
+              trend_points: trendPoints
+            };
+
+            params.trend_days = configDays;
+            params.timeframe = `${configDays}d`;
+            params.last_days_performance_trends = trendsData;
+          }
+        } catch (err) {
+          console.warn("[dba/actions] Could not load trends fallback for check_performance:", err);
+        }
+      }
+
+      // Ensure database inventory metadata is present in params
+      params.db_version = dbTarget?.db_version || null;
+      params.os = dbTarget?.os || null;
+      params.db_type = dbTarget?.db_type || null;
+      params.database_inventory = {
+        db_version: dbTarget?.db_version || null,
+        os: dbTarget?.os || null,
+        db_type: dbTarget?.db_type || null
+      };
+      if (payload) {
+        payload.params = { ...params };
       }
     }
 

@@ -46,7 +46,7 @@ import type { DashboardHistoryRow, NotificationPayload } from "@/types/dba";
 
 // ─── Types & constants ───────────────────────────────────────────────────────
 
-interface TrendPoint {
+export interface TrendPoint {
   id: number;
   ts: number;
   timestamp: string;
@@ -110,7 +110,7 @@ const CHART = {
 
 // Normalise every snapshot (handles UPPERCASE Oracle CLOB JSON keys) and project
 // it onto the 7 trend parameters.
-function toTrendPoint(row: DashboardHistoryRow): TrendPoint {
+export function toTrendPoint(row: DashboardHistoryRow): TrendPoint {
   const m = normalizeMetrics(row.metrics);
 
   let tbsPct: number | null = null;

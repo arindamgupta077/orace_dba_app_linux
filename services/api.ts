@@ -490,7 +490,7 @@ export async function fetchDashboardSnapshotHistory(
   return requestJson<DashboardSnapshotHistoryResponse>(`/api/dashboard/history?${query.toString()}`);
 }
 
-export type DashboardTrendsRange = "24h" | "7d" | "30d" | "all";
+export type DashboardTrendsRange = "24h" | "3d" | "7d" | "30d" | "all";
 
 export interface DashboardTrendsResponse {
   db_name: string;
@@ -660,6 +660,19 @@ export async function fetchPerformanceRunAllHistoryList(
   return requestJson<PerformanceRunAllHistoryListResponse>(
     `/api/performance/history${qs}`
   );
+}
+
+/** Fetch the configured number of days of performance trends to send to n8n on RUN ALL. */
+export async function fetchPerformanceConfig(): Promise<{ trendDays: number }> {
+  return requestJson<{ trendDays: number }>("/api/performance/config");
+}
+
+/** Update the number of days of performance trends sent to n8n on RUN ALL (app_admin only). */
+export async function updatePerformanceConfig(trendDays: number): Promise<{ ok: boolean; trendDays: number }> {
+  return requestJson<{ ok: boolean; trendDays: number }>("/api/performance/config", {
+    method: "POST",
+    body: JSON.stringify({ trendDays })
+  });
 }
 
 // ============================================================

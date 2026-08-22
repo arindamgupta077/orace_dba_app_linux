@@ -188,6 +188,7 @@ export interface DbaRequestPayload {
   environment?: DbEnvironment;
   os?: DbOs;
   db_type?: DbType;
+  db_version?: string;
 }
 
 export interface DbaFinding {

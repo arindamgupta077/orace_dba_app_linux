@@ -7,6 +7,7 @@ import type { DashboardHistoryRow, DashboardMetrics } from "@/types/dba";
 
 const RANGE_HOURS: Record<string, number | null> = {
   "24h": 24,
+  "3d": 72,
   "7d": 168,
   "30d": 720,
   all: null
@@ -115,8 +116,24 @@ export async function GET(request: NextRequest) {
     const env = getServerEnv();
     const db = request.nextUrl.searchParams.get("db") || "ORCL";
     const rangeParam = request.nextUrl.searchParams.get("range") || DEFAULT_RANGE;
-    const range = rangeParam in RANGE_HOURS ? rangeParam : DEFAULT_RANGE;
-    const hours = RANGE_HOURS[range];
+    let range = rangeParam;
+    let hours: number | null = null;
+    if (rangeParam === "all") {
+      hours = null;
+    } else if (rangeParam in RANGE_HOURS) {
+      hours = RANGE_HOURS[rangeParam];
+    } else {
+      const matchDays = rangeParam.match(/^(\d+)d$/i);
+      const matchHours = rangeParam.match(/^(\d+)h$/i);
+      if (matchDays) {
+        hours = parseInt(matchDays[1], 10) * 24;
+      } else if (matchHours) {
+        hours = parseInt(matchHours[1], 10);
+      } else {
+        range = DEFAULT_RANGE;
+        hours = RANGE_HOURS[DEFAULT_RANGE];
+      }
+    }
     const limit =
       Math.max(
         1,

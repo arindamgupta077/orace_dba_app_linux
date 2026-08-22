@@ -2,7 +2,9 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
-import { ChevronDown, ChevronUp, Download, History, Loader2, Play, RefreshCcw, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clock, Download, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,12 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/layout/page-header";
+import { DashboardHistoricalTrends, toTrendPoint } from "@/components/dashboard/dashboard-historical-trends";
 import { StatusBadge } from "@/components/visual/status-badge";
 import { getActionDefinition } from "@/lib/action-catalog";
 import { cn, downloadText, toCsv } from "@/lib/utils";
 import { useDbaAction } from "@/hooks/use-dba-action";
 import { useAppStore } from "@/store/use-app-store";
-import { fetchPerformanceAuditLogs, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, type PerformanceRunAllHistoryResponse } from "@/services/api";
+import { fetchDashboardTrends, fetchPerformanceAuditLogs, fetchPerformanceConfig, fetchPerformanceRunAllHistory, fetchPerformanceRunAllHistoryList, updatePerformanceConfig, type PerformanceRunAllHistoryResponse } from "@/services/api";
 import type { AuditLogItem, DbaAction, DbaActionDefinition, DbaParameterField, DbaResponse } from "@/types/dba";
 
 interface ResultColumn {
@@ -420,6 +423,48 @@ export function PerformanceTuningWorkspace() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [autoExpandSummary, setAutoExpandSummary] = useState(false);
 
+  // ── Configured Trend Window for RUN ALL (app_admin controlled) ──
+  const [trendDays, setTrendDays] = useState<number>(3);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [tempDays, setTempDays] = useState<number>(3);
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await fetchPerformanceConfig();
+      if (res?.trendDays && Number.isFinite(res.trendDays)) {
+        setTrendDays(res.trendDays);
+        setTempDays(res.trendDays);
+      }
+    } catch {
+      // Non-critical — default remains 3
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  const handleSaveConfig = async () => {
+    if (!Number.isFinite(tempDays) || tempDays < 1 || tempDays > 90) {
+      toast.error("Please specify a valid number of days between 1 and 90.");
+      return;
+    }
+    setSavingConfig(true);
+    try {
+      const res = await updatePerformanceConfig(tempDays);
+      if (res?.ok) {
+        setTrendDays(res.trendDays);
+        setConfigModalOpen(false);
+        toast.success(`RUN ALL trend data window updated to ${res.trendDays} days.`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update configuration.");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   // ── Audit-log based card metadata ──────────────────────────────
   // Keyed by action name; fetched from APP_AUDIT_LOGS via the performance audit API.
   const [auditByAction, setAuditByAction] = useState<Record<string, AuditLogItem>>({});
@@ -568,10 +613,95 @@ export function PerformanceTuningWorkspace() {
   const executeRunAll = async () => {
     setLatestRunAll(null);
     try {
-      // Trigger the n8n check_performance workflow via webhook.
-      // n8n will run all 8 queries, call the LLM node, and INSERT a row
-      // into performance_run_all_hist before responding.
-      await runAll.runAction("check_performance", {}, selectedDb);
+      // 1. Fetch Historical Performance & Capacity Trends data for the configured number of days
+      // Filter and compute ONLY the required 7 parameters:
+      // - Avg Response Time
+      // - Avg Active Sessions (1h)
+      // - Peak Active Sessions (1h)
+      // - Max Tablespace Util (Only max one)
+      // - CPU Utilization
+      // - OS Memory Utilization
+      // - FRA Utilization
+      let lastPerformanceTrends: Record<string, unknown> | null = null;
+      try {
+        const trendsRes = await fetchDashboardTrends(selectedDb, `${trendDays}d` as any);
+        if (trendsRes?.snapshots) {
+          const snapshots = trendsRes.snapshots;
+          const trendPoints = snapshots
+            .map(toTrendPoint)
+            .filter((p) => Number.isFinite(p.ts))
+            .sort((a, b) => a.ts - b.ts);
+
+          if (trendPoints.length > 0) {
+            const respTimes = trendPoints.map((p) => p.responseMs).filter((v): v is number => v != null);
+            const avgSessions = trendPoints.map((p) => p.avgSessions).filter((v): v is number => v != null);
+            const peakSessions = trendPoints.map((p) => p.peakSessions).filter((v): v is number => v != null);
+            const cpus = trendPoints.map((p) => p.cpuPct).filter((v): v is number => v != null);
+            const mems = trendPoints.map((p) => p.memPct).filter((v): v is number => v != null);
+            const fras = trendPoints.map((p) => p.fraPct).filter((v): v is number => v != null);
+
+            // Find max tablespace utilization across the configured period (only the single max one)
+            let maxTbsPct: number | null = null;
+            let maxTbsName: string | null = null;
+            for (const p of trendPoints) {
+              if (p.tbsPct != null && (maxTbsPct === null || p.tbsPct > maxTbsPct)) {
+                maxTbsPct = p.tbsPct;
+                maxTbsName = p.tbsName || null;
+              }
+            }
+
+            const calcAvg = (arr: number[]) => (arr.length ? Number((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2)) : null);
+
+            lastPerformanceTrends = {
+              trend_days: trendDays,
+              avg_response_time_ms: calcAvg(respTimes),
+              avg_active_sessions_1h: calcAvg(avgSessions),
+              peak_active_sessions_1h: peakSessions.length ? Math.max(...peakSessions) : null,
+              max_tablespace_util_pct: maxTbsPct,
+              max_tablespace_name: maxTbsName,
+              cpu_utilization_pct: calcAvg(cpus),
+              os_memory_utilization_pct: calcAvg(mems),
+              fra_utilization_pct: calcAvg(fras),
+              trend_points: trendPoints.map((tp) => ({
+                timestamp: tp.timestamp,
+                avg_response_time_ms: tp.responseMs,
+                avg_active_sessions_1h: tp.avgSessions,
+                peak_active_sessions_1h: tp.peakSessions,
+                max_tablespace_util_pct: tp.tbsPct,
+                max_tablespace_name: tp.tbsName || null,
+                cpu_utilization_pct: tp.cpuPct,
+                os_memory_utilization_pct: tp.memPct,
+                fra_utilization_pct: tp.fraPct
+              }))
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not retrieve ${trendDays}d historical trends for RUN ALL payload:`, err);
+      }
+
+      // 2. Database inventory information: DB version, OS, and database type
+      const dbTarget = databases.find((d) => d.name === selectedDb);
+      const dbInventory = {
+        db_version: dbTarget?.db_version || null,
+        os: dbTarget?.os || null,
+        db_type: dbTarget?.db_type || null
+      };
+
+      // 3. Trigger the n8n check_performance workflow with the configured number of days
+      const actionParams: Record<string, unknown> = {
+        timeframe: `${trendDays}d`,
+        trend_days: trendDays,
+        db_version: dbInventory.db_version,
+        os: dbInventory.os,
+        db_type: dbInventory.db_type,
+        database_inventory: dbInventory,
+        ...(lastPerformanceTrends ? {
+          last_days_performance_trends: lastPerformanceTrends
+        } : {})
+      };
+
+      await runAll.runAction("check_performance", actionParams, selectedDb);
       setAutoExpandSummary(true);
       // Re-fetch the persisted row so the panel displays data from the DB.
       await loadHistoryFromDb();
@@ -615,10 +745,62 @@ export function PerformanceTuningWorkspace() {
         title="Performance Tuning"
         description="Run focused Oracle performance checks through n8n and review the returned rows in-place."
         icon={TrendingUp}
-        actionLabel={runAll.status === "loading" ? "RUNNING..." : "RUN ALL"}
-        actionDisabled={runAll.status === "loading" || !canExecute("check_performance")}
-        onAction={executeRunAll}
       />
+
+      {/* ── Historical Performance & Capacity Trends ─────────────────── */}
+      <div className="mb-6">
+        <DashboardHistoricalTrends selectedDb={selectedDb} />
+      </div>
+
+      {/* ── Performance Tuning Actions Header with RUN ALL button & Trend Window Config ───── */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">Performance Tuning Actions</h2>
+            <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-300">
+              N8N Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Run focused Oracle performance checks or execute all diagnostic analyses simultaneously.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {user?.role === "app_admin" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setTempDays(trendDays);
+                setConfigModalOpen(true);
+              }}
+              className="gap-1.5 border-border/80 text-xs text-muted-foreground transition-colors hover:border-amber-400/50 hover:text-foreground"
+              title="Configure trend history days sent to n8n (App Admin Only)"
+            >
+              <Settings className="h-3.5 w-3.5 text-amber-400" />
+              Configure Window ({trendDays}d)
+            </Button>
+          )}
+
+          <Button
+            onClick={executeRunAll}
+            disabled={runAll.status === "loading" || !canExecute("check_performance")}
+          >
+            {runAll.status === "loading" ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                RUNNING...
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-4 w-4" />
+                RUN ALL
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
 
       {runAll.status === "loading" ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-100">
@@ -799,6 +981,83 @@ export function PerformanceTuningWorkspace() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* ── App Admin Trend Days Configuration Modal ───────────────────── */}
+      {user?.role === "app_admin" && (
+        <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-amber-400" />
+                Configure RUN ALL Trend Window
+              </DialogTitle>
+              <DialogDescription>
+                Set the number of days of Historical Performance &amp; Capacity Trends data sent to n8n during the <strong>RUN ALL</strong> (<code>check_performance</code>) action.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quick Presets</Label>
+                <div className="flex flex-wrap gap-2">
+                  {[1, 2, 3, 5, 7, 14, 30].map((d) => (
+                    <Button
+                      key={d}
+                      type="button"
+                      variant={tempDays === d ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTempDays(d)}
+                      className="text-xs"
+                    >
+                      {d} {d === 1 ? "Day" : "Days"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="custom-trend-days" className="text-xs">Custom Number of Days (1 – 90):</Label>
+                <Input
+                  id="custom-trend-days"
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={tempDays}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (Number.isFinite(v)) setTempDays(v);
+                    else if (e.target.value === "") setTempDays(1);
+                  }}
+                  className="font-mono"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  The app will compute 7 key performance metrics across the last {tempDays} day{tempDays === 1 ? "" : "s"} ({tempDays * 24} hours) along with database inventory details (DB version, OS, DB type) to forward to n8n.
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setConfigModalOpen(false)}
+                disabled={savingConfig}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSaveConfig}
+                disabled={savingConfig || tempDays < 1 || tempDays > 90}
+                className="gap-2"
+              >
+                {savingConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Save Configuration
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
