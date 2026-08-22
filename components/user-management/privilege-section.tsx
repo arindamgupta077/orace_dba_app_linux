@@ -1517,7 +1517,7 @@ export function PrivilegeManagementSection() {
             </div>
             {form.username && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">Query all system privileges, granted roles, and object privileges for {form.username}</code>
+                agent will execute: <code className="text-cyan-400">Query all system privileges, granted roles, and object privileges for {form.username}</code>
               </p>
             )}
           </div>
@@ -1545,7 +1545,7 @@ export function PrivilegeManagementSection() {
             />
             {form.username && form.operation && selectedSysPrivs.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedSysPrivs.join(", ")} {grantRevokeTarget(form.operation)} {form.username};</code>
+                agent will execute: <code className="text-cyan-400">{form.operation} {selectedSysPrivs.join(", ")} {grantRevokeTarget(form.operation)} {form.username};</code>
               </p>
             )}
           </div>
@@ -1598,7 +1598,7 @@ export function PrivilegeManagementSection() {
             />
             {form.username && form.operation && form.owner_name && form.object_name && selectedObjPrivs.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.{form.object_name} {grantRevokeTarget(form.operation)} {form.username};</code>
+                agent will execute: <code className="text-cyan-400">{form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.{form.object_name} {grantRevokeTarget(form.operation)} {form.username};</code>
               </p>
             )}
           </div>
@@ -1618,7 +1618,7 @@ export function PrivilegeManagementSection() {
             </div>
             {form.role_name && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">CREATE ROLE {form.role_name};</code>
+                agent will execute: <code className="text-cyan-400">CREATE ROLE {form.role_name};</code>
               </p>
             )}
           </div>
@@ -1650,7 +1650,7 @@ export function PrivilegeManagementSection() {
             </div>
             {form.username && form.operation && form.role && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">{form.operation} {form.role} {grantRevokeTarget(form.operation)} {form.username};</code>
+                agent will execute: <code className="text-cyan-400">{form.operation} {form.role} {grantRevokeTarget(form.operation)} {form.username};</code>
               </p>
             )}
           </div>
@@ -1739,7 +1739,7 @@ export function PrivilegeManagementSection() {
             />
             {form.username && form.operation && form.owner_name && (allObjectsSelected || selectedObjectNames.length > 0) && selectedObjPrivs.length > 0 && !bulkPrivValidation.isIncompatible && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">
+                agent will execute: <code className="text-cyan-400">
                   {form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.
                   {allObjectsSelected ? "*" : selectedObjectNames.join(", ")}{" "}
                   {grantRevokeTarget(form.operation)} {form.username};
@@ -1771,7 +1771,7 @@ export function PrivilegeManagementSection() {
             />
             {form.role && form.operation && selectedSysPrivs.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedSysPrivs.join(", ")} {grantRevokeTarget(form.operation)} {form.role};</code>
+                agent will execute: <code className="text-cyan-400">{form.operation} {selectedSysPrivs.join(", ")} {grantRevokeTarget(form.operation)} {form.role};</code>
               </p>
             )}
           </div>
@@ -1824,7 +1824,7 @@ export function PrivilegeManagementSection() {
             />
             {form.role && form.operation && form.owner_name && form.object_name && selectedObjPrivs.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">{form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.{form.object_name} {grantRevokeTarget(form.operation)} {form.role};</code>
+                agent will execute: <code className="text-cyan-400">{form.operation} {selectedObjPrivs.join(", ")} ON {form.owner_name}.{form.object_name} {grantRevokeTarget(form.operation)} {form.role};</code>
               </p>
             )}
           </div>
@@ -1847,7 +1847,7 @@ export function PrivilegeManagementSection() {
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-1">
                 <p className="text-sm font-medium text-red-400">Destructive Operation</p>
                 <p className="text-xs text-muted-foreground">
-                  n8n will execute: <code className="text-red-400">DROP ROLE {form.role};</code>
+                  agent will execute: <code className="text-red-400">DROP ROLE {form.role};</code>
                   <br />The role and its privilege grants will be permanently removed.
                 </p>
                 <p className="text-[11px] text-amber-300/90 pt-1 flex items-center gap-1.5">

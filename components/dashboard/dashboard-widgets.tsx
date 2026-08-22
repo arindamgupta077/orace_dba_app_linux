@@ -428,12 +428,10 @@ export function TablespaceBarChart({ rows }: { rows: DashboardTablespaceRow[] })
     pct:  safeNum(r.pct_used)
   }));
 
-  const chartHeight = Math.max(220, data.length * 30);
-
   return (
-    <div className="w-full" style={{ height: chartHeight }}>
+    <div className="h-[220px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 48, bottom: 4, left: 8 }}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 48, bottom: 0, left: 8 }}>
           <XAxis type="number" tickFormatter={(v: number) => fmtMb(v)} stroke="currentColor" className="text-slate-500 dark:text-slate-400" fontSize={10} />
           <YAxis
             type="category"
@@ -441,8 +439,8 @@ export function TablespaceBarChart({ rows }: { rows: DashboardTablespaceRow[] })
             stroke="currentColor"
             className="text-slate-700 dark:text-slate-300"
             fontSize={11}
-            width={85}
-            interval={0}
+            width={80}
+            interval="preserveStartEnd"
             tickLine={false}
           />
           <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "rgba(100,116,139,0.08)" }} />

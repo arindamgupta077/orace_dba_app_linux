@@ -426,7 +426,7 @@ export function ProfileManagementSection() {
             </div>
             {form.profile_name && form.resource_name && form.limit && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER PROFILE {form.profile_name} LIMIT {form.resource_name} {form.limit};</code>
+                agent will execute: <code className="text-cyan-400">ALTER PROFILE {form.profile_name} LIMIT {form.resource_name} {form.limit};</code>
               </p>
             )}
           </div>
@@ -449,7 +449,7 @@ export function ProfileManagementSection() {
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
                 <p className="text-sm font-medium text-red-400">Destructive Operation</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  n8n will execute: <code className="text-red-400">DROP PROFILE {form.profile_name};</code>
+                  agent will execute: <code className="text-red-400">DROP PROFILE {form.profile_name};</code>
                 </p>
               </div>
             )}

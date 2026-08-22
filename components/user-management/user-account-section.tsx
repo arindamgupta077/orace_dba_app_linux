@@ -503,7 +503,7 @@ export function UserAccountSection() {
       case "user_status":
         return (
           <p className="text-sm text-muted-foreground">
-            Sends <code className="text-cyan-400">user_status</code> to n8n, which will return the account status, expiry date, and profile for all DBA users.
+            Sends <code className="text-cyan-400">user_status</code> to agent, which will return the account status, expiry date, and profile for all DBA users.
           </p>
         );
 
@@ -537,7 +537,7 @@ export function UserAccountSection() {
               <Input value={form.quota ?? ""} onChange={(e) => setField("quota", e.target.value)} placeholder="500M" />
             </div>
             <p className="text-xs text-muted-foreground pt-1">
-              n8n will execute: <code className="text-cyan-400">CREATE USER {form.username || "…"} IDENTIFIED BY &quot;…&quot;</code>
+              agent will execute: <code className="text-cyan-400">CREATE USER {form.username || "…"} IDENTIFIED BY &quot;…&quot;</code>
             </p>
           </div>
         );
@@ -548,7 +548,7 @@ export function UserAccountSection() {
             {renderUserSelect()}
             {form.username && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} ACCOUNT UNLOCK;</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} ACCOUNT UNLOCK;</code>
               </p>
             )}
           </div>
@@ -564,7 +564,7 @@ export function UserAccountSection() {
             </div>
             {form.username && form.password && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} IDENTIFIED BY &quot;…&quot;;</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} IDENTIFIED BY &quot;…&quot;;</code>
               </p>
             )}
           </div>
@@ -577,7 +577,7 @@ export function UserAccountSection() {
             {renderTbsSelect("tablespace", "New Default Tablespace")}
             {form.username && form.tablespace && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} DEFAULT TABLESPACE {form.tablespace};</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} DEFAULT TABLESPACE {form.tablespace};</code>
               </p>
             )}
           </div>
@@ -599,7 +599,7 @@ export function UserAccountSection() {
             </div>
             {form.username && form.tablespace && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} TEMPORARY TABLESPACE {form.tablespace};</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} TEMPORARY TABLESPACE {form.tablespace};</code>
               </p>
             )}
           </div>
@@ -616,7 +616,7 @@ export function UserAccountSection() {
             </div>
             {form.username && form.tablespace && form.quota && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} QUOTA {form.quota} ON {form.tablespace};</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} QUOTA {form.quota} ON {form.tablespace};</code>
               </p>
             )}
           </div>
@@ -629,7 +629,7 @@ export function UserAccountSection() {
             {renderProfileSelect()}
             {form.username && form.profile && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} PROFILE {form.profile};</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} PROFILE {form.profile};</code>
               </p>
             )}
           </div>
@@ -645,7 +645,7 @@ export function UserAccountSection() {
             </div>
             {form.username && form.new_username && (
               <p className="text-xs text-muted-foreground">
-                n8n will execute: <code className="text-cyan-400">ALTER USER {form.username} RENAME TO {form.new_username};</code>
+                agent will execute: <code className="text-cyan-400">ALTER USER {form.username} RENAME TO {form.new_username};</code>
               </p>
             )}
           </div>
@@ -659,7 +659,7 @@ export function UserAccountSection() {
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-1">
                 <p className="text-sm font-medium text-red-400">Destructive Operation</p>
                 <p className="text-xs text-muted-foreground">
-                  n8n will execute: <code className="text-red-400">DROP USER {form.username} CASCADE;</code>
+                  agent will execute: <code className="text-red-400">DROP USER {form.username} CASCADE;</code>
                   <br />All objects owned by this user will be permanently deleted.
                 </p>
               </div>

@@ -1597,9 +1597,6 @@ export function ShiftManagementSection() {
                     <ShieldAlert className="h-4 w-4" />
                     Admin Shift Force Close
                   </Label>
-                  <Badge variant="outline" className="text-[10px] border-rose-500/30 bg-rose-500/10 text-rose-300">
-                    App Admin Override
-                  </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Force close active shifts of other DBAs or administrators immediately without waiting for handover notes or checklist completion.

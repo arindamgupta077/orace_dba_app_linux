@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeMetrics, safeNum } from "@/components/dashboard/dashboard-utils";
 import { cn, formatAppDateTime } from "@/lib/utils";
@@ -541,6 +542,127 @@ function ChartNoData({ message }: { message: string }) {
     <div className="flex h-[240px] flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 bg-secondary/20 text-center">
       <p className="text-sm font-semibold text-muted-foreground">No data in this timeframe</p>
       <p className="max-w-xs text-xs text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+// ─── Skeleton Loading Components ─────────────────────────────────────────────
+
+export function HistoricalKpiCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border/60 bg-secondary/20 p-3 space-y-2.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Skeleton className="dba-skeleton h-3.5 w-3.5 rounded-sm" />
+          <Skeleton className="dba-skeleton h-3 w-24 rounded" />
+        </div>
+        <Skeleton className="dba-skeleton h-3.5 w-3.5 rounded-full shrink-0" />
+      </div>
+      <div className="flex items-baseline gap-2 pt-0.5">
+        <Skeleton className="dba-skeleton h-6 w-20 rounded" />
+        <Skeleton className="dba-skeleton h-4 w-16 rounded-full" />
+      </div>
+      <div className="flex items-center gap-1.5 pt-0.5">
+        <Skeleton className="dba-skeleton h-3 w-28 rounded" />
+      </div>
+    </div>
+  );
+}
+
+export function HistoricalChartCardSkeleton({ hasBadge = false }: { hasBadge?: boolean }) {
+  return (
+    <div className="rounded-xl border border-border/60 p-3 sm:p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="space-y-1.5">
+          <Skeleton className="dba-skeleton h-4 w-40 rounded" />
+          <Skeleton className="dba-skeleton h-3 w-56 rounded" />
+        </div>
+        {hasBadge && <Skeleton className="dba-skeleton h-5 w-28 rounded-full" />}
+      </div>
+
+      {/* Chart Canvas Area Skeleton */}
+      <div className="relative h-[240px] w-full rounded-lg border border-border/40 bg-secondary/15 p-3 flex flex-col justify-between overflow-hidden">
+        {/* Horizontal gridlines */}
+        <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none opacity-30">
+          <div className="border-b border-border/50 border-dashed w-full" />
+          <div className="border-b border-border/50 border-dashed w-full" />
+          <div className="border-b border-border/50 border-dashed w-full" />
+          <div className="border-b border-border/50 border-dashed w-full" />
+        </div>
+
+        {/* Shimmering chart waveform SVG */}
+        <div className="absolute inset-x-0 bottom-9 top-4 flex items-end px-3 pointer-events-none overflow-hidden opacity-50">
+          <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 400 120">
+            <defs>
+              <linearGradient id="skeletonChartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="currentColor" stopOpacity="0.3" className="text-cyan-500" />
+                <stop offset="100%" stopColor="currentColor" stopOpacity="0.0" className="text-cyan-500" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M0,75 Q45,45 90,65 T180,35 T270,55 T360,25 L400,30 L400,120 L0,120 Z"
+              fill="url(#skeletonChartGrad)"
+              className="animate-pulse"
+            />
+            <path
+              d="M0,75 Q45,45 90,65 T180,35 T270,55 T360,25 L400,30"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray="4 4"
+              className="text-cyan-500/50"
+            />
+          </svg>
+        </div>
+
+        {/* Y-axis left ticks */}
+        <div className="relative z-10 flex justify-between h-full">
+          <div className="flex flex-col justify-between py-1">
+            <Skeleton className="dba-skeleton h-2.5 w-6 rounded" />
+            <Skeleton className="dba-skeleton h-2.5 w-8 rounded" />
+            <Skeleton className="dba-skeleton h-2.5 w-6 rounded" />
+            <Skeleton className="dba-skeleton h-2.5 w-7 rounded" />
+          </div>
+        </div>
+
+        {/* X-axis bottom date ticks */}
+        <div className="relative z-10 flex justify-between border-t border-border/50 pt-2 px-3">
+          <Skeleton className="dba-skeleton h-2.5 w-10 sm:w-12 rounded" />
+          <Skeleton className="dba-skeleton h-2.5 w-10 sm:w-12 rounded" />
+          <Skeleton className="dba-skeleton h-2.5 w-10 sm:w-12 rounded" />
+          <Skeleton className="dba-skeleton h-2.5 w-10 sm:w-12 rounded" />
+          <Skeleton className="dba-skeleton h-2.5 w-10 sm:w-12 rounded" />
+        </div>
+      </div>
+
+      {/* Footer Threshold Caption */}
+      <Skeleton className="dba-skeleton h-3 w-64 rounded mt-1" />
+    </div>
+  );
+}
+
+export function HistoricalTrendsSkeleton() {
+  return (
+    <div className="space-y-4 dba-fade-in" aria-busy="true" aria-label="Loading historical trends">
+      {/* ── KPI cards skeleton (8 cards matching 4 cols) ── */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <HistoricalKpiCardSkeleton key={i} />
+        ))}
+      </div>
+
+      {/* ── Tabs header skeleton ── */}
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 p-1 w-fit">
+        <Skeleton className="dba-skeleton h-7 w-36 rounded-md" />
+        <Skeleton className="dba-skeleton h-7 w-40 rounded-md" />
+        <Skeleton className="dba-skeleton h-7 w-36 rounded-md" />
+      </div>
+
+      {/* ── Dual Chart Cards Skeleton ── */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <HistoricalChartCardSkeleton hasBadge />
+        <HistoricalChartCardSkeleton />
+      </div>
     </div>
   );
 }
@@ -1324,27 +1446,31 @@ export function DashboardHistoricalTrends({
             </div>
             <div className="min-w-0">
               <CardTitle>Historical Performance &amp; Capacity Trends</CardTitle>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <div className="mt-0.5 text-xs text-muted-foreground">
                 Time-series analysis across{" "}
-                <span className="font-semibold tabular-nums text-foreground">{points.length}</span>{" "}
+                {loading && points.length === 0 ? (
+                  <span className="inline-block h-3.5 w-6 align-middle rounded mx-0.5 dba-skeleton animate-pulse" />
+                ) : (
+                  <span className="font-semibold tabular-nums text-foreground">{points.length}</span>
+                )}{" "}
                 snapshot{points.length === 1 ? "" : "s"} for{" "}
                 <span className="font-mono font-semibold text-cyan-700 dark:text-cyan-300">
                   {selectedDb}
                 </span>
-                {hasEnoughData && first && last && (
+                {hasEnoughData && first && last && !loading && (
                   <>
                     {" · "}
                     {formatAppDateTime(first.timestamp)} → {formatAppDateTime(last.timestamp)}
                   </>
                 )}
-              </p>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
-            {loading && points.length > 0 && (
+            {loading && (
               <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 animate-pulse">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Updating trends…
+                {points.length > 0 ? "Updating trends…" : "Loading trends…"}
               </span>
             )}
             <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 p-1">
@@ -1380,13 +1506,7 @@ export function DashboardHistoricalTrends({
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-secondary/20 py-16 text-center">
-            <Loader2 className="h-7 w-7 animate-spin text-cyan-500" />
-            <p className="text-sm font-semibold text-foreground">Analyzing snapshot history…</p>
-            <p className="text-xs text-muted-foreground">
-              Loading {selectedDb} snapshots for the selected timeframe.
-            </p>
-          </div>
+          <HistoricalTrendsSkeleton />
         ) : error ? (
           <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4">
             <p className="text-sm font-semibold text-red-600 dark:text-red-300">
