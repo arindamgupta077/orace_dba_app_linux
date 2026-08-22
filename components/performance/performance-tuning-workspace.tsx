@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import * as Icons from "lucide-react";
-import { Check, ChevronDown, ChevronUp, Download, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clock, Database, Download, FileJson, Gauge, Hash, History, Loader2, Play, RefreshCcw, Settings, ShieldAlert, SlidersHorizontal, Sparkles, Trash2, TrendingUp, User, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -753,17 +753,22 @@ export function PerformanceTuningWorkspace() {
       </div>
 
       {/* ── Performance Tuning Actions Header with RUN ALL button & Trend Window Config ───── */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-tight">Performance Tuning Actions</h2>
-            <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-300">
-              AI Agent Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
-            </Badge>
+      <div className="glass-panel mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200">
+            <Gauge className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">Performance Tuning Actions</h2>
+              <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-[11px] font-medium text-cyan-300">
+                AI Agent Trend Window: {trendDays} Day{trendDays === 1 ? "" : "s"}
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Run focused Oracle performance checks or execute all diagnostic analyses simultaneously.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Run focused Oracle performance checks or execute all diagnostic analyses simultaneously.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -803,18 +808,25 @@ export function PerformanceTuningWorkspace() {
       </div>
 
       {runAll.status === "loading" ? (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-100">
-          <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="scan-line mb-4 flex items-center gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-3.5 text-sm font-medium text-cyan-100">
+          <span className="rounded-md border border-cyan-300/30 bg-cyan-300/15 p-1.5">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </span>
           Running all performance checks through AI Agent — results will be saved to database.
         </div>
       ) : historyLoading ? (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-border/40 bg-background/20 p-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/50 bg-card/40 p-3.5 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
           Loading last RUN ALL result from database…
         </div>
       ) : null}
 
-      {runAll.error ? <div className="mb-4 rounded-md border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">{runAll.error}</div> : null}
+      {runAll.error ? (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-400/30 bg-red-500/10 p-3.5 text-sm text-red-100">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{runAll.error}</span>
+        </div>
+      ) : null}
 
       {latestRunAll ? <RunAllResult source={latestRunAll} configs={PERFORMANCE_ACTIONS} defaultExpanded={autoExpandSummary} /> : null}
 
@@ -823,10 +835,11 @@ export function PerformanceTuningWorkspace() {
           const Icon = (Icons[definition.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
           const auditLog = auditByAction[definition.action] || null;
           return (
-            <Card key={definition.action} className="h-full">
+            <Card key={definition.action} className="group relative h-full overflow-hidden transition-transform duration-200 hover:-translate-y-0.5">
+              <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               <CardContent className="flex h-full flex-col p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-md border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200">
+                  <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200 transition-colors duration-200 group-hover:border-cyan-400/50 group-hover:bg-cyan-400/20 group-hover:text-cyan-100">
                     <Icon className="h-5 w-5" />
                   </span>
                   {definition.action === "invalid_obejcts" || definition.action === "session_list" ? (
@@ -834,12 +847,12 @@ export function PerformanceTuningWorkspace() {
                   ) : null}
                 </div>
                 <div className="mt-4 flex-1">
-                  <p className="font-medium">{definition.title}</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{definition.description}</p>
+                  <p className="font-semibold tracking-tight">{definition.title}</p>
+                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{definition.description}</p>
                 </div>
                 <PerformanceRunMeta auditLog={auditLog} />
-                <Button className="mt-4 w-full" variant="outline" onClick={() => openAction(definition)}>
-                  <Play className="h-4 w-4" />
+                <Button className="mt-4 w-full transition-colors duration-200 group-hover:border-cyan-400/40 group-hover:bg-cyan-400/10" variant="outline" onClick={() => openAction(definition)}>
+                  <Play className="h-4 w-4 text-cyan-300" />
                   Execute
                 </Button>
               </CardContent>
@@ -859,6 +872,12 @@ export function PerformanceTuningWorkspace() {
             <form onSubmit={executeMainAction} className="space-y-5">
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
+                  <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+                    <span className="rounded-md border border-cyan-400/25 bg-cyan-400/10 p-1 text-cyan-300">
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </span>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Parameters</p>
+                  </div>
                   {activeDefinition.params.length ? (
                     activeDefinition.params.map((field) => (
                       <div key={field.name} className="space-y-2">
@@ -938,7 +957,10 @@ export function PerformanceTuningWorkspace() {
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Generated JSON Request</Label>
+                    <Label className="flex items-center gap-2">
+                      <FileJson className="h-3.5 w-3.5 text-cyan-300" />
+                      Generated JSON Request
+                    </Label>
                     <StatusBadge status={canExecute(activeDefinition.action) ? "healthy" : "critical"}>
                       {canExecute(activeDefinition.action) ? "Allowed" : "RBAC Denied"}
                     </StatusBadge>
@@ -955,8 +977,8 @@ export function PerformanceTuningWorkspace() {
                 <div className="rounded-lg border border-border/70 bg-background/35 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="font-medium">{secondaryTitle}</p>
-                      <p className="text-xs text-muted-foreground">Request {secondaryRun.response.request_id}</p>
+                      <p className="font-semibold tracking-tight">{secondaryTitle}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Request {secondaryRun.response.request_id}</p>
                     </div>
                     <StatusBadge status={secondaryRun.response.status}>{secondaryRun.response.status}</StatusBadge>
                   </div>
@@ -1064,21 +1086,27 @@ export function PerformanceTuningWorkspace() {
 
 function PerformanceRunMeta({ auditLog }: { auditLog: AuditLogItem | null }) {
   return (
-    <div className="mt-4 space-y-2 rounded-md border border-border/60 bg-card/50 p-3 text-xs">
-      <div className="flex items-start justify-between gap-3">
-        <span className="shrink-0 text-muted-foreground">Last run</span>
-        <span className="text-right text-slate-100">
+    <div className="mt-4 space-y-2 rounded-lg border border-border/60 bg-secondary/25 p-3 text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          Last run
+        </span>
+        <span className="text-right font-medium text-slate-100">
           {auditLog ? formatRunTime(auditLog.timestamp) : "Never"}
         </span>
       </div>
-      <div className="flex items-start justify-between gap-3">
-        <span className="shrink-0 text-muted-foreground">Username</span>
+      <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-2">
+        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+          <User className="h-3 w-3" />
+          Username
+        </span>
         <span className="max-w-32 truncate text-right font-mono text-cyan-100">
           {auditLog?.actor || "-"}
         </span>
       </div>
       {auditLog?.detail ? (
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 border-t border-border/40 pt-2">
           <span className="text-muted-foreground">Detail</span>
           <p className="mt-0.5 line-clamp-2 break-words text-slate-300">{auditLog.detail}</p>
         </div>
@@ -1103,29 +1131,34 @@ function RunAllResult({
   }, [defaultExpanded, source.response.request_id]);
 
   return (
-    <div className="mb-4 space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-medium">Latest RUN ALL result</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Last run {formatRunTime(source.createdAt)} by {source.requestedBy || "-"} - Request {source.response.request_id}
-          </p>
+    <div className="glass-panel mb-5 space-y-5 rounded-xl p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-200">
+            <Zap className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-semibold tracking-tight">Latest RUN ALL result</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Last run {formatRunTime(source.createdAt)} by {source.requestedBy || "-"} - Request {source.response.request_id}
+            </p>
+          </div>
         </div>
         <StatusBadge status={source.response.status}>{source.response.status}</StatusBadge>
       </div>
 
       <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 p-3">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 p-3.5">
+          <div className="flex items-center gap-2.5">
             <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 p-1.5 text-accent">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm font-medium text-foreground">AI performance analysis</p>
+              <p className="text-sm font-semibold text-foreground">AI performance analysis</p>
               <p className="text-xs text-muted-foreground">Markdown, lists, tables, code, and emoji rendered for review.</p>
             </div>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => setSummaryExpanded((current) => !current)}>
+          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setSummaryExpanded((current) => !current)}>
             {summaryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             {summaryExpanded ? "Collapse" : "Expand"}
           </Button>
@@ -1138,20 +1171,28 @@ function RunAllResult({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {configs.map((config) => (
-          <div key={config.action} className="rounded-md border border-border/60 bg-card/50 p-3">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{getActionDefinition(config.action)?.title || config.action}</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{summarizeResult(source.response, config)}</p>
-          </div>
-        ))}
+        {configs.map((config) => {
+          const SummaryIcon = (Icons[getActionDefinition(config.action)?.icon as keyof typeof Icons] || Icons.Activity) as Icons.LucideIcon;
+          return (
+            <div key={config.action} className="rounded-lg border border-border/60 bg-card/60 p-3 transition-colors duration-200 hover:border-cyan-400/40">
+              <div className="flex items-center gap-2">
+                <span className="rounded-md border border-cyan-400/20 bg-cyan-400/10 p-1 text-cyan-300">
+                  <SummaryIcon className="h-3.5 w-3.5" />
+                </span>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{getActionDefinition(config.action)?.title || config.action}</p>
+              </div>
+              <p className="mt-2.5 text-sm font-semibold text-foreground">{summarizeResult(source.response, config)}</p>
+            </div>
+          );
+        })}
       </div>
 
       {source.response.findings.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {source.response.findings.slice(0, 4).map((finding, index) => (
-            <div key={finding.id || `${finding.title}-${index}`} className="rounded-md border border-border/60 bg-card/50 p-3">
+            <div key={finding.id || `${finding.title}-${index}`} className="rounded-lg border border-border/60 bg-card/60 p-3.5 transition-colors duration-200 hover:border-cyan-400/30">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-foreground">{finding.title}</p>
+                <p className="text-sm font-semibold text-foreground">{finding.title}</p>
                 <StatusBadge status={finding.severity}>{finding.severity}</StatusBadge>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">{finding.detail}</p>
@@ -1302,23 +1343,30 @@ function RunAllTables({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-medium">Detailed SQL outputs</p>
-          <p className="mt-1 text-xs text-muted-foreground">Full row output returned by AI Agent for each performance check.</p>
+        <div className="flex items-center gap-2.5">
+          <span className="rounded-md border border-cyan-400/25 bg-cyan-400/10 p-1.5 text-cyan-200">
+            <Database className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="font-semibold tracking-tight">Detailed SQL outputs</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Full row output returned by AI Agent for each performance check.</p>
+          </div>
         </div>
         {!hideHistoryButton && targetDb ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => setHistoryModalOpen(true)}>
+          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setHistoryModalOpen(true)}>
             <History className="h-4 w-4" />
             View Historical Outputs
           </Button>
         ) : null}
       </div>
       <Tabs defaultValue={defaultValue}>
-        <TabsList className="h-auto flex-wrap justify-start gap-1 bg-secondary/50">
+        <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-lg border border-border/60 bg-secondary/50 p-1.5">
           {tableConfigs.map(({ config, rows }) => (
-            <TabsTrigger key={config.action} value={config.action} className="text-xs">
+            <TabsTrigger key={config.action} value={config.action} className="gap-1.5 rounded-md text-xs">
               {getActionDefinition(config.action)?.title || config.action}
-              <span className="ml-1 text-muted-foreground">({rows.length})</span>
+              <span className="rounded-full border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-muted-foreground">
+                {rows.length}
+              </span>
             </TabsTrigger>
           ))}
         </TabsList>
@@ -1429,18 +1477,21 @@ function HistoricalOutputsModal({
               </div>
 
               {activeRun ? (
-                <div className="flex flex-wrap items-center gap-4 text-xs">
-                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Run ID:</span>{" "}
-                    <span className="font-mono text-cyan-100">#{activeRun.run_id}</span>
+                <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <Hash className="h-3.5 w-3.5 text-cyan-300" />
+                    <span className="text-muted-foreground">Run ID:</span>
+                    <span className="font-mono font-medium text-cyan-100">#{activeRun.run_id}</span>
                   </div>
-                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Ran At:</span>{" "}
-                    <span className="font-mono text-amber-100">{formatIstTimestamp(activeRun.created_at)}</span>
+                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <Clock className="h-3.5 w-3.5 text-amber-300" />
+                    <span className="text-muted-foreground">Ran At:</span>
+                    <span className="font-mono font-medium text-amber-100">{formatIstTimestamp(activeRun.created_at)}</span>
                   </div>
-                  <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2">
-                    <span className="text-muted-foreground">Executed By:</span>{" "}
-                    <span className="font-mono text-slate-100">{activeRun.refreshed_by || "-"}</span>
+                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2">
+                    <User className="h-3.5 w-3.5 text-slate-300" />
+                    <span className="text-muted-foreground">Executed By:</span>
+                    <span className="font-mono font-medium text-slate-100">{activeRun.refreshed_by || "-"}</span>
                   </div>
                 </div>
               ) : null}
@@ -1473,8 +1524,8 @@ function PerformanceResult({ response, rows, config }: { response: DbaResponse; 
     <div className="space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-medium">Result</p>
-          <p className="text-xs text-muted-foreground">Request {response.request_id}</p>
+          <p className="font-semibold tracking-tight">Result</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Request {response.request_id}</p>
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={response.status}>{response.status}</StatusBadge>
@@ -1514,11 +1565,11 @@ function PerformanceRowsTable({
   return (
     <div className="rounded-lg border border-border/60">
       {showDownload ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 p-3">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-secondary/30 px-3 py-2.5">
           <p className="text-sm font-medium">
             {rows.length.toLocaleString("en-US")} row{rows.length === 1 ? "" : "s"}
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={() => downloadText(config.csvName, toCsv(rows), "text/csv")}>
+          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => downloadText(config.csvName, toCsv(rows), "text/csv")}>
             <Download className="h-4 w-4" />
             CSV
           </Button>
