@@ -27,9 +27,9 @@ export function fmtMb(mb: unknown): string {
 
 export function pctColor(pct: unknown): string {
   const n = safeNum(pct);
-  if (n >= 90) return "text-red-400";
-  if (n >= 75) return "text-amber-400";
-  return "text-emerald-400";
+  if (n >= 90) return "text-red-600 dark:text-red-400";
+  if (n >= 75) return "text-amber-600 dark:text-amber-400";
+  return "text-emerald-600 dark:text-emerald-400";
 }
 
 export function pctBarColor(pct: unknown): string {

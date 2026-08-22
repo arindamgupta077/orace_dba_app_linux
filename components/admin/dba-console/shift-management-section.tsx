@@ -15,6 +15,7 @@ import {
   FileText,
   Filter,
   History,
+  Info,
   LogIn,
   LogOut,
   Pencil,
@@ -62,7 +63,7 @@ import {
 import { ShiftLogHistorySection } from "@/components/admin/dba-console/shift-log-history-section";
 import { useAppStore } from "@/store/use-app-store";
 import { cn, formatDateTime, formatTime, toIstDateString } from "@/lib/utils";
-import { isLateLogin } from "@/lib/server/shift-utils";
+import { checkShiftMinDuration, isLateLogin } from "@/lib/server/shift-utils";
 import type { CurrentShiftState, Handover, NotificationPayload, ShiftSession } from "@/types/dba";
 // xlsx-js-style: drop-in xlsx replacement with full cell-style support
 import XLSXStyle from "xlsx-js-style";
@@ -207,6 +208,7 @@ export function ShiftManagementSection() {
   const [overrideTarget, setOverrideTarget] = useState<ShiftSession | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [showLogoutRequirements, setShowLogoutRequirements] = useState(false);
   const [cancelConfirmSession, setCancelConfirmSession] = useState<ShiftSession | null>(null);
   const [emergencyLogoutSession, setEmergencyLogoutSession] = useState<ShiftSession | null>(null);
   const [emergencyReason, setEmergencyReason] = useState("");
@@ -287,6 +289,15 @@ export function ShiftManagementSection() {
     };
   }, [load, loadHistory]);
 
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowTick(Date.now());
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const sessions = (state?.sessions ?? []).filter(Boolean);
   const mySession = sessions.find((s) => s?.username === user?.username) || null;
 
@@ -308,9 +319,27 @@ export function ShiftManagementSection() {
   const canManageShift = user?.role === "app_admin" || user?.role === "dba_admin";
   const isMySessionGeneral = mySession ? mySession.shift_number === GENERAL_SHIFT_NUMBER : false;
   const myHandoverAcknowledged = mySession?.handover_status === "ACKNOWLEDGED";
+
+  // Minimum 7-hour shift time duration check from shift start time (IST).
+  const shiftDurationCheck = useMemo(() => {
+    if (!mySession || isMySessionGeneral) {
+      return {
+        isMet: true,
+        requiredHours: 0,
+        shiftStartTimeFormatted: "",
+        earliestLogoutTimeFormatted: "",
+        earliestLogoutDate: null,
+        minutesRemaining: 0,
+        formattedRemaining: "Completed"
+      };
+    }
+    return checkShiftMinDuration(mySession.shift_number, mySession.shift_date, new Date(nowTick));
+  }, [mySession, isMySessionGeneral, nowTick]);
+
+  const shiftDurationReady = shiftDurationCheck.isMet;
   const checklistReady = state?.logout_checklist?.is_complete === true;
-  // General Shift is exempt from handover, Daily Checklist, and alert clearance requirements.
-  const canLogout = isMySessionGeneral || (myHandoverAcknowledged && checklistReady);
+  // General Shift is exempt from handover, Daily Checklist, alert clearance, and minimum 7 hours duration requirements.
+  const canLogout = isMySessionGeneral || (myHandoverAcknowledged && checklistReady && shiftDurationReady);
   const checklist = state?.logout_checklist;
   const checklistSummary = (() => {
     if (!checklist) return "Daily Checklist completion is being checked.";
@@ -327,6 +356,17 @@ export function ShiftManagementSection() {
       );
     }
     return parts.length > 0 ? parts.join(" ") : "";
+  })();
+
+  const logoutTooltip = (() => {
+    if (canLogout) return undefined;
+    if (!shiftDurationReady) {
+      return `Minimum 7 hours required from shift start (${shiftDurationCheck.shiftStartTimeFormatted} IST). Logout enabled at ${shiftDurationCheck.earliestLogoutTimeFormatted} IST (${shiftDurationCheck.formattedRemaining}).`;
+    }
+    if (!checklistReady) {
+      return checklistSummary;
+    }
+    return "Your handover must be acknowledged before logout";
   })();
 
   // Unique authors for the handover history filter dropdown.
@@ -1514,25 +1554,28 @@ export function ShiftManagementSection() {
                 )}
 
                 {/* Logout */}
-                <div className="flex items-center gap-3 border-t border-border/70 pt-4">
-                  <Button
-                    variant="destructive"
-                    onClick={() => setLogoutConfirm(true)}
-                    disabled={actionLoading || !canLogout}
-                    title={!canLogout ? (!checklistReady ? checklistSummary : "Your handover must be acknowledged before logout") : undefined}
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout from Shift
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    {isMySessionGeneral
-                      ? "General Shift — no handover required. You can logout anytime."
-                      : !checklistReady
-                        ? `${checklistSummary} Complete all required checks before logout.`
-                        : canLogout
-                          ? "Your handover has been acknowledged, the required Daily Checklist checks are complete, and all alert notifications are cleared. You can safely logout."
-                          : "Logout is disabled until your handover is acknowledged by another DBA."}
-                  </p>
+                <div className="border-t border-border/70 pt-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      variant="destructive"
+                      onClick={() => setLogoutConfirm(true)}
+                      disabled={actionLoading || !canLogout}
+                      title={logoutTooltip}
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout from Shift
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowLogoutRequirements(true)}
+                      className="gap-1.5 border-cyan-500/30 bg-cyan-500/5 text-cyan-400 hover:bg-cyan-500/15 hover:text-cyan-300 text-xs h-9 ml-auto"
+                      title="View shift logout requirements checklist and readiness"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                      Logout Requirements
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2268,6 +2311,208 @@ export function ShiftManagementSection() {
         </DialogContent>
       </Dialog>
 
+      {/* Shift Logout Requirements & Readiness Dialog Modal */}
+      <Dialog open={showLogoutRequirements} onOpenChange={setShowLogoutRequirements}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-cyan-400">
+              <Info className="h-5 w-5" />
+              Shift Logout Requirements & Readiness
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div>
+                {mySession && (
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="font-medium text-foreground">
+                      {SHIFT_LABELS[mySession.shift_number] || `Shift ${mySession.shift_number}`}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-[10px] px-2 py-0.5",
+                        canLogout
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                          : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                      )}
+                    >
+                      {canLogout ? "All Conditions Met (Ready to Logout)" : "Requirements Incomplete"}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!isMySessionGeneral ? (
+            <div className="space-y-3 py-1 text-xs">
+              <p className="text-muted-foreground leading-relaxed">
+                Standard shift logout for <strong>{SHIFT_LABELS[mySession?.shift_number ?? 1]}</strong> requires all 4 conditions below to be satisfied:
+              </p>
+
+              <div className="space-y-2.5">
+                {/* Condition 1: 7-Hour Duration */}
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3">
+                  {shiftDurationReady ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <Clock className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground text-sm">1. Minimum 7 Hours Shift Time</span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px]",
+                          shiftDurationReady
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                        )}
+                      >
+                        {shiftDurationReady ? "Completed" : shiftDurationCheck.formattedRemaining}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Shift started at {shiftDurationCheck.shiftStartTimeFormatted} IST. Logout enabled after <strong>{shiftDurationCheck.earliestLogoutTimeFormatted} IST</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Condition 2: Handover */}
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3">
+                  {myHandoverAcknowledged ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : mySession?.handover_status === "PENDING" ? (
+                    <Clock className="h-5 w-5 text-cyan-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground text-sm">2. Handover Notes & Acknowledgement</span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px]",
+                          myHandoverAcknowledged
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                            : mySession?.handover_status === "PENDING"
+                              ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                              : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                        )}
+                      >
+                        {myHandoverAcknowledged
+                          ? "Acknowledged"
+                          : mySession?.handover_status === "PENDING"
+                            ? "Pending Ack"
+                            : "Not Submitted"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {myHandoverAcknowledged
+                        ? `Acknowledged by ${mySession?.ack_username || "incoming DBA"}.`
+                        : mySession?.handover_status === "PENDING"
+                          ? "Handover submitted. Awaiting acknowledgement from the incoming DBA."
+                          : "Submit handover notes in the Shift Actions panel so the incoming DBA can review and acknowledge."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Condition 3: Daily Checklist */}
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3">
+                  {checklist && checklist.database_status.completed >= checklist.database_status.total && checklist.backup_status.completed >= checklist.backup_status.total ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground text-sm">3. Cumulative Daily Checklist</span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px]",
+                          checklist && checklist.database_status.completed >= checklist.database_status.total && checklist.backup_status.completed >= checklist.backup_status.total
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                        )}
+                      >
+                        {checklist && checklist.database_status.completed >= checklist.database_status.total && checklist.backup_status.completed >= checklist.backup_status.total
+                          ? "100% Completed"
+                          : "Incomplete"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {checklist
+                        ? `PROD DB Availability (${checklist.database_status.completed}/${checklist.database_status.total}), Scheduled Backups (${checklist.backup_status.completed}/${checklist.backup_status.total}) for Shift${checklist.required_shifts.length > 1 ? "s" : ""} ${checklist.required_shifts.join(", ")}.`
+                        : "Checking daily checklist completion..."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Condition 4: Alert Clearance */}
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3">
+                  {checklist?.alert_clearance?.is_clear ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground text-sm">4. Shift Alert Clearance</span>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px]",
+                          checklist?.alert_clearance?.is_clear
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                        )}
+                      >
+                        {checklist?.alert_clearance?.is_clear ? "Cleared (0 Pending)" : `${checklist?.alert_clearance?.pending ?? 0} Pending`}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {checklist?.alert_clearance?.is_clear
+                        ? "All storage alerts, monitoring incidents, and alert log events in the shift window are resolved."
+                        : `${checklist?.alert_clearance?.pending ?? 0} alert(s) pending approval or action across tablespaces, filesystem drives, incidents, and alert logs.`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-300 flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-emerald-200 text-sm">General Shift (Exempt from Restrictions)</p>
+                <p className="text-emerald-300/90 leading-relaxed">
+                  You are currently on General Shift. General Shift does not require handover notes, daily checklist completion, alert clearance, or a 7-hour minimum duration. You can safely logout anytime directly.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowLogoutRequirements(false)}>
+              Close
+            </Button>
+            {canLogout && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setShowLogoutRequirements(false);
+                  setLogoutConfirm(true);
+                }}
+                disabled={actionLoading}
+              >
+                <LogOut className="h-4 w-4" />
+                Proceed to Logout
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

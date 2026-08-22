@@ -138,6 +138,10 @@ export const useAppStore = create<AppState>()(
       },
       addNotification: (item) =>
         set((state) => {
+          if ((item.type as string) === "datafile_extend" || (item as unknown as Record<string, unknown>).alert_type === "datafile_extend") {
+            return state;
+          }
+
           const existingIndex = state.notifications.findIndex((n) => String(n.id) === String(item.id));
 
           // If this is a lightweight read-status sync event (empty title and message) and the item

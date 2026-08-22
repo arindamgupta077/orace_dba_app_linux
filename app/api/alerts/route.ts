@@ -829,16 +829,18 @@ detail: `${alert.alert_type} alert created for ${deriveAlertSubject(alert)} on d
 
     emitAlertNotificationEvent("created", alert);
 
-    emitGlobalNotification({
-      id: alert.id,
-      type: resolveNotificationType(alertType),
-      severity: alert.severity,
-      db: alert.db,
-      title: buildAlertTitle(alertType, alert.tablespace || alert.object_name || alert.db, alert.severity),
-      message: alert.message,
-      timestamp: alert.created_at,
-      targetPath: alertTypeToTargetPath(alertType)
-    });
+    if (alertType !== "datafile_extend") {
+      emitGlobalNotification({
+        id: alert.id,
+        type: resolveNotificationType(alertType),
+        severity: alert.severity,
+        db: alert.db,
+        title: buildAlertTitle(alertType, alert.tablespace || alert.object_name || alert.db, alert.severity),
+        message: alert.message,
+        timestamp: alert.created_at,
+        targetPath: alertTypeToTargetPath(alertType)
+      });
+    }
 
     return NextResponse.json({ alert }, { status: 201 });
   } catch (error) {

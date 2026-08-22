@@ -172,6 +172,112 @@ const SHIFT_START_MINUTES: Record<number, number> = {
   3: 22 * 60 + 30  // 22:30
 };
 
+export const MIN_SHIFT_HOURS_BEFORE_LOGOUT = 7;
+
+export interface ShiftDurationCheck {
+  isMet: boolean;
+  requiredHours: number;
+  shiftStartTimeFormatted: string;
+  earliestLogoutTimeFormatted: string;
+  earliestLogoutDate: Date | null;
+  minutesRemaining: number;
+  formattedRemaining: string;
+}
+
+/**
+ * Formats remaining minutes into a human-friendly hours/minutes scale (e.g. "6h 5m remaining" or "45m remaining").
+ */
+export function formatDurationRemaining(minutes: number): string {
+  if (minutes <= 0) return "0m remaining";
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hrs > 0 && mins > 0) {
+    return `${hrs}h ${mins}m remaining`;
+  }
+  if (hrs > 0) {
+    return `${hrs}h remaining`;
+  }
+  return `${mins}m remaining`;
+}
+
+/**
+ * Checks whether a time-based shift (Shift 1, 2, 3) has completed at least 7 hours
+ * of shift time from the scheduled shift start time on that shift date.
+ *
+ * Examples (IST):
+ * - Shift 1 (start 07:00 IST) -> earliest logout 14:00 IST (2:00 PM)
+ * - Shift 2 (start 14:30 IST) -> earliest logout 21:30 IST (9:30 PM)
+ * - Shift 3 (start 22:30 IST) -> earliest logout 05:30 IST next day (5:30 AM)
+ * - General Shift (Shift 4)   -> exempt from minimum duration requirement
+ */
+export function checkShiftMinDuration(
+  shiftNumber: number,
+  shiftDate?: string | null,
+  now: Date = new Date()
+): ShiftDurationCheck {
+  if (isGeneralShift(shiftNumber)) {
+    return {
+      isMet: true,
+      requiredHours: 0,
+      shiftStartTimeFormatted: "",
+      earliestLogoutTimeFormatted: "",
+      earliestLogoutDate: null,
+      minutesRemaining: 0,
+      formattedRemaining: "Completed"
+    };
+  }
+
+  const def = SHIFT_DEFINITIONS.find((s) => s.number === shiftNumber);
+  if (!def || !def.timing) {
+    return {
+      isMet: true,
+      requiredHours: 0,
+      shiftStartTimeFormatted: "",
+      earliestLogoutTimeFormatted: "",
+      earliestLogoutDate: null,
+      minutesRemaining: 0,
+      formattedRemaining: "Completed"
+    };
+  }
+
+  const { startHour, startMinute } = def.timing;
+  const shiftStartTimeFormatted = to12h(startHour, startMinute);
+
+  const totalLogoutMinutesFromStart = startHour * 60 + startMinute + MIN_SHIFT_HOURS_BEFORE_LOGOUT * 60;
+  const logoutHour24 = Math.floor(totalLogoutMinutesFromStart / 60) % 24;
+  const logoutMinute = totalLogoutMinutesFromStart % 60;
+  const earliestLogoutTimeFormatted = to12h(logoutHour24, logoutMinute);
+
+  let dateStr = (shiftDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    dateStr = toOracleDateString(now);
+  }
+  const [yearStr, monthStr, dayStr] = dateStr.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  const shiftMidnightIstUtcMs = Date.UTC(year, month - 1, day) - 330 * 60 * 1000;
+  const earliestLogoutMs = shiftMidnightIstUtcMs + totalLogoutMinutesFromStart * 60 * 1000;
+  const earliestLogoutDate = new Date(earliestLogoutMs);
+
+  const nowMs = now.getTime();
+  const isMet = nowMs >= earliestLogoutMs;
+  const diffMs = earliestLogoutMs - nowMs;
+  const minutesRemaining = isMet ? 0 : Math.max(0, Math.ceil(diffMs / (60 * 1000)));
+  const formattedRemaining = isMet ? "Completed" : formatDurationRemaining(minutesRemaining);
+
+  return {
+    isMet,
+    requiredHours: MIN_SHIFT_HOURS_BEFORE_LOGOUT,
+    shiftStartTimeFormatted,
+    earliestLogoutTimeFormatted,
+    earliestLogoutDate,
+    minutesRemaining,
+    formattedRemaining
+  };
+}
+
 /**
  * Evaluates whether logging in to the given shift at the specified time is considered late (> 60 minutes after shift start).
  */

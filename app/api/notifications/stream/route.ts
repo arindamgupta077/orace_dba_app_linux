@@ -23,6 +23,9 @@ async function buildReplayItems(userRole?: string, userId?: number, username?: s
     });
 
     for (const alert of result.items) {
+      if (alert.alert_type === "datafile_extend") {
+        continue;
+      }
       const metadata = alert.metadata || {};
       const targetRole = typeof metadata.target_role === "string" ? metadata.target_role : undefined;
       const targetUserId = typeof metadata.target_user_id === "number" ? metadata.target_user_id : undefined;

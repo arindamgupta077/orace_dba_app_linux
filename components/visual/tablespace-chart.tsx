@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import type { DbaStatus, TablespaceRow } from "@/types/dba";
 
 const STATUS_COLORS: Record<DbaStatus, string> = {
@@ -33,18 +34,9 @@ function ChartTooltip({ active, payload }: TooltipProps) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div
-      style={{
-        background: "#101722",
-        border: "1px solid rgba(142,163,184,0.25)",
-        borderRadius: 10,
-        padding: "10px 14px",
-        minWidth: 160,
-        boxShadow: "0 4px 24px rgba(0,0,0,0.4)"
-      }}
-    >
-      <p style={{ marginBottom: 8, fontWeight: 600, fontSize: 13, color: "#e2e8f0" }}>{d.name}</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 p-3 text-xs shadow-2xl backdrop-blur-md min-w-[170px] z-50 text-slate-800 dark:text-slate-100">
+      <p className="font-bold text-slate-900 dark:text-slate-100 text-sm font-mono tracking-tight mb-2 border-b border-slate-200 dark:border-slate-800 pb-1.5">{d.name}</p>
+      <div className="flex flex-col gap-1.5">
         <Row label="Utilization" value={`${d.pct_used.toFixed(1)}%`} color={STATUS_COLORS[d.status]} />
         <Row label="Used" value={`${d.used_gb.toFixed(1)} GB`} />
         <Row label="Free" value={`${d.free_gb.toFixed(1)} GB`} />
@@ -56,9 +48,9 @@ function ChartTooltip({ active, payload }: TooltipProps) {
 
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 24 }}>
-      <span style={{ color: "#8ea3b8", fontSize: 11 }}>{label}</span>
-      <span style={{ color: color || "#cbd5e1", fontSize: 11, fontWeight: color ? 700 : 500 }}>{value}</span>
+    <div className="flex justify-between gap-6">
+      <span className="text-slate-500 dark:text-slate-400 text-xs">{label}</span>
+      <span className={cn("text-xs font-medium tabular-nums", color ? "font-bold" : "text-slate-700 dark:text-slate-300")} style={color ? { color } : undefined}>{value}</span>
     </div>
   );
 }

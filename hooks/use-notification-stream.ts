@@ -48,6 +48,7 @@ export function useNotificationStream() {
             (!data.targetUsername || data.targetUsername.toLowerCase() === user?.username?.toLowerCase());
 
           if (!isForMe) return;
+          if ((data.type as string) === "datafile_extend" || (data as unknown as Record<string, unknown>).alert_type === "datafile_extend") return;
 
           const isPendingApprovalRequest =
             data.title === "Approval Required" ||

@@ -151,6 +151,7 @@ export function DatabaseAlertsBell() {
     .filter((n) => {
       if (!n.title && !n.message) return false;
       if (n.type === "dba_shift") return false;
+      if ((n.type as string) === "datafile_extend" || (n as unknown as Record<string, unknown>).alert_type === "datafile_extend") return false;
       if (user?.role !== "app_admin") {
         if (n.title === "Approval Required" || (n.type === "approval_workflow" && (n.targetRole === "app_admin" || (!n.title.includes("Approved") && !n.title.includes("Rejected") && !n.title.includes("Complete") && !n.title.includes("Failed"))))) {
           return false;

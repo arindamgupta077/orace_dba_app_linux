@@ -1032,11 +1032,21 @@ export interface AlertClearanceStatus {
   is_clear: boolean;
 }
 
+export interface ShiftDurationStatus {
+  is_met: boolean;
+  required_hours: number;
+  shift_start_time: string;
+  earliest_logout_time: string;
+  minutes_remaining: number;
+  formatted_remaining?: string;
+}
+
 /**
  * Logout readiness for a time-based shift. A DBA must complete the checklist
  * for every shift from Shift 1 through their own shift on the session date,
- * and all n8n alert notifications within the cumulative shift window must be
- * acknowledged / approved / rejected.
+ * all n8n alert notifications within the cumulative shift window must be
+ * acknowledged / approved / rejected, and at least 7 hours must have elapsed
+ * from the shift start time.
  */
 export interface ShiftLogoutChecklistReadiness {
   shift_date: string;
@@ -1045,6 +1055,8 @@ export interface ShiftLogoutChecklistReadiness {
   backup_status: ChecklistCompletion;
   /** n8n alert clearance status for the cumulative shift time window. */
   alert_clearance: AlertClearanceStatus;
+  /** Minimum 7 hours duration status from shift start time. */
+  duration_check?: ShiftDurationStatus;
   is_complete: boolean;
 }
 

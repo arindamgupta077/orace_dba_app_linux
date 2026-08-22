@@ -14,57 +14,19 @@ const TAB_ACCENTS = {
   account: {
     trigger:
       "data-[state=active]:border-cyan-500/40 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-700 dark:data-[state=active]:text-cyan-300",
-    chip: "group-data-[state=active]:from-cyan-500 group-data-[state=active]:to-blue-600",
-    bannerChip: "from-cyan-500 to-blue-600",
-    bannerRing: "border-cyan-500/20 bg-cyan-500/5"
+    chip: "group-data-[state=active]:from-cyan-500 group-data-[state=active]:to-blue-600"
   },
   profile: {
     trigger:
       "data-[state=active]:border-violet-500/40 data-[state=active]:bg-violet-500/10 data-[state=active]:text-violet-700 dark:data-[state=active]:text-violet-300",
-    chip: "group-data-[state=active]:from-violet-500 group-data-[state=active]:to-purple-600",
-    bannerChip: "from-violet-500 to-purple-600",
-    bannerRing: "border-violet-500/20 bg-violet-500/5"
+    chip: "group-data-[state=active]:from-violet-500 group-data-[state=active]:to-purple-600"
   },
   privileges: {
     trigger:
       "data-[state=active]:border-emerald-500/40 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300",
-    chip: "group-data-[state=active]:from-emerald-500 group-data-[state=active]:to-teal-600",
-    bannerChip: "from-emerald-500 to-teal-600",
-    bannerRing: "border-emerald-500/20 bg-emerald-500/5"
+    chip: "group-data-[state=active]:from-emerald-500 group-data-[state=active]:to-teal-600"
   }
 } as const;
-
-type TabAccentKey = keyof typeof TAB_ACCENTS;
-
-function SectionBanner({
-  accent,
-  icon: Icon,
-  title,
-  children
-}: {
-  accent: TabAccentKey;
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  children: React.ReactNode;
-}) {
-  const styles = TAB_ACCENTS[accent];
-  return (
-    <div className={cn("flex items-start gap-3.5 rounded-xl border px-4 py-3.5", styles.bannerRing)}>
-      <span
-        className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-md",
-          styles.bannerChip
-        )}
-      >
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{children}</p>
-      </div>
-    </div>
-  );
-}
 
 export default function UserManagementPage() {
   return (
@@ -131,32 +93,15 @@ export default function UserManagementPage() {
         </TabsList>
 
         <TabsContent value="account" className="mt-0">
-          <div className="space-y-5 rounded-xl border border-border/60 bg-card/30 p-5">
-            <SectionBanner accent="account" icon={Users} title="User Account Management">
-              Create, unlock, reset passwords, reassign tablespaces and profiles, change quotas, rename, and drop Oracle database users.
-              Usernames for operations are fetched from n8n via <code className="text-cyan-400">schema_list</code>.
-            </SectionBanner>
-            <UserAccountSection />
-          </div>
+          <UserAccountSection />
         </TabsContent>
 
         <TabsContent value="profile" className="mt-0">
-          <div className="space-y-5 rounded-xl border border-border/60 bg-card/30 p-5">
-            <SectionBanner accent="profile" icon={Fingerprint} title="Profile Management">
-              View, create, alter, and drop Oracle profiles. Profiles control resource limits and password policies for database users.
-            </SectionBanner>
-            <ProfileManagementSection />
-          </div>
+          <ProfileManagementSection />
         </TabsContent>
 
         <TabsContent value="privileges" className="mt-0">
-          <div className="space-y-5 rounded-xl border border-border/60 bg-card/30 p-5">
-            <SectionBanner accent="privileges" icon={ShieldCheck} title="Privilege Management">
-              Grant or revoke system privileges, object privileges, create Oracle roles, and assign roles to users.
-              Users and objects are fetched dynamically from n8n.
-            </SectionBanner>
-            <PrivilegeManagementSection />
-          </div>
+          <PrivilegeManagementSection />
         </TabsContent>
       </Tabs>
     </div>

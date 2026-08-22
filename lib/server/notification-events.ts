@@ -119,6 +119,9 @@ export function addGlobalNotificationListener(
 }
 
 export function emitGlobalNotification(payload: NotificationPayload) {
+  if ((payload.type as string) === "datafile_extend" || (payload as unknown as Record<string, unknown>).alert_type === "datafile_extend") {
+    return;
+  }
   const broadcast: BroadcastPayload = { ...payload, sent_at: new Date().toISOString() };
 
   // Only store "real" notifications in the replay buffer, not read-status sync

@@ -10,7 +10,7 @@ import { getServerEnv } from "@/lib/server/env";
 import { withOracleConnection } from "@/lib/server/oracle";
 import { generatePasswordSalt, generateSessionToken, hashPassword, hashSessionToken, normalizeUsername, sha256Hex } from "@/lib/server/security";
 import { getBackupResponsibleShift } from "@/lib/backup-shifts";
-import { getActiveShifts, getSelectableShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
+import { checkShiftMinDuration, getActiveShifts, getSelectableShifts, getShiftStartDate, toOracleDateString } from "@/lib/server/shift-utils";
 import { stripHtmlText } from "@/lib/utils";
 import type {
   AlertNotification,
@@ -4442,9 +4442,18 @@ export async function getLogoutChecklistReadiness(
       database_status: { total: 0, completed: 0, completion_pct: 100 },
       backup_status: { total: 0, completed: 0, completion_pct: 100 },
       alert_clearance: { total: 0, pending: 0, is_clear: true },
+      duration_check: {
+        is_met: true,
+        required_hours: 0,
+        shift_start_time: "",
+        earliest_logout_time: "",
+        minutes_remaining: 0
+      },
       is_complete: true
     };
   }
+
+  const durationCheck = checkShiftMinDuration(session.shift_number, session.shift_date);
 
   const requiredShifts = Array.from(
     { length: session.shift_number },
@@ -4538,10 +4547,19 @@ export async function getLogoutChecklistReadiness(
       database_status: databaseStatus,
       backup_status: backupStatus,
       alert_clearance: alertClearance,
+      duration_check: {
+        is_met: durationCheck.isMet,
+        required_hours: durationCheck.requiredHours,
+        shift_start_time: durationCheck.shiftStartTimeFormatted,
+        earliest_logout_time: durationCheck.earliestLogoutTimeFormatted,
+        minutes_remaining: durationCheck.minutesRemaining,
+        formatted_remaining: durationCheck.formattedRemaining
+      },
       is_complete:
         databaseCompleted === databaseTotal &&
         backupCompleted === backupTotal &&
-        alertClearance.is_clear
+        alertClearance.is_clear &&
+        durationCheck.isMet
     };
   });
 }
@@ -7746,7 +7764,7 @@ export async function listNotificationHistory(input: ListNotificationHistoryInpu
 
   return executeOne(async (connection) => {
     // 1. Fetch items from app_alert_notifications
-    const alertWhere: string[] = [];
+    const alertWhere: string[] = ["alert_type != 'datafile_extend'"];
     const alertBinds: BindParameters = {};
 
     if (category === "console") {

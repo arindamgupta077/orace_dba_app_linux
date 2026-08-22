@@ -10,7 +10,7 @@ import {
 import { requireAuthenticatedSession } from "@/lib/server/session";
 import { dispatchShiftWebhook } from "@/lib/server/shift-webhook";
 import { emitGlobalNotification } from "@/lib/server/notification-events";
-import { getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
+import { checkShiftMinDuration, getShiftLabel, isGeneralShift } from "@/lib/server/shift-utils";
 import { formatAppDateTime, formatIstIsoString } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -48,10 +48,20 @@ export async function POST(request: Request) {
     const activeSession = await getActiveShiftSessionForUser(session.userId);
     const isGeneral = isGeneralShift(activeSession.shift_number);
 
-    // Normal time-based logout requires cumulative checklist completion and
-    // handover acknowledgement. General Shift and app-admin force overrides
-    // remain exempt.
+    // Normal time-based logout requires minimum 7-hour duration from shift start,
+    // cumulative checklist completion, and handover acknowledgement.
+    // General Shift and app-admin force overrides remain exempt.
     if (!isAdminOverride && !isGeneral) {
+      const durationCheck = checkShiftMinDuration(activeSession.shift_number, activeSession.shift_date);
+      if (!durationCheck.isMet) {
+        return NextResponse.json(
+          {
+            message: `Logout blocked: You must complete at least 7 hours of shift time from shift start (${durationCheck.shiftStartTimeFormatted} IST). Logout will be enabled at ${durationCheck.earliestLogoutTimeFormatted} IST (${durationCheck.formattedRemaining}).`
+          },
+          { status: 409 }
+        );
+      }
+
       const checklist = await getLogoutChecklistReadiness(activeSession);
       if (!checklist.is_complete) {
         const parts: string[] = [];

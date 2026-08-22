@@ -358,12 +358,64 @@ export function BackupStatusBadge({ status }: { status?: string | null }) {
   return <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs font-semibold text-red-300">{s}</span>;
 }
 
-function CustomBarTooltip({ active, payload }: { active?: boolean; payload?: Array<{ value: number; name: string }> }) {
+interface BarTooltipItem {
+  name: string;
+  used: number;
+  free: number;
+  pct: number;
+}
+
+function CustomBarTooltip({
+  active,
+  payload,
+  label
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: BarTooltipItem }>;
+  label?: string;
+}) {
   if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  const tablespaceName = d?.name || label || "Tablespace";
+  const usedMb = d?.used ?? 0;
+  const freeMb = d?.free ?? 0;
+  const totalMb = usedMb + freeMb;
+  const pct = d?.pct ?? (totalMb > 0 ? (usedMb / totalMb) * 100 : 0);
+
   return (
-    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 text-xs shadow-lg">
-      <p className="font-medium text-popover-foreground">{payload[0].name}</p>
-      <p className="text-muted-foreground">{fmtMb(payload[0].value)}</p>
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 p-3 text-xs shadow-2xl backdrop-blur-md min-w-[210px] z-50 text-slate-800 dark:text-slate-100">
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 mb-2">
+        <Database className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+        <span className="font-bold text-slate-900 dark:text-slate-100 text-sm font-mono tracking-tight truncate">
+          {tablespaceName}
+        </span>
+      </div>
+      <div className="space-y-1.5 font-sans">
+        <div className="flex justify-between items-center gap-4">
+          <span className="text-slate-500 dark:text-slate-400 text-[11px]">Utilization</span>
+          <span className={cn("font-bold tabular-nums text-xs", pctColor(pct))}>
+            {pct.toFixed(1)}%
+          </span>
+        </div>
+        <div className="flex justify-between items-center gap-4">
+          <span className="text-slate-500 dark:text-slate-400 text-[11px]">Used Space</span>
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums text-xs">
+            {fmtMb(usedMb)}
+          </span>
+        </div>
+        <div className="flex justify-between items-center gap-4">
+          <span className="text-slate-500 dark:text-slate-400 text-[11px]">Free Space</span>
+          <span className="font-medium text-slate-600 dark:text-slate-400 tabular-nums text-xs">
+            {fmtMb(freeMb)}
+          </span>
+        </div>
+        <div className="flex justify-between items-center gap-4 border-t border-slate-200 dark:border-slate-800 pt-1.5 font-semibold">
+          <span className="text-slate-700 dark:text-slate-300 text-[11px]">Total Capacity</span>
+          <span className="text-slate-900 dark:text-slate-100 tabular-nums text-xs">
+            {fmtMb(totalMb)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -376,20 +428,30 @@ export function TablespaceBarChart({ rows }: { rows: DashboardTablespaceRow[] })
     pct:  safeNum(r.pct_used)
   }));
 
+  const chartHeight = Math.max(220, data.length * 30);
+
   return (
-    <div className="h-[220px]">
+    <div className="w-full" style={{ height: chartHeight }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 48, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(142,163,184,0.12)" />
-          <XAxis type="number" tickFormatter={(v: number) => fmtMb(v)} stroke="#8ea3b8" fontSize={10} />
-          <YAxis type="category" dataKey="name" stroke="#8ea3b8" fontSize={11} width={80} />
-          <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "rgba(142,163,184,0.06)" }} />
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 48, bottom: 4, left: 8 }}>
+          <XAxis type="number" tickFormatter={(v: number) => fmtMb(v)} stroke="currentColor" className="text-slate-500 dark:text-slate-400" fontSize={10} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            stroke="currentColor"
+            className="text-slate-700 dark:text-slate-300"
+            fontSize={11}
+            width={85}
+            interval={0}
+            tickLine={false}
+          />
+          <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "rgba(100,116,139,0.08)" }} />
           <Bar dataKey="used" name="Used" stackId="a" radius={[0, 0, 0, 0]} maxBarSize={18}>
             {data.map((entry, i) => (
               <Cell key={entry.name ?? i} fill={pctStroke(entry.pct)} />
             ))}
           </Bar>
-          <Bar dataKey="free" name="Free" stackId="a" fill="rgba(142,163,184,0.15)" radius={[0, 3, 3, 0]} maxBarSize={18} />
+          <Bar dataKey="free" name="Free" stackId="a" fill="rgba(148,163,184,0.22)" radius={[0, 3, 3, 0]} maxBarSize={18} />
         </BarChart>
       </ResponsiveContainer>
     </div>
