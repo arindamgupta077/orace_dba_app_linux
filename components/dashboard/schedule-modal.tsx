@@ -147,7 +147,7 @@ export function ScheduleModal({ open, onClose, selectedDb }: ScheduleModalProps)
   const [saving, setSaving]                     = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState<number | null>(null);
   const [error, setError]                       = useState<string | null>(null);
-  const [selectedInterval, setSelectedInterval] = useState(15);
+  const [selectedInterval, setSelectedInterval] = useState<number | null>(null);
   const [viewFilter, setViewFilter]             = useState<"current" | "all">("current");
   const [searchQuery, setSearchQuery]           = useState("");
 
@@ -178,10 +178,15 @@ export function ScheduleModal({ open, onClose, selectedDb }: ScheduleModalProps)
 
   // Pre-select existing interval when modal opens or DB changes
   useEffect(() => {
-    if (existingForDb) setSelectedInterval(existingForDb.interval_min);
+    if (existingForDb) {
+      setSelectedInterval(existingForDb.interval_min);
+    } else {
+      setSelectedInterval(null);
+    }
   }, [existingForDb]);
 
   async function handleSave() {
+    if (!selectedInterval) return;
     setSaving(true);
     setError(null);
     try {
@@ -348,8 +353,8 @@ export function ScheduleModal({ open, onClose, selectedDb }: ScheduleModalProps)
                   <Timer className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
                   Select Refresh Frequency:
                 </span>
-                <span className="font-semibold text-cyan-600 dark:text-cyan-300">
-                  Every {selectedIntervalObj?.label ?? `${selectedInterval}m`}
+                <span className={cn("font-semibold", selectedIntervalObj ? "text-cyan-600 dark:text-cyan-300" : "text-muted-foreground italic")}>
+                  {selectedIntervalObj ? `Every ${selectedIntervalObj.label}` : "None selected"}
                 </span>
               </div>
 
@@ -379,16 +384,22 @@ export function ScheduleModal({ open, onClose, selectedDb }: ScheduleModalProps)
             {/* Action CTA Button */}
             <Button
               onClick={handleSave}
-              disabled={saving || loading}
+              disabled={saving || loading || !selectedInterval}
               className={cn(
                 "w-full gap-2 text-sm font-semibold shadow-md transition-all duration-200 active:scale-[0.99]",
-                "bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-cyan-500/10"
+                "bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-cyan-500/10",
+                (!selectedInterval || saving || loading) && "opacity-60 cursor-not-allowed"
               )}
             >
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Saving Schedule Configuration…
+                </>
+              ) : !selectedInterval ? (
+                <>
+                  <Sparkles className="h-4 w-4 text-cyan-200" />
+                  Select a Frequency to Enable Schedule
                 </>
               ) : (
                 <>

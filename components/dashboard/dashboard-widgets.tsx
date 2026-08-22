@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ElementType, type ReactNode } from "react";
-import { CheckCircle2, ChevronRight, Database, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, Database, Info, RefreshCw, XCircle } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -14,6 +14,11 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { fmtMb, pctColor, pctStroke, safeNum } from "@/components/dashboard/dashboard-utils";
 import { cn } from "@/lib/utils";
@@ -137,13 +142,25 @@ export function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+function getKpiValueFontSize(val: string | number) {
+  const str = String(val ?? "").trim();
+  const len = str.length;
+  if (len >= 18) return "text-sm sm:text-base";
+  if (len >= 14) return "text-base sm:text-lg";
+  if (len >= 11) return "text-lg sm:text-xl";
+  if (len >= 9) return "text-xl sm:text-2xl";
+  return "text-2xl";
+}
+
 export function KpiTile({
   icon: Icon,
   label,
   value,
   sub,
   variant = "neutral",
-  onClick
+  onClick,
+  tooltip,
+  tooltipTitle
 }: {
   icon: ElementType;
   label: string;
@@ -151,6 +168,8 @@ export function KpiTile({
   sub?: string;
   variant?: "neutral" | "healthy" | "warning" | "critical";
   onClick?: () => void;
+  tooltip?: string;
+  tooltipTitle?: string;
 }) {
   const variantMap = {
     neutral:  { bg: "bg-slate-400/5  border-slate-400/15",  text: "text-slate-200",    icon: "text-slate-400"   },
@@ -165,8 +184,40 @@ export function KpiTile({
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-        <p className={`text-2xl font-bold tabular-nums leading-tight ${s.text}`}>{value}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          {tooltip && (
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
+                  className="inline-flex items-center justify-center rounded-full p-0.5 text-muted-foreground/60 hover:text-cyan-400 hover:bg-cyan-500/10 focus:outline-none focus:ring-1 focus:ring-cyan-400/50 transition-colors cursor-help shrink-0"
+                  aria-label={`Info about ${tooltipTitle || label}`}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="center"
+                sideOffset={6}
+                className="max-w-xs sm:max-w-sm p-3.5 space-y-1.5 rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-2xl backdrop-blur-md dark:bg-slate-900/95 dark:border-slate-700/80 z-50 pointer-events-auto"
+              >
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-foreground dark:text-slate-100">
+                  <Icon className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                  <span>{tooltipTitle || label}</span>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground dark:text-slate-300 font-normal">
+                  {tooltip}
+                </p>
+              </TooltipContent>
+            </UiTooltip>
+          )}
+        </div>
+        <p className={cn("font-bold tabular-nums leading-tight whitespace-nowrap", getKpiValueFontSize(value), s.text)}>{value}</p>
         {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
       </div>
       {onClick && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 print:hidden" />}
@@ -178,7 +229,7 @@ export function KpiTile({
       <button
         type="button"
         onClick={onClick}
-        className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-current/30 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:ring-offset-2 focus:ring-offset-background ${s.bg}`}
+        className={`group relative flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-current/30 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:ring-offset-2 focus:ring-offset-background ${s.bg}`}
         aria-label={`Go to ${label}`}
       >
         {content}
@@ -187,7 +238,7 @@ export function KpiTile({
   }
 
   return (
-    <div className={`flex items-center gap-3 rounded-xl border p-4 ${s.bg}`}>
+    <div className={`group relative flex items-center gap-3 rounded-xl border p-4 transition hover:-translate-y-0.5 hover:border-current/30 ${s.bg}`}>
       {content}
     </div>
   );

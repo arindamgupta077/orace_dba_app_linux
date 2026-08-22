@@ -24,7 +24,8 @@ import {
   XCircle,
   Zap,
   TrendingUp,
-  Loader2
+  Loader2,
+  Info
 } from "lucide-react";
 import {
   Bar,
@@ -38,6 +39,11 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScheduleModal } from "@/components/dashboard/schedule-modal";
@@ -400,13 +406,25 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+function getKpiValueFontSize(val: string | number) {
+  const str = String(val ?? "").trim();
+  const len = str.length;
+  if (len >= 18) return "text-sm sm:text-base";
+  if (len >= 14) return "text-base sm:text-lg";
+  if (len >= 11) return "text-lg sm:text-xl";
+  if (len >= 9) return "text-xl sm:text-2xl";
+  return "text-2xl";
+}
+
 function KpiTile({
   icon: Icon,
   label,
   value,
   sub,
   variant = "neutral",
-  onClick
+  onClick,
+  tooltip,
+  tooltipTitle
 }: {
   icon: React.ElementType;
   label: string;
@@ -414,6 +432,8 @@ function KpiTile({
   sub?: string;
   variant?: "neutral" | "healthy" | "warning" | "critical";
   onClick?: () => void;
+  tooltip?: string;
+  tooltipTitle?: string;
 }) {
   const variantMap = {
     neutral:  { bg: "bg-slate-400/5  border-slate-400/15",  text: "text-slate-200",    icon: "text-slate-400"   },
@@ -428,8 +448,40 @@ function KpiTile({
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-        <p className={`text-2xl font-bold tabular-nums leading-tight ${s.text}`}>{value}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          {tooltip && (
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
+                  className="inline-flex items-center justify-center rounded-full p-0.5 text-muted-foreground/60 hover:text-cyan-400 hover:bg-cyan-500/10 focus:outline-none focus:ring-1 focus:ring-cyan-400/50 transition-colors cursor-help shrink-0"
+                  aria-label={`Info about ${tooltipTitle || label}`}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="center"
+                sideOffset={6}
+                className="max-w-xs sm:max-w-sm p-3.5 space-y-1.5 rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-2xl backdrop-blur-md dark:bg-slate-900/95 dark:border-slate-700/80 z-50 pointer-events-auto"
+              >
+                <div className="flex items-center gap-1.5 font-semibold text-xs text-foreground dark:text-slate-100">
+                  <Icon className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                  <span>{tooltipTitle || label}</span>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground dark:text-slate-300 font-normal">
+                  {tooltip}
+                </p>
+              </TooltipContent>
+            </UiTooltip>
+          )}
+        </div>
+        <p className={cn("font-bold tabular-nums leading-tight whitespace-nowrap", getKpiValueFontSize(value), s.text)}>{value}</p>
         {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
       </div>
       {onClick && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 print:hidden" />}
@@ -441,7 +493,7 @@ function KpiTile({
       <button
         type="button"
         onClick={onClick}
-        className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-current/30 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:ring-offset-2 focus:ring-offset-background ${s.bg}`}
+        className={`group relative flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:border-current/30 hover:bg-current/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 focus:ring-offset-2 focus:ring-offset-background ${s.bg}`}
         aria-label={`Go to ${label}`}
       >
         {content}
@@ -450,7 +502,7 @@ function KpiTile({
   }
 
   return (
-    <div className={`flex items-center gap-3 rounded-xl border p-4 ${s.bg}`}>
+    <div className={`group relative flex items-center gap-3 rounded-xl border p-4 transition hover:-translate-y-0.5 hover:border-current/30 ${s.bg}`}>
       {content}
     </div>
   );
@@ -1462,8 +1514,24 @@ export function DashboardOverview() {
 
           {/* ── SECTION 2: OPERATIONS KPIs ─────────────────────────────── */}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiTile icon={Users}         label="Active Sessions"    value={m.active_sessions}   sub="USER type, ACTIVE status" variant="healthy" />
-            <KpiTile icon={Activity}      label="Inactive Sessions"  value={m.inactive_sessions}  sub="SQL*Net wait or idle"    variant="neutral" />
+            <KpiTile
+              icon={Users}
+              label="Active Sessions"
+              value={m.active_sessions}
+              sub="USER type, ACTIVE status"
+              variant="healthy"
+              tooltipTitle="Active Sessions"
+              tooltip="Currently active user sessions connected to the database executing SQL or waiting on non-idle events."
+            />
+            <KpiTile
+              icon={Activity}
+              label="Inactive Sessions"
+              value={m.inactive_sessions}
+              sub="SQL*Net wait or idle"
+              variant="neutral"
+              tooltipTitle="Inactive Sessions"
+              tooltip="Connected user sessions that are currently waiting for client communication or idle."
+            />
             <KpiTile
               icon={Database}
               label="Tablespaces >90%"
@@ -1471,6 +1539,8 @@ export function DashboardOverview() {
               sub="Capacity threshold breached"
               variant={tablespacesOver90 > 0 ? "critical" : "healthy"}
               onClick={() => scrollToSection("tablespace-utilization")}
+              tooltipTitle="Tablespaces > 90%"
+              tooltip="Count of tablespaces that have exceeded 90% space utilization threshold."
             />
             <KpiTile
               icon={Users}
@@ -1479,6 +1549,8 @@ export function DashboardOverview() {
               sub="Open users within 15 days"
               variant={usersExpiringCount > 0 ? "warning" : "healthy"}
               onClick={() => scrollToSection("password-expiry")}
+              tooltipTitle="Password Expiry"
+              tooltip="Database user accounts with passwords expiring within the next 15 days."
             />
           </div>
 
@@ -1584,6 +1656,8 @@ export function DashboardOverview() {
                   value={m.total_db_size_gb != null ? `${safeNum(m.total_db_size_gb).toFixed(2)} GB` : "—"}
                   sub="Data, temp & redo log"
                   variant="healthy"
+                  tooltipTitle="Database Size"
+                  tooltip="Your query calculates the total allocated storage of datafiles + tempfiles + online redo logs. It does not represent only the actual data stored."
                 />
                 <KpiTile
                   icon={Clock}
@@ -1591,6 +1665,8 @@ export function DashboardOverview() {
                   value={m.db_response_time_ms != null ? `${safeNum(m.db_response_time_ms).toFixed(2)} ms` : "—"}
                   sub="Last 60 mins (SQL)"
                   variant={m.db_response_time_ms == null ? "neutral" : safeNum(m.db_response_time_ms) > 100 ? "critical" : safeNum(m.db_response_time_ms) > 20 ? "warning" : "healthy"}
+                  tooltipTitle="SQL Service Response Time"
+                  tooltip="Average time Oracle takes to complete a SQL service call during the measured interval. Lower generally means faster database response."
                 />
                 <KpiTile
                   icon={Users}
@@ -1598,6 +1674,8 @@ export function DashboardOverview() {
                   value={m.avg_active_sessions_1hr != null ? safeNum(m.avg_active_sessions_1hr).toFixed(2) : "0.00"}
                   sub="DB time / sec (60m)"
                   variant={m.avg_active_sessions_1hr == null ? "neutral" : safeNum(m.avg_active_sessions_1hr) > 10 ? "warning" : "healthy"}
+                  tooltipTitle="Average Active Sessions (AAS)"
+                  tooltip="Average number of sessions that were actively using CPU or waiting on non-idle database resources during the measured interval. It represents the database's average workload."
                 />
                 <KpiTile
                   icon={TrendingUp}
@@ -1605,6 +1683,8 @@ export function DashboardOverview() {
                   value={m.peak_active_sessions_1hr != null ? safeNum(m.peak_active_sessions_1hr).toFixed(2) : "0.00"}
                   sub="Peak DB time / sec (60m)"
                   variant={m.peak_active_sessions_1hr == null ? "neutral" : safeNum(m.peak_active_sessions_1hr) > 20 ? "warning" : "healthy"}
+                  tooltipTitle="Peak Active Sessions"
+                  tooltip="Highest active-session workload observed during the measured interval. It shows the maximum workload spike, whereas AAS shows the average workload."
                 />
               </div>
             </div>
@@ -1657,6 +1737,8 @@ export function DashboardOverview() {
                   sub="Scheduler job failures"
                   variant={m.failed_jobs > 0 ? "warning" : "healthy"}
                   onClick={() => setFailedJobsModalOpen(true)}
+                  tooltipTitle="Failed Jobs"
+                  tooltip="Scheduled DBMS_SCHEDULER or DBMS_JOB executions that terminated with errors."
                 />
                 <KpiTile
                   icon={Layers}
@@ -1665,6 +1747,8 @@ export function DashboardOverview() {
                   sub="PL/SQL, views, triggers"
                   variant={m.invalid_objects > 10 ? "warning" : m.invalid_objects > 0 ? "neutral" : "healthy"}
                   onClick={() => setInvalidObjectsModalOpen(true)}
+                  tooltipTitle="Invalid Objects"
+                  tooltip="Schema objects (packages, procedures, triggers, views) requiring recompilation."
                 />
                 <KpiTile
                   icon={Shield}
@@ -1672,6 +1756,8 @@ export function DashboardOverview() {
                   value={failedLoginCount}
                   sub="Last 24 hours"
                   variant={failedLoginCount > 50 ? "warning" : "healthy"}
+                  tooltipTitle="Failed Logins"
+                  tooltip="Failed authentication attempts recorded in the database audit log over the past 24 hours."
                 />
                 <KpiTile
                   icon={Shield}
@@ -1679,6 +1765,8 @@ export function DashboardOverview() {
                   value={blocking.length}
                   sub={blocking.length > 0 ? "TX lock contention" : "No blockers"}
                   variant={blocking.length > 0 ? "critical" : "healthy"}
+                  tooltipTitle="Blocking Sessions"
+                  tooltip="Sessions holding row or table locks that are actively blocking other waiting sessions."
                 />
               </div>
 

@@ -36,6 +36,11 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -241,6 +246,15 @@ function deltaBadgeClass(delta: number, direction: TrendDirection): string {
     : "border-emerald-400/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
 }
 
+function getTrendKpiFontSize(val: string | number) {
+  const str = String(val ?? "").trim();
+  const len = str.length;
+  if (len >= 16) return "text-xs";
+  if (len >= 13) return "text-sm";
+  if (len >= 10) return "text-base";
+  return "text-lg";
+}
+
 function TrendKpiCard({
   icon: Icon,
   label,
@@ -248,7 +262,9 @@ function TrendKpiCard({
   format,
   direction,
   iconClass,
-  sublabel
+  sublabel,
+  tooltip,
+  tooltipTitle
 }: {
   icon: ElementType;
   label: string;
@@ -257,17 +273,50 @@ function TrendKpiCard({
   direction: TrendDirection;
   iconClass: string;
   sublabel?: string;
+  tooltip?: string;
+  tooltipTitle?: string;
 }) {
   const delta = stats.deltaPct;
+  const formattedVal = stats.current != null ? format(stats.current) : "—";
   return (
-    <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
-      <div className={cn("flex items-center gap-1.5", iconClass)}>
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate text-[11px] font-semibold">{label}</span>
+    <div className="group rounded-xl border border-border/60 bg-secondary/20 p-3 transition-colors hover:border-border">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className={cn("flex items-center gap-1.5 min-w-0", iconClass)}>
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate text-[11px] font-semibold">{label}</span>
+        </div>
+        {tooltip && (
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <span
+                role="button"
+                tabIndex={0}
+                className="inline-flex items-center justify-center rounded-full p-0.5 text-muted-foreground/60 hover:text-cyan-400 hover:bg-cyan-500/10 focus:outline-none focus:ring-1 focus:ring-cyan-400/50 transition-colors cursor-help shrink-0"
+                aria-label={`Info about ${tooltipTitle || label}`}
+              >
+                <Info className="h-3.5 w-3.5" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              align="center"
+              sideOffset={6}
+              className="max-w-xs sm:max-w-sm p-3.5 space-y-1.5 rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-2xl backdrop-blur-md dark:bg-slate-900/95 dark:border-slate-700/80 z-50 pointer-events-auto"
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-xs text-foreground dark:text-slate-100">
+                <Icon className="h-3.5 w-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                <span>{tooltipTitle || label}</span>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground dark:text-slate-300 font-normal">
+                {tooltip}
+              </p>
+            </TooltipContent>
+          </UiTooltip>
+        )}
       </div>
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-lg font-bold leading-none tabular-nums text-foreground">
-          {stats.current != null ? format(stats.current) : "—"}
+        <span className={cn("font-bold leading-none tabular-nums text-foreground whitespace-nowrap", getTrendKpiFontSize(formattedVal))}>
+          {formattedVal}
         </span>
         {delta != null && stats.current != null && (
           <span
@@ -1395,6 +1444,8 @@ export function DashboardHistoricalTrends({
                 format={fmtGb}
                 direction="neutral"
                 iconClass="text-cyan-600 dark:text-cyan-400"
+                tooltipTitle="Database Size"
+                tooltip="Your query calculates the total allocated storage of datafiles + tempfiles + online redo logs. It does not represent only the actual data stored."
               />
               <TrendKpiCard
                 icon={Clock}
@@ -1403,6 +1454,8 @@ export function DashboardHistoricalTrends({
                 format={fmtMs}
                 direction="lower-is-better"
                 iconClass="text-purple-600 dark:text-purple-400"
+                tooltipTitle="SQL Service Response Time"
+                tooltip="Average time Oracle takes to complete a SQL service call during the measured interval. Lower generally means faster database response."
               />
               <TrendKpiCard
                 icon={Users}
@@ -1411,6 +1464,8 @@ export function DashboardHistoricalTrends({
                 format={fmtCount}
                 direction="neutral"
                 iconClass="text-emerald-600 dark:text-emerald-400"
+                tooltipTitle="Average Active Sessions (AAS)"
+                tooltip="Average number of sessions that were actively using CPU or waiting on non-idle database resources during the measured interval. It represents the database's average workload."
               />
               <TrendKpiCard
                 icon={Zap}
@@ -1419,6 +1474,8 @@ export function DashboardHistoricalTrends({
                 format={fmtCount}
                 direction="neutral"
                 iconClass="text-amber-600 dark:text-amber-400"
+                tooltipTitle="Peak Active Sessions"
+                tooltip="Highest active-session workload observed during the measured interval. It shows the maximum workload spike, whereas AAS shows the average workload."
               />
               <TrendKpiCard
                 icon={HardDrive}
@@ -1428,6 +1485,8 @@ export function DashboardHistoricalTrends({
                 direction="lower-is-better"
                 iconClass="text-emerald-600 dark:text-emerald-400"
                 sublabel={latestTbsName ? `top: ${latestTbsName}` : undefined}
+                tooltipTitle="Max Tablespace Utilization"
+                tooltip="Highest tablespace utilization percentage observed across all database tablespaces."
               />
               <TrendKpiCard
                 icon={Cpu}
@@ -1436,6 +1495,8 @@ export function DashboardHistoricalTrends({
                 format={fmtPct}
                 direction="lower-is-better"
                 iconClass="text-orange-600 dark:text-orange-400"
+                tooltipTitle="Host CPU Utilization"
+                tooltip="Average host server processor load percentage over the snapshot interval."
               />
               <TrendKpiCard
                 icon={MemoryStick}
@@ -1444,6 +1505,8 @@ export function DashboardHistoricalTrends({
                 format={fmtPct}
                 direction="lower-is-better"
                 iconClass="text-blue-600 dark:text-blue-400"
+                tooltipTitle="Host Memory Utilization"
+                tooltip="Host operating system physical memory consumption percentage."
               />
             </div>
 
